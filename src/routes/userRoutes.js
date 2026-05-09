@@ -16,13 +16,13 @@ const { validateUpdateProfile } = require('../middleware/validationMiddleware');
 // All routes require authentication
 router.use(protect);
 
-// Profile routes
+// Profile routes - Customer only
 router.route('/profile')
-  .get(getProfile)
-  .put(validateUpdateProfile, updateProfile);
+  .get(authorize('customer'), getProfile)
+  .put(authorize('customer'), validateUpdateProfile, updateProfile);
 
 // Change password
-router.put('/change-password', changePassword);
+router.put('/change-password', authorize('customer'), changePassword);
 
 // Admin only routes
 router.get('/', authorize('admin'), getUsers);
