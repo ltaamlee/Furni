@@ -1,8 +1,8 @@
 const nodemailer = require('nodemailer');
 
 // Create transporter
-const createTransporter = () => {
-  return nodemailer.createTransporter({
+const createTransport = () => {
+  return nodemailer.createTransport({
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: process.env.EMAIL_PORT || 587,
     secure: false, // true for 465, false for other ports
@@ -15,7 +15,7 @@ const createTransporter = () => {
 
 // Send OTP email for registration
 const sendRegistrationOTP = async (email, otp) => {
-  const transporter = createTransporter();
+  const transporter = createTransport();
 
   const mailOptions = {
     from: `"Furni E-commerce" <${process.env.EMAIL_USER}>`,
@@ -47,7 +47,7 @@ const sendRegistrationOTP = async (email, otp) => {
 
 // Send OTP email for password reset
 const sendPasswordResetOTP = async (email, otp) => {
-  const transporter = createTransporter();
+  const transporter = createTransport();
 
   const mailOptions = {
     from: `"Furni E-commerce" <${process.env.EMAIL_USER}>`,
