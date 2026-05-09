@@ -1,7 +1,7 @@
 const User = require('../models/User');
 
 // @desc    Get current user profile
-// @route   GET /api/users/profile
+// @route   GET /api/user/profile
 // @access  Private
 const getProfile = async (req, res) => {
   try {
@@ -33,7 +33,7 @@ const getProfile = async (req, res) => {
 };
 
 // @desc    Update user profile
-// @route   PUT /api/users/profile
+// @route   PUT /api/user/profile
 // @access  Private
 const updateProfile = async (req, res) => {
   try {
@@ -98,7 +98,7 @@ const updateProfile = async (req, res) => {
 };
 
 // @desc    Change password
-// @route   PUT /api/users/change-password
+// @route   PUT /api/user/change-password
 // @access  Private
 const changePassword = async (req, res) => {
   try {
@@ -133,7 +133,7 @@ const changePassword = async (req, res) => {
 };
 
 // @desc    Get all users (Admin only)
-// @route   GET /api/users
+// @route   GET /api/user
 // @access  Private/Admin
 const getUsers = async (req, res) => {
   try {
@@ -170,7 +170,7 @@ const getUsers = async (req, res) => {
 };
 
 // @desc    Get single user (Admin only)
-// @route   GET /api/users/:id
+// @route   GET /api/user/:id
 // @access  Private/Admin
 const getUser = async (req, res) => {
   try {
@@ -196,7 +196,7 @@ const getUser = async (req, res) => {
 };
 
 // @desc    Update user (Admin only)
-// @route   PUT /api/users/:id
+// @route   PUT /api/user/:id
 // @access  Private/Admin
 const updateUser = async (req, res) => {
   try {
@@ -246,7 +246,7 @@ const updateUser = async (req, res) => {
 };
 
 // @desc    Delete user (Admin only)
-// @route   DELETE /api/users/:id
+// @route   DELETE /api/user/:id
 // @access  Private/Admin
 const deleteUser = async (req, res) => {
   try {
