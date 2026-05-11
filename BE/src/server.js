@@ -63,7 +63,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/furni-eco
   process.exit(1);
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8386;
 app.listen(PORT, () => {
   console.log(`Server is running at http://localhost:${PORT}`);
 });

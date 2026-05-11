@@ -140,10 +140,15 @@ const verifyOTP = async (req, res) => {
 // @access  Public
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-
     // Check if user exists and get password
-    const user = await User.findOne({ email }).select('+password');
+    const { usernameOrEmail, password } = req.body;
+
+    const user = await User.findOne({
+      $or: [
+        { email: usernameOrEmail },
+        { username: usernameOrEmail }
+      ]
+    }).select('+password');
 
     if (!user) {
       return res.status(401).json({

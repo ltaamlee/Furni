@@ -4,53 +4,54 @@ const bcrypt = require('bcryptjs');
 const userSchema = new mongoose.Schema({
   fullName: {
     type: String,
-    required: [true, 'Full name is required'],
+    required: [true, 'Vui lòng nhập họ tên'],
     trim: true,
-    maxlength: [100, 'Full name cannot exceed 100 characters']
+    maxlength: [100, 'Họ tên không được vượt quá 100 ký tự']
   },
   email: {
     type: String,
-    required: [true, 'Email is required'],
+    required: [true, 'Vui lòng nhập email'],
     unique: true,
     lowercase: true,
     validate: {
       validator: function(email) {
         return /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(email);
       },
-      message: 'Please enter a valid email'
+      message: 'Vui lòng nhập email hợp lệ'
     }
   },
   phone: {
     type: String,
-    required: [true, 'Phone number is required'],
+    required: [true, 'Vui lòng nhập số điện thoại'],
     validate: {
       validator: function(phone) {
         return /^(\+84|84|0)[3|5|7|8|9][0-9]{8}$/.test(phone);
       },
-      message: 'Please enter a valid Vietnamese phone number'
+      message: 'Vui lòng nhập số điện thoại Việt Nam hợp lệ'
     }
   },
   address: {
     type: String,
-    required: [true, 'Address is required'],
-    maxlength: [500, 'Address cannot exceed 500 characters']
+    required: [true, 'Vui lòng nhập địa chỉ'],
+    maxlength: [500, 'Địa chỉ không được vượt quá 500 ký tự']
   },
   username: {
     type: String,
-    required: [true, 'Username is required'],
+    required: [true, 'Vui lòng nhập tên đăng nhập'],
     unique: true,
-    minlength: [3, 'Username must be at least 3 characters'],
-    maxlength: [50, 'Username cannot exceed 50 characters']
+    minlength: [3, 'Tên đăng nhập phải có ít nhất 3 ký tự'],
+    maxlength: [50, 'Tên đăng nhập không được vượt quá 50 ký tự'],
+    match: [/^[a-zA-Z0-9_]+$/, 'Tên đăng nhập chỉ được chứa chữ cái, số và dấu gạch dưới']
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
-    minlength: [6, 'Password must be at least 6 characters'],
-    select: false // Don't include password in queries by default
+    required: [true, 'Vui lòng nhập mật khẩu'],
+    minlength: [6, 'Mật khẩu phải có ít nhất 6 ký tự'],
+    select: false 
   },
   role: {
     type: String,
-    enum: ['customer', 'admin'],
+    enum: ['customer', 'admin', 'vendor'],
     default: 'customer'
   },
   isVerified: {

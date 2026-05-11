@@ -30,5 +30,7 @@ router.route('/:id')
   .get(authorize('admin'), getUser)
   .put(authorize('admin'), updateUser)
   .delete(authorize('admin'), deleteUser);
+  
+router.get('/me', authorize('customer', 'admin'), getProfile);
 
 module.exports = router;
