@@ -10,7 +10,7 @@ import {
 import RegisterPage from "./pages/auth/register";
 import LoginPage from "./pages/auth/login";
 import ForgotPasswordPage from "./pages/auth/forgot-password";
-// import VerifyPasswordPage from "./pages/auth/verify-password";
+import VerifyPasswordPage from "./pages/auth/verify-password";
 import HomePage from "./pages/home";
 import UserPage from "./pages/user";
 
@@ -40,8 +40,12 @@ const router = createBrowserRouter([
         {
           path: "forgot-password",
           element: <ForgotPasswordPage />,
+        },
+        {
+          path: "verify-password",
+          element: <VerifyPasswordPage />,
         }
-        // {},
+       // {},
       ],
     },
   ]);

@@ -15,7 +15,7 @@ instance.interceptors.response.use(function (response){
     if (response && response.data) return response.data;
     return response;
 }, function (error){
-    if (error?.response?.data) return error?.reponse?.data;
+    if (error?.response?.data) return error?.response?.data;
     return Promise.reject(error);
 });
 
