@@ -222,7 +222,7 @@ const LoginPage = () => {
                 </label>
 
                 <Link
-                  to="/auth/forgot-password"
+                  to="/forgot-password"
                   className="text-sm font-semibold text-amber-800 hover:text-amber-600 transition-colors hover:underline underline-offset-2"
                 >
                   Quên mật khẩu?

@@ -38,7 +38,8 @@ const RegisterPage = () => {
     phone: '',
     address: '',
     username: '',
-    password: ''
+    password: '',
+    role: 'customer'
   });
 
   const [loading, setLoading] = useState(false);
@@ -64,7 +65,7 @@ const RegisterPage = () => {
 
       if (data.success) {
         setMessage('Đăng ký thành công! Kiểm tra email để xác thực OTP.');
-        setTimeout(() => navigate('/auth/login'), 2000);
+        setTimeout(() => navigate('/verify-password', { state: { email: form.email, type: 'registration' } }), 1500);
       } else {
         setMessage(data.message || 'Đăng ký thất bại!');
       }

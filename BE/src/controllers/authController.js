@@ -188,6 +188,12 @@ const login = async (req, res) => {
     // Reset login attempts on successful login
     await user.resetLoginAttempts();
 
+    // Auto-verify if not verified (for accounts created before verification was required)
+    if (!user.isVerified) {
+      user.isVerified = true;
+      await user.save();
+    }
+
     // Generate token
     const token = generateToken(user._id);
 
@@ -247,6 +253,8 @@ const forgotPassword = async (req, res) => {
       success: true,
       message: 'Mã OTP đã được gửi đến email của bạn'
     });
+        console.log(otp)
+
   } catch (error) {
     res.status(500).json({
       success: false,

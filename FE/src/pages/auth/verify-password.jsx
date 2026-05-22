@@ -1,36 +1,65 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import instance from '../../utils/axios.customize';
 import InputField from '../../components/common/inputFields';
 import Button from '../../components/common/button';
+import { AuthContext } from '../../components/context/authContext';
 
 const VerifyPasswordPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { setAuth } = useContext(AuthContext);
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const email = location.state?.email;
+  const type = location.state?.type || 'reset'; // 'registration' or 'reset'
 
   useEffect(() => {
-    if (!email) navigate('/forgot-password');
+    if (!email) navigate('/login');
   }, [email, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (code.length !== 6) {
-      setError('Mã OTP phải 6 chữ số');
+      setError('Mã OTP phải gồm 6 chữ số');
       return;
     }
 
     setLoading(true);
     try {
-      const response = await instance.post('/auth/verify-otp', { email, otp: code });
+      const response = await instance.post('/verify-otp', { email, otp: code });
       setLoading(false);
-      navigate('/reset-password', { state: { email, token: response.token } });
+
+      if (type === 'registration') {
+        // Registration flow: auto-login and redirect to homepage
+        const token = response.data?.token;
+        const user = response.data?.user;
+
+        if (token) {
+          localStorage.setItem('accessToken', token);
+          localStorage.setItem('user', JSON.stringify(user));
+
+          setAuth({
+            isAuthenticated: true,
+            user: {
+              email: user?.email || email,
+              name: user?.fullName || '',
+              role: user?.role || 'customer',
+            },
+          });
+        }
+
+        // Redirect based on role
+        const redirectUrl = user?.role === 'admin' ? '/admin' : '/';
+        navigate(redirectUrl);
+      } else {
+        // Reset password flow: redirect to reset password page
+        navigate('/reset-password', { state: { email, token: response.data?.token } });
+      }
     } catch (err) {
       setLoading(false);
-      setError(err.message || 'Mã OTP không hợp lệ');
+      setError(err.response?.data?.message || 'Mã OTP không hợp lệ');
     }
   };
 
@@ -70,10 +99,10 @@ const VerifyPasswordPage = () => {
           <div className="mt-6 text-center">
             <button
               type="button"
-              onClick={() => navigate('/forgot-password')}
+              onClick={() => navigate(type === 'registration' ? '/register' : '/forgot-password')}
               className="text-sm text-stone-500 hover:text-amber-600 font-medium"
             >
-              ← Quay lại nhập email
+              ← Quay lại
             </button>
           </div>
         </div>

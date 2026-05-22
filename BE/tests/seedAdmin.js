@@ -6,7 +6,7 @@ require('dotenv').config({
 const User = require('../src/models/User');
 
 mongoose.connect(
-  process.env.MONGODB_URI || 'mongodb://localhost:27017/furni-ecommerce'
+  process.env.MONGODB_URI || 'mongodb://localhost:27017/sora'
 );
 
 const seedAdmin = async () => {
