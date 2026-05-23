@@ -50,7 +50,7 @@ const sendPasswordResetOTP = async (email, otp) => {
   const transporter = createTransport();
 
   const mailOptions = {
-    from: `"Furni E-commerce" <${process.env.EMAIL_USER}>`,
+    from: `"SORA E-commerce" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: 'Password Reset - Furni E-commerce',
     html: `

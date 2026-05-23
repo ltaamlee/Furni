@@ -58,6 +58,11 @@ const productSchema = new mongoose.Schema({
         default: 0,
         min: [0, 'Số lượng đã bán phải lớn hơn hoặc bằng 0!']
     },
+    views: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
     isStock: {
         type: Boolean,
         default: true
@@ -71,10 +76,11 @@ const productSchema = new mongoose.Schema({
         type: String,
         default: null
     }],
-    rating: {
+    ratings: [{
         star: {
             type: Number,
-            default: 0,
+            min: [1, 'Số sao phải từ 1 đến 5'],
+            max: [5, 'Số sao phải từ 1 đến 5']
         },
         postedBy: {
             type: mongoose.Schema.Types.ObjectId,
@@ -83,31 +89,27 @@ const productSchema = new mongoose.Schema({
         comment: {
             type: String,
             maxlength: [500, 'Bình luận không được vượt quá 500 ký tự!']
+        },
+        createdAt: {
+            type: Date,
+            default: Date.now
         }
-    }, 
+    }],
     totalRatings: {
         type: Number,
         default: 0,
+    },
+    averageRating: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 5
     },
     isActive: {
         type: Boolean,
         default: true
     }
 }, { timestamps: true });
-
-productSchema.pre('save', function(next) {
-
-  if (this.isModified('name')) {
-
-    this.slug = slugify(this.name, {
-      lower: true,
-      strict: true,
-      locale: 'vi'
-    })
-  }
-
-  next()
-})
 
 productSchema.pre('save', function(next) {
 

@@ -74,12 +74,16 @@ const getAllProducts = async (req, res) => {
   }
 };
 
-// @desc    Get single product
+// @desc    Get single product (increment views)
 // @route   GET /api/products/:id
 // @access  Public
 const getProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate('category', 'name');
+    const product = await Product.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { views: 1 } },
+      { new: true }
+    ).populate('category', 'name');
 
     if (!product) {
       return res.status(404).json({
@@ -329,11 +333,253 @@ const filterProducts = async (req, res) => {
   }
 }
 
+// @desc    Rating products
+// @route   POST /api/products/ratings/:pid
+// @access  Private (Customer)
+const ratings = async(req, res) => {
+    try {
+        const { _id } = req.user;
+        const { star, comment } = req.body;
+        const { pid } = req.params;
+
+        if (!star || star < 1 || star > 5) {
+            return res.status(400).json({
+                success: false,
+                message: 'Số sao phải từ 1 đến 5'
+            });
+        }
+
+        const product = await Product.findById(pid);
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                message: 'Không tìm thấy sản phẩm'
+            });
+        }
+
+        const alreadyRated = product.ratings.find(
+            (r) => r.postedBy.toString() === _id.toString()
+        );
+
+        if (alreadyRated) {
+            await Product.updateOne(
+                { _id: pid, "ratings.postedBy": _id },
+                { $set: { "ratings.$.star": star, "ratings.$.comment": comment } }
+            );
+        } else {
+            await Product.findByIdAndUpdate(pid, {
+                $push: {
+                    ratings: {
+                        star: Number(star),
+                        comment: comment || '',
+                        postedBy: _id
+                    }
+                }
+            });
+        }
+
+        const updatedProduct = await Product.findById(pid);
+        const totalRatings = updatedProduct.ratings.length;
+        const sumRatings = updatedProduct.ratings.reduce((sum, r) => sum + r.star, 0);
+        const averageRating = totalRatings > 0 ? sumRatings / totalRatings : 0;
+
+        await Product.findByIdAndUpdate(pid, {
+            totalRatings: totalRatings,
+            averageRating: Math.round(averageRating * 10) / 10
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Đã đánh giá sản phẩm thành công',
+            data: {
+                totalRatings,
+                averageRating: Math.round(averageRating * 10) / 10
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi đánh giá sản phẩm',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get ratings of a product
+// @route   GET /api/products/ratings/:pid
+// @access  Public
+const getProductRatings = async (req, res) => {
+    try {
+        const { pid } = req.params;
+
+        const product = await Product.findById(pid)
+            .populate('ratings.postedBy', 'fullName profileImage');
+
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                message: 'Không tìm thấy sản phẩm'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                ratings: product.ratings,
+                totalRatings: product.totalRatings,
+                averageRating: product.averageRating
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi lấy đánh giá sản phẩm',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get products by category with pagination
+// @route   GET /api/products/category/:categoryId
+// @access  Public
+const getProductsByCategory = async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const { page = 1, limit = 12, sort = 'createdAt', order = 'desc' } = req.query;
+
+        // Check if category exists
+        const category = await Category.findById(categoryId);
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                message: 'Không tìm thành danh mục'
+            });
+        }
+
+        const query = { category: categoryId, isActive: true };
+        const skip = (Number(page) - 1) * Number(limit);
+
+        const [products, total] = await Promise.all([
+            Product.find(query)
+                .populate('category', 'name')
+                .sort({ [sort]: order === 'desc' ? -1 : 1 })
+                .skip(skip)
+                .limit(Number(limit)),
+            Product.countDocuments(query)
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                products,
+                category: {
+                    _id: category._id,
+                    name: category.name
+                },
+                pagination: {
+                    total,
+                    page: Number(page),
+                    pages: Math.ceil(total / Number(limit)),
+                    limit: Number(limit),
+                    hasMore: Number(page) < Math.ceil(total / Number(limit))
+                }
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi lấy sản phẩm theo danh mục',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get best selling products
+// @route   GET /api/products/best-sellers
+// @access  Public
+const getBestSellers = async (req, res) => {
+    try {
+        const { page = 1, limit = 10 } = req.query;
+        const skip = (Number(page) - 1) * Number(limit);
+
+        const [products, total] = await Promise.all([
+            Product.find({ isActive: true, sold: { $gt: 0 } })
+                .populate('category', 'name')
+                .sort({ sold: -1 })
+                .skip(skip)
+                .limit(Number(limit)),
+            Product.countDocuments({ isActive: true, sold: { $gt: 0 } })
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                products,
+                pagination: {
+                    total,
+                    page: Number(page),
+                    pages: Math.ceil(total / Number(limit)),
+                    limit: Number(limit)
+                }
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi lấy sản phẩm bán chạy',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get most viewed products (trending)
+// @route   GET /api/products/trending
+// @access  Public
+const getTrendingProducts = async (req, res) => {
+    try {
+        const { page = 1, limit = 10 } = req.query;
+        const skip = (Number(page) - 1) * Number(limit);
+
+        const [products, total] = await Promise.all([
+            Product.find({ isActive: true, views: { $gt: 0 } })
+                .populate('category', 'name')
+                .sort({ views: -1 })
+                .skip(skip)
+                .limit(Number(limit)),
+            Product.countDocuments({ isActive: true, views: { $gt: 0 } })
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                products,
+                pagination: {
+                    total,
+                    page: Number(page),
+                    pages: Math.ceil(total / Number(limit)),
+                    limit: Number(limit)
+                }
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi lấy sản phẩm xem nhiều',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     getAllProducts,
     getProduct,
     createProduct,
     updateProduct,
     deleteProduct,
-    filterProducts
+    filterProducts,
+    ratings,
+    getProductRatings,
+    getProductsByCategory,
+    getBestSellers,
+    getTrendingProducts
 };

@@ -1,51 +1,75 @@
 import { Outlet } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Header from "./components/layout/header";
-import axios from "./utils/axios.customize";
-import { useContext, useEffect } from "react";
+import { useContext } from "react";
 import { AuthContext } from "./components/context/authContext";
 
+import HomePage from "./pages/home";
+import ProductDetailPage from "./pages/productDetail";
+import CartPage from "./pages/cart";
+import CheckoutPage from "./pages/checkout";
+import OrderSuccessPage from "./pages/orderSuccess";
+import OrderHistoryPage from "./pages/orderHistory";
+import OrderDetailPage from "./pages/orderDetail";
+import ProductByCategoryPage from "./pages/productByCategory";
+import BestSellersPage from "./pages/bestSellers";
+import LoginPage from "./pages/auth/login";
+import RegisterPage from "./pages/auth/register";
+import VerifyPasswordPage from "./pages/auth/verify-password";
+import ForgotPasswordPage from "./pages/auth/forgot-password";
+import UserPage from "./pages/user";
+
 function App() {
-    const { setAuth, appLoading, setAppLoading } = useContext(AuthContext);
+    const { appLoading } = useContext(AuthContext);
 
-    useEffect(() => {
-        const fetchAccount = async () => {
-            try {
-                setAppLoading(true);
-
-                const res = await axios.get(`/user`);
-
-                if (res && !res.message) {
-                    setAuth({
-                        isAuthenticated: true,
-                        user: {
-                            email: res.email,
-                            name: res.name,
-                        },
-                    });
-                }
-            } catch (err) {
-                console.log(err);
-            } finally {
-                setAppLoading(false);
-            }
-        };
-
-        fetchAccount();
-    }, []);
+    if (appLoading) {
+        return (
+            <div className="fixed inset-0 flex items-center justify-center bg-white/60">
+                <div className="w-12 h-12 border-4 border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
+            </div>
+        );
+    }
 
     return (
-        <div>
-            {appLoading ? (
-                <div className="fixed inset-0 flex items-center justify-center bg-white/60">
-                    <div className="w-12 h-12 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
-                </div>
-            ) : (
-                <>
-                    <Header />
-                    <Outlet />
-                </>
-            )}
-        </div>
+        <BrowserRouter>
+            <Routes>
+                {/* Auth Routes */}
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
+                <Route path="/verify-password" element={<VerifyPasswordPage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/profile" element={<UserPage />} />
+
+                {/* Main Layout */}
+                <Route element={
+                    <>
+                        <Header />
+                        <Outlet />
+                    </>
+                }>
+                    <Route path="/" element={<HomePage />} />
+                    <Route path="/product/:id" element={<ProductDetailPage />} />
+                    <Route path="/cart" element={<CartPage />} />
+                    <Route path="/checkout" element={<CheckoutPage />} />
+                    <Route path="/order-success/:id" element={<OrderSuccessPage />} />
+                    <Route path="/orders" element={<OrderHistoryPage />} />
+                    <Route path="/orders/:id" element={<OrderDetailPage />} />
+                    <Route path="/category/:categoryId" element={<ProductByCategoryPage />} />
+                    <Route path="/best-sellers" element={<BestSellersPage />} />
+                </Route>
+
+                {/* 404 */}
+                <Route path="*" element={
+                    <div className="min-h-screen flex items-center justify-center">
+                        <div className="text-center">
+                            <h1 className="text-6xl font-bold text-gray-300">404</h1>
+                            <p className="text-gray-500 mt-2">Trang không tìm thấy</p>
+                            <a href="/" className="text-green-600 hover:underline mt-4 inline-block">Về trang chủ</a>
+                        </div>
+                    </div>
+                } />
+            </Routes>
+        </BrowserRouter>
     );
 }
 

@@ -70,12 +70,18 @@ const Divider = ({ label }) => (
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { setAuth } = useContext(AuthContext);
+  const { setAuth, setAppLoading } = useContext(AuthContext);
 
   const [form, setForm] = useState({ usernameOrEmail: '', password: '', rememberMe: false });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState({ type: '', message: '' });
+
+  // Trigger auth context to refresh (re-read token from localStorage)
+  const refreshAuth = () => {
+    setAppLoading(true);
+    setTimeout(() => setAppLoading(false), 100);
+  };
 
   // Field change handler
   const handleChange = (e) => {
@@ -107,35 +113,46 @@ const LoginPage = () => {
     setAlert({ type: '', message: '' });
 
     try {
+      // Backend expects username or email field
+      const loginData = {
+        usernameOrEmail: form.usernameOrEmail,
+        password: form.password
+      };
+
       const response = await fetch(`${import.meta.env.VITE_BE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(loginData),
       });
       const data = await response.json();
 
       if (data.success) {
-        localStorage.setItem('accessToken', data.data.accessToken);
-        localStorage.setItem('refreshToken', data.data.refreshToken);
-        localStorage.setItem('user', JSON.stringify(data.data.user));
+        // Backend returns 'token', not 'accessToken'
+        localStorage.setItem('access_token', data.data.token);
 
         setAuth({
           isAuthenticated: true,
           user: {
             email: data.data.user?.email ?? '',
-            name: data.data.user?.name ?? '',
-            role: data.data.user?.role ?? '',
+            fullName: data.data.user?.fullName ?? '',
+            phone: data.data.user?.phone ?? '',
           },
         });
 
+        // Refresh auth context to sync token state
+        refreshAuth();
+
         setAlert({ type: 'success', message: 'Đăng nhập thành công! Đang chuyển hướng...' });
 
-        const role = data.data.user?.role;
-        const redirectUrl = ['admin', 'customer', 'vendor'].includes(role) ? `/${role}`
-          : '/';        
-        setTimeout(() => navigate(redirectUrl), 1000);
+        setTimeout(() => navigate('/'), 1000);
       } else {
-        setAlert({ type: 'error', message: data.message || 'Đăng nhập thất bại!' });
+        // Show the specific error from backend
+        // If account is not verified (403), tell user to check email
+        if (response.status === 403) {
+          setAlert({ type: 'error', message: data.message || 'Tài khoản chưa được xác thực. Vui lòng kiểm tra email để xác thực tài khoản.' });
+        } else {
+          setAlert({ type: 'error', message: data.message || 'Đăng nhập thất bại!' });
+        }
       }
     } catch {
       setAlert({ type: 'error', message: 'Có lỗi xảy ra. Vui lòng thử lại!' });
