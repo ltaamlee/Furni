@@ -1,10 +1,11 @@
 import { Outlet } from "react-router-dom";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Header from "./components/layout/header";
+import CustomerLayout from "./components/layout/CustomerLayout";
 import { useContext } from "react";
 import { AuthContext } from "./components/context/authContext";
 
 import HomePage from "./pages/home";
+import ProductsPage from "./pages/products";
 import ProductDetailPage from "./pages/productDetail";
 import CartPage from "./pages/cart";
 import CheckoutPage from "./pages/checkout";
@@ -17,7 +18,7 @@ import LoginPage from "./pages/auth/login";
 import RegisterPage from "./pages/auth/register";
 import VerifyPasswordPage from "./pages/auth/verify-password";
 import ForgotPasswordPage from "./pages/auth/forgot-password";
-import UserPage from "./pages/user";
+import ProfilePage from "./pages/profile";
 
 function App() {
     const { appLoading } = useContext(AuthContext);
@@ -25,7 +26,7 @@ function App() {
     if (appLoading) {
         return (
             <div className="fixed inset-0 flex items-center justify-center bg-white/60">
-                <div className="w-12 h-12 border-4 border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
+                <div className="w-12 h-12 border-4 border-gray-300 border-t-[#8B4513] rounded-full animate-spin"></div>
             </div>
         );
     }
@@ -38,16 +39,12 @@ function App() {
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/verify-password" element={<VerifyPasswordPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                <Route path="/profile" element={<UserPage />} />
+                <Route path="/profile" element={<ProfilePage />} />
 
-                {/* Main Layout */}
-                <Route element={
-                    <>
-                        <Header />
-                        <Outlet />
-                    </>
-                }>
+                {/* Customer Layout - with Header & Footer */}
+                <Route element={<CustomerLayout />}>
                     <Route path="/" element={<HomePage />} />
+                    <Route path="/products" element={<ProductsPage />} />
                     <Route path="/product/:id" element={<ProductDetailPage />} />
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/checkout" element={<CheckoutPage />} />
@@ -64,7 +61,7 @@ function App() {
                         <div className="text-center">
                             <h1 className="text-6xl font-bold text-gray-300">404</h1>
                             <p className="text-gray-500 mt-2">Trang không tìm thấy</p>
-                            <a href="/" className="text-green-600 hover:underline mt-4 inline-block">Về trang chủ</a>
+                            <a href="/" className="text-[#8B4513] hover:underline mt-4 inline-block">Về trang chủ</a>
                         </div>
                     </div>
                 } />

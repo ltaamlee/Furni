@@ -4,9 +4,12 @@ import { getUserApi } from "../../utils/api";
 export const AuthContext = createContext({
     isAuthenticated: false,
     user: {
+        id: "",
         email: "",
         fullName: "",
         phone: "",
+        role: "",
+        username: "",
     },
     token: null,
     appLoading: true,
@@ -16,9 +19,12 @@ export const AuthWrapper = ({ children }) => {
     const [auth, setAuth] = useState({
         isAuthenticated: false,
         user: {
+            id: "",
             email: "",
             fullName: "",
             phone: "",
+            role: "",
+            username: "",
         }
     });
 
@@ -31,9 +37,12 @@ export const AuthWrapper = ({ children }) => {
         setAuth({
             isAuthenticated: false,
             user: {
+                id: "",
                 email: "",
                 fullName: "",
                 phone: "",
+                role: "",
+                username: "",
             }
         });
     };
@@ -47,20 +56,22 @@ export const AuthWrapper = ({ children }) => {
                 try {
                     const response = await getUserApi();
                     if (response && response.success) {
+                        const userData = response.data.user;
                         setAuth({
                             isAuthenticated: true,
                             user: {
-                                email: response.data?.email || "",
-                                fullName: response.data?.fullName || "",
-                                phone: response.data?.phone || "",
+                                id: userData?.id,
+                                email: userData?.email || "",
+                                fullName: userData?.fullName || "",
+                                phone: userData?.phone || "",
+                                role: userData?.role || "",
+                                username: userData?.username || "",
                             }
                         });
                     } else {
-                        // Token invalid or expired
                         logout();
                     }
                 } catch (error) {
-                    // Token invalid or network error
                     logout();
                 }
             }

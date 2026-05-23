@@ -68,7 +68,7 @@ const VerifyPasswordPage = () => {
       style={{ backgroundImage: 'radial-gradient(ellipse at 70% 20%, #6b3a22 0%, #2d1a10 60%)' }}>
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-2xl shadow-black/50 overflow-hidden p-8">
-          <h1 className="text-3xl font-black text-amber-900 text-center mb-2">NTFurniture</h1>
+          <h1 className="text-3xl font-black text-amber-900 text-center mb-2">NTSorature</h1>
           <p className="text-xs font-semibold tracking-[0.2em] uppercase text-stone-400 text-center mb-8">
             Xác thực OTP
           </p>

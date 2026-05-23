@@ -6,14 +6,24 @@ const createUserApi = (name, email, password) => {
     return axios.post(URL_API, { fullName: name, email, password });
 }
 
-const loginApi = (email, password) => {
+const loginApi = (usernameOrEmail, password) => {
     const URL_API = "/auth/login";
-    return axios.post(URL_API, { email, password });
+    return axios.post(URL_API, { usernameOrEmail, password });
 }
 
 const getUserApi = () => {
     const URL_API = "/user/me";
     return axios.get(URL_API);
+}
+
+const updateUserApi = (data) => {
+    const URL_API = "/user/me";
+    return axios.put(URL_API, data);
+}
+
+const updatePasswordApi = (currentPassword, newPassword) => {
+    const URL_API = "/user/change-password";
+    return axios.put(URL_API, { currentPassword, newPassword });
 }
 
 // Cart APIs
@@ -119,6 +129,8 @@ export {
     createUserApi,
     loginApi,
     getUserApi,
+    updateUserApi,
+    updatePasswordApi,
     getCartApi,
     addToCartApi,
     updateCartItemApi,

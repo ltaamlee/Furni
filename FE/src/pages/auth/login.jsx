@@ -1,6 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../components/context/authContext';
+import { loginApi } from '../../utils/api';
 import InputField from '../../components/common/inputFields';
 import Button from '../../components/common/button';
 
@@ -113,49 +114,27 @@ const LoginPage = () => {
     setAlert({ type: '', message: '' });
 
     try {
-      // Backend expects username or email field
-      const loginData = {
-        usernameOrEmail: form.usernameOrEmail,
-        password: form.password
-      };
-
-      const response = await fetch(`${import.meta.env.VITE_BE_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginData),
-      });
-      const data = await response.json();
+      const response = await loginApi(form.usernameOrEmail, form.password);
+      const data = response;
 
       if (data.success) {
-        // Backend returns 'token', not 'accessToken'
         localStorage.setItem('access_token', data.data.token);
 
         setAuth({
           isAuthenticated: true,
           user: {
-            email: data.data.user?.email ?? '',
-            fullName: data.data.user?.fullName ?? '',
-            phone: data.data.user?.phone ?? '',
+            ...data.data.user
           },
         });
 
-        // Refresh auth context to sync token state
         refreshAuth();
-
         setAlert({ type: 'success', message: 'Đăng nhập thành công! Đang chuyển hướng...' });
-
         setTimeout(() => navigate('/'), 1000);
       } else {
-        // Show the specific error from backend
-        // If account is not verified (403), tell user to check email
-        if (response.status === 403) {
-          setAlert({ type: 'error', message: data.message || 'Tài khoản chưa được xác thực. Vui lòng kiểm tra email để xác thực tài khoản.' });
-        } else {
-          setAlert({ type: 'error', message: data.message || 'Đăng nhập thất bại!' });
-        }
+        setAlert({ type: 'error', message: data.message || 'Đăng nhập thất bại!' });
       }
-    } catch {
-      setAlert({ type: 'error', message: 'Có lỗi xảy ra. Vui lòng thử lại!' });
+    } catch (error) {
+      setAlert({ type: 'error', message: error.response?.data?.message || 'Có lỗi xảy ra. Vui lòng thử lại!' });
     } finally {
       setLoading(false);
     }
@@ -183,7 +162,7 @@ const LoginPage = () => {
             <div className="text-center select-none">
               <h1 className="text-3xl font-black tracking-tight text-amber-900"
                 style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}>
-                NTFurniture
+                NTSorature
               </h1>
               <p className="mt-1 text-xs font-semibold tracking-[0.2em] uppercase text-stone-400">
                 Đồ gỗ nội thất cao cấp
@@ -279,7 +258,7 @@ const LoginPage = () => {
 
         {/* Footer note */}
         <p className="mt-5 text-center text-xs text-stone-500/60 tracking-wide">
-          © {new Date().getFullYear()} NTFurniture · Bảo mật & Bảo hành
+          © {new Date().getFullYear()} NTSorature · Bảo mật & Bảo hành
         </p>
       </div>
     </div>

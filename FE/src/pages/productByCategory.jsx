@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { getProductsByCategoryApi, getCategoriesApi } from "../utils/api";
-import ProductCard from "../components/common/ProductCard";
+import ProductCard from "../components/common/productCard";
 
 const ProductByCategoryPage = () => {
     const { categoryId } = useParams();

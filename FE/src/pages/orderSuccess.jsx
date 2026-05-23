@@ -72,7 +72,7 @@ const OrderSuccessPage = () => {
                         <span className="text-4xl">✓</span>
                     </div>
                     <h1 className="text-2xl font-bold text-gray-800 mb-2">Đặt hàng thành công!</h1>
-                    <p className="text-gray-500">Cảm ơn bạn đã đặt hàng tại Furni</p>
+                    <p className="text-gray-500">Cảm ơn bạn đã đặt hàng tại Sora</p>
                     <div className="mt-4 p-4 bg-gray-50 rounded-xl">
                         <p className="text-sm text-gray-500">Mã đơn hàng</p>
                         <p className="text-xl font-bold text-green-600">{order?.orderNumber}</p>

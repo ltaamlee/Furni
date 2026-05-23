@@ -16,7 +16,7 @@ export default function Sidebar({ open, onClose }) {
         ${open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
         <div className="h-16 flex items-center justify-center bg-primary-700 text-white font-bold">
-          NTFurniture
+          NTSorature
         </div>
 
         <nav className="p-4 space-y-2 text-sm">
