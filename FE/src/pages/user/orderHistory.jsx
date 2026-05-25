@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { getUserOrdersApi, cancelOrderApi } from "../utils/api";
+import { getUserOrdersApi, cancelOrderApi } from "../../utils/api";
 
 const OrderHistoryPage = () => {
     const [orders, setOrders] = useState([]);

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { getBestSellersApi, getTrendingProductsApi, getCategoriesApi } from "../utils/api";
-import ProductCard from "../components/common/ProductCard";
+import { getBestSellersApi, getTrendingProductsApi, getCategoriesApi } from "../../utils/api";
+import ProductCard from "../../components/common/ProductCard";
 
 const BestSellersPage = () => {
     const [bestSellers, setBestSellers] = useState([]);

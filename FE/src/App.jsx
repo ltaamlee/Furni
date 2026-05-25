@@ -5,20 +5,20 @@ import { useContext } from "react";
 import { AuthContext } from "./components/context/authContext";
 
 import HomePage from "./pages/home";
-import ProductsPage from "./pages/products";
-import ProductDetailPage from "./pages/productDetail";
-import CartPage from "./pages/cart";
-import CheckoutPage from "./pages/checkout";
-import OrderSuccessPage from "./pages/orderSuccess";
-import OrderHistoryPage from "./pages/orderHistory";
-import OrderDetailPage from "./pages/orderDetail";
-import ProductByCategoryPage from "./pages/productByCategory";
-import BestSellersPage from "./pages/bestSellers";
+import ProductsPage from "./pages/user/products";
+import ProductDetailPage from "./pages/user/productDetail";
+import CartPage from "./pages/user/cart";
+import CheckoutPage from "./pages/user/checkout";
+import OrderSuccessPage from "./pages/user/orderSuccess";
+import OrderHistoryPage from "./pages/user/orderHistory";
+import OrderDetailPage from "./pages/user/orderDetail";
+import ProductByCategoryPage from "./pages/user/productByCategory";
+import BestSellersPage from "./pages/user/bestSellers";
 import LoginPage from "./pages/auth/login";
 import RegisterPage from "./pages/auth/register";
 import VerifyPasswordPage from "./pages/auth/verify-password";
 import ForgotPasswordPage from "./pages/auth/forgot-password";
-import ProfilePage from "./pages/profile";
+import ProfilePage from "./pages/user/profile";
 
 function App() {
     const { appLoading } = useContext(AuthContext);

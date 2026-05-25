@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { getProductsApi, getCategoriesApi, getBestSellersApi } from "../utils/api";
-import ProductCard from "../components/common/productCard";
+import { getProductsApi, getCategoriesApi, getBestSellersApi } from "../../utils/api";
+import ProductCard from "../../components/common/productCard";
 
 // Price range options
 const priceRanges = [

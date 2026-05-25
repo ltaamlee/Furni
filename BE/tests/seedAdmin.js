@@ -3,7 +3,7 @@ require('dotenv').config({
   path: '../.env'
 });
 
-const User = require('../src/models/User');
+const User = require('../src/models/user');
 
 mongoose.connect(
   process.env.MONGODB_URI || 'mongodb://localhost:27017/sora'

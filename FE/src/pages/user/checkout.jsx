@@ -1,8 +1,8 @@
 import { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import { AuthContext } from "../components/context/authContext";
-import { getCartApi, createOrderApi, getShippingProvidersApi, calculateShippingFeesApi } from "../utils/api";
-import CheckoutSteps from "../components/common/CheckoutSteps";
+import { AuthContext } from "../../components/context/authContext";
+import { getCartApi, createOrderApi, getShippingProvidersApi, calculateShippingFeesApi } from "../../utils/api";
+import CheckoutSteps from "../../components/common/CheckoutSteps";
 
 const CheckoutPage = () => {
     const { auth } = useContext(AuthContext);

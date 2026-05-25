@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { getCartApi, updateCartItemApi, removeFromCartApi } from "../utils/api";
+import { getCartApi, updateCartItemApi, removeFromCartApi } from "../../utils/api";
 
 const CartPage = () => {
     const navigate = useNavigate();

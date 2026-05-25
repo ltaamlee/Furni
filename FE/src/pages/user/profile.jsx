@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext } from "react";
-import { AuthContext } from "../components/context/authContext";
-import { getUserApi, updateUserApi, updatePasswordApi } from "../utils/api";
-import { useToast } from "../components/context/ToastContext";
+import { AuthContext } from "../../components/context/authContext";
+import { getUserApi, updateUserApi, updatePasswordApi } from "../../utils/api";
+import { useToast } from "../../components/context/ToastContext";
 
 const ProfilePage = () => {
     const { auth, setAuth } = useContext(AuthContext);

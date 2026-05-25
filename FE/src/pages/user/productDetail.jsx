@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { getProductByIdApi, getProductsByCategoryApi, addToCartApi } from "../utils/api";
-import ProductCard from "../components/common/productCard";
-import { useToast } from "../components/context/ToastContext";
+import { getProductByIdApi, getProductsByCategoryApi, addToCartApi } from "../../utils/api";
+import ProductCard from "../../components/common/productCard";
+import { useToast } from "../../components/context/ToastContext";
 
 const ProductDetailPage = () => {
     const { id } = useParams();

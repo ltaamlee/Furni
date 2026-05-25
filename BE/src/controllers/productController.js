@@ -1,5 +1,5 @@
-const Product = require('../models/Product');
-const Category = require('../models/Category');
+const Product = require('../models/product');
+const Category = require('../models/category');
 
 // @desc    Get all products
 // @route   GET /api/products
@@ -74,16 +74,12 @@ const getAllProducts = async (req, res) => {
   }
 };
 
-// @desc    Get single product (increment views)
+// @desc    Get single product
 // @route   GET /api/products/:id
 // @access  Public
 const getProduct = async (req, res) => {
   try {
-    const product = await Product.findByIdAndUpdate(
-      req.params.id,
-      { $inc: { views: 1 } },
-      { new: true }
-    ).populate('category', 'name');
+    const product = await Product.findById(req.params.id).populate('category', 'name');
 
     if (!product) {
       return res.status(404).json({
@@ -378,6 +374,7 @@ const ratings = async(req, res) => {
             });
         }
 
+        // Avg Start = Sum of Star/ Number of Comments
         const updatedProduct = await Product.findById(pid);
         const totalRatings = updatedProduct.ratings.length;
         const sumRatings = updatedProduct.ratings.reduce((sum, r) => sum + r.star, 0);
@@ -439,49 +436,31 @@ const getProductRatings = async (req, res) => {
     }
 };
 
-// @desc    Get products by category with pagination
+// @desc    Get products by category
 // @route   GET /api/products/category/:categoryId
 // @access  Public
 const getProductsByCategory = async (req, res) => {
     try {
         const { categoryId } = req.params;
-        const { page = 1, limit = 12, sort = 'createdAt', order = 'desc' } = req.query;
+        const { page = 1, limit = 12, sort = '-createdAt' } = req.query;
 
-        // Check if category exists
-        const category = await Category.findById(categoryId);
-        if (!category) {
-            return res.status(404).json({
-                success: false,
-                message: 'Không tìm thành danh mục'
-            });
-        }
+        const products = await Product.find({ category: categoryId, isActive: true })
+            .populate('category', 'name')
+            .sort(sort)
+            .skip((page - 1) * limit)
+            .limit(parseInt(limit));
 
-        const query = { category: categoryId, isActive: true };
-        const skip = (Number(page) - 1) * Number(limit);
-
-        const [products, total] = await Promise.all([
-            Product.find(query)
-                .populate('category', 'name')
-                .sort({ [sort]: order === 'desc' ? -1 : 1 })
-                .skip(skip)
-                .limit(Number(limit)),
-            Product.countDocuments(query)
-        ]);
+        const total = await Product.countDocuments({ category: categoryId, isActive: true });
 
         res.status(200).json({
             success: true,
             data: {
                 products,
-                category: {
-                    _id: category._id,
-                    name: category.name
-                },
                 pagination: {
+                    page: parseInt(page),
+                    limit: parseInt(limit),
                     total,
-                    page: Number(page),
-                    pages: Math.ceil(total / Number(limit)),
-                    limit: Number(limit),
-                    hasMore: Number(page) < Math.ceil(total / Number(limit))
+                    pages: Math.ceil(total / limit)
                 }
             }
         });
@@ -499,29 +478,16 @@ const getProductsByCategory = async (req, res) => {
 // @access  Public
 const getBestSellers = async (req, res) => {
     try {
-        const { page = 1, limit = 10 } = req.query;
-        const skip = (Number(page) - 1) * Number(limit);
+        const { limit = 10 } = req.query;
 
-        const [products, total] = await Promise.all([
-            Product.find({ isActive: true, sold: { $gt: 0 } })
-                .populate('category', 'name')
-                .sort({ sold: -1 })
-                .skip(skip)
-                .limit(Number(limit)),
-            Product.countDocuments({ isActive: true, sold: { $gt: 0 } })
-        ]);
+        const products = await Product.find({ isActive: true })
+            .populate('category', 'name')
+            .sort({ sold: -1 })
+            .limit(parseInt(limit));
 
         res.status(200).json({
             success: true,
-            data: {
-                products,
-                pagination: {
-                    total,
-                    page: Number(page),
-                    pages: Math.ceil(total / Number(limit)),
-                    limit: Number(limit)
-                }
-            }
+            data: { products }
         });
     } catch (error) {
         res.status(500).json({
@@ -532,39 +498,26 @@ const getBestSellers = async (req, res) => {
     }
 };
 
-// @desc    Get most viewed products (trending)
+// @desc    Get trending products
 // @route   GET /api/products/trending
 // @access  Public
 const getTrendingProducts = async (req, res) => {
     try {
-        const { page = 1, limit = 10 } = req.query;
-        const skip = (Number(page) - 1) * Number(limit);
+        const { limit = 10 } = req.query;
 
-        const [products, total] = await Promise.all([
-            Product.find({ isActive: true, views: { $gt: 0 } })
-                .populate('category', 'name')
-                .sort({ views: -1 })
-                .skip(skip)
-                .limit(Number(limit)),
-            Product.countDocuments({ isActive: true, views: { $gt: 0 } })
-        ]);
+        const products = await Product.find({ isActive: true })
+            .populate('category', 'name')
+            .sort({ viewCount: -1 })
+            .limit(parseInt(limit));
 
         res.status(200).json({
             success: true,
-            data: {
-                products,
-                pagination: {
-                    total,
-                    page: Number(page),
-                    pages: Math.ceil(total / Number(limit)),
-                    limit: Number(limit)
-                }
-            }
+            data: { products }
         });
     } catch (error) {
         res.status(500).json({
             success: false,
-            message: 'Lỗi khi lấy sản phẩm xem nhiều',
+            message: 'Lỗi khi lấy sản phẩm nổi bật',
             error: error.message
         });
     }

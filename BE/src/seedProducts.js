@@ -5,7 +5,7 @@ require('dotenv').config();
 
 const Category = require('./models/category');
 const Product = require('./models/product');
-const User = require('./models/User');
+const User = require('./models/user');
 
 const connectDB = async () => {
     try {

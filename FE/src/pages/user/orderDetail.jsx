@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { getOrderByIdApi, cancelOrderApi } from "../utils/api";
+import { getOrderByIdApi, cancelOrderApi } from "../../utils/api";
 
 const OrderDetailPage = () => {
     const { id } = useParams();

@@ -170,7 +170,7 @@ const HomePage = () => {
                             <button
                                 onClick={scrollRight}
                                 className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition disabled:opacity-50"
-                                disabled={categoryIndex >= categoryList.length - 1}
+                                disabled={categoryIndex >= categories.length - 1}
                             >
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
                                     <path d="M9 5l7 7-7 7" />
