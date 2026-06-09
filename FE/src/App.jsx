@@ -1,6 +1,7 @@
-import { Outlet } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import CustomerLayout from "./components/layout/CustomerLayout";
+import VendorLayout from "./components/vendor/VendorLayout";
 import { useContext } from "react";
 import { AuthContext } from "./components/context/authContext";
 
@@ -19,6 +20,11 @@ import RegisterPage from "./pages/auth/register";
 import VerifyPasswordPage from "./pages/auth/verify-password";
 import ForgotPasswordPage from "./pages/auth/forgot-password";
 import ProfilePage from "./pages/user/profile";
+
+// Vendor pages
+import VendorRegister from "./pages/vendor/Register";
+import VendorDashboard from "./pages/vendor/Dashboard";
+import VendorSettings from "./pages/vendor/Settings";
 
 function App() {
     const { appLoading } = useContext(AuthContext);
@@ -53,6 +59,16 @@ function App() {
                     <Route path="/orders/:id" element={<OrderDetailPage />} />
                     <Route path="/category/:categoryId" element={<ProductByCategoryPage />} />
                     <Route path="/best-sellers" element={<BestSellersPage />} />
+                </Route>
+
+                {/* Vendor – shop registration (standalone, no sidebar) */}
+                <Route path="/vendor/register" element={<VendorRegister />} />
+
+                {/* Vendor – portal (sidebar + topbar layout) */}
+                <Route path="/vendor" element={<VendorLayout />}>
+                    <Route index element={<Navigate to="/vendor/dashboard" replace />} />
+                    <Route path="dashboard" element={<VendorDashboard />} />
+                    <Route path="settings" element={<VendorSettings />} />
                 </Route>
 
                 {/* 404 */}

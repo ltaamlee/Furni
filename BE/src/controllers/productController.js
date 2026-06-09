@@ -507,7 +507,7 @@ const getTrendingProducts = async (req, res) => {
 
         const products = await Product.find({ isActive: true })
             .populate('category', 'name')
-            .sort({ viewCount: -1 })
+            .sort({ views: -1 })
             .limit(parseInt(limit));
 
         res.status(200).json({
