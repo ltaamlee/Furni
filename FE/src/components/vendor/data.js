@@ -175,3 +175,145 @@ export const promoTypes = [
     { key: "combo", label: "Mua bộ", sub: "Giảm khi mua combo sản phẩm" },
     { key: "freeship", label: "Free ship", sub: "Miễn phí vận chuyển" },
 ];
+
+/* ============================================================
+   Wallet (4.7)
+   ============================================================ */
+export const wallet = {
+    available: 45320000,
+    updatedAt: "08/06/2026 14:32",
+    pending: 8640000,
+    pendingNote: "Từ 12 đơn hoàn thành trong 7 ngày qua",
+    payoutNote: "Giải ngân vào thứ 2 hàng tuần",
+    stats: [
+        { label: "Thu tháng này", value: "+89.200.000₫", tone: "text-[#16a34a]" },
+        { label: "Đã rút tháng này", value: "−50.000.000₫", tone: "text-[#dc2626]" },
+        { label: "Phí sàn (2%)", value: "−1.784.000₫", tone: "text-[#6B5C4C]" },
+    ],
+};
+
+export const transactions = [
+    { date: "08/06/2026", time: "14:32", desc: "Đơn #DH240608-001 hoàn thành", sub: "Giao dịch vào ví", amount: "+14.014.000₫", type: "in", status: { label: "Thành công", tone: "green" } },
+    { date: "07/06/2026", time: "10:15", desc: "Rút tiền về VCB ****2345", sub: "Yêu cầu rút tiền", amount: "−20.000.000₫", type: "out", status: { label: "Thành công", tone: "green" } },
+    { date: "06/06/2026", time: "16:20", desc: "Đơn #DH240606-015 hoàn thành", sub: "Giao dịch vào ví", amount: "+6.272.000₫", type: "in", status: { label: "Thành công", tone: "green" } },
+    { date: "05/06/2026", time: "09:00", desc: "Phí sàn tháng 5/2026", sub: "Phí dịch vụ 2%", amount: "−1.784.000₫", type: "out", status: { label: "Thành công", tone: "green" } },
+    { date: "04/06/2026", time: "11:45", desc: "Đơn #DH240604-009 hoàn thành", sub: "Giao dịch vào ví", amount: "+4.410.000₫", type: "in", status: { label: "Thành công", tone: "green" } },
+    { date: "03/06/2026", time: "08:30", desc: "Rút tiền về VCB ****2345", sub: "Yêu cầu rút tiền", amount: "−30.000.000₫", type: "out", status: { label: "Đang xử lý", tone: "yellow" } },
+];
+
+export const withdrawAccounts = [
+    { code: "VCB", name: "Vietcombank", detail: "STK: ****2345 · Nguyễn Đức Tâm" },
+    { code: "TCB", name: "Techcombank", detail: "STK: ****8901 · Nguyễn Đức Tâm" },
+];
+
+export const withdrawQuickAmounts = [
+    { label: "5 triệu", value: "5.000.000" },
+    { label: "10 triệu", value: "10.000.000" },
+    { label: "20 triệu", value: "20.000.000" },
+    { label: "Tất cả", value: "45.320.000" },
+];
+
+export const withdrawHistory = [
+    { date: "03/06/2026", amount: "30.000.000₫", account: "VCB ****2345", status: { label: "Đang xử lý", tone: "yellow" } },
+    { date: "27/05/2026", amount: "20.000.000₫", account: "VCB ****2345", status: { label: "Thành công", tone: "green" } },
+    { date: "15/05/2026", amount: "15.000.000₫", account: "TCB ****8901", status: { label: "Thành công", tone: "green" } },
+];
+
+/* ============================================================
+   Reports (4.8)
+   ============================================================ */
+export const reportPeriods = ["Hôm nay", "7 ngày", "Tháng này", "Quý này", "Tuỳ chọn"];
+
+export const reportKpis = [
+    { label: "Tổng doanh thu", value: "89.200.000₫", accent: true, change: "+23% tháng trước", trend: "up" },
+    { label: "Số đơn hàng", value: "142", change: "+17 đơn", trend: "up" },
+    { label: "Giá trị TB / đơn", value: "628.169₫", change: "+5%", trend: "up" },
+    { label: "Tỉ lệ hoàn hàng", value: "1.8%", change: "+0.3% tháng trước", trend: "down" },
+];
+
+export const reportRevenue = {
+    labels: ["01/06", "02/06", "03/06", "04/06", "05/06", "06/06", "07/06", "08/06"],
+    data: [9800000, 11200000, 14600000, 8500000, 13100000, 16800000, 14300000, 12450000],
+};
+
+export const categoryShares = [
+    { label: "Sofa", value: 32, color: "#B86B05" },
+    { label: "Bàn", value: 21, color: "#95520B" },
+    { label: "Tủ kệ", value: 16, color: "#DE9601" },
+    { label: "Ghế", value: 14, color: "#FBC309" },
+    { label: "Giường", value: 11, color: "#7B440C" },
+    { label: "Khác", value: 6, color: "#C4A882" },
+];
+
+export const reportTopProducts = [
+    { rank: 1, name: "Sofa Góc Chữ L Nordic", cat: "Sofa", sold: 24, revenue: 28800000, share: 32 },
+    { rank: 2, name: "Bàn Làm Việc Gỗ Sồi Simple", cat: "Bàn", sold: 31, revenue: 18600000, share: 21 },
+    { rank: 3, name: "Tủ Quần Áo 4 Cánh Gương", cat: "Tủ kệ", sold: 18, revenue: 14400000, share: 16 },
+    { rank: 4, name: "Ghế Ăn Gỗ Sồi Nordic Set 4", cat: "Ghế", sold: 42, revenue: 12600000, share: 14 },
+    { rank: 5, name: "Kệ Sách Đứng Industrial 5T", cat: "Tủ kệ", sold: 15, revenue: 9750000, share: 11 },
+];
+
+/* ============================================================
+   Reviews (4.9)
+   ============================================================ */
+export const reviewSummary = {
+    avg: 4.7,
+    total: 256,
+    distribution: [
+        { star: 5, pct: 74 },
+        { star: 4, pct: 16 },
+        { star: 3, pct: 6 },
+        { star: 2, pct: 3 },
+        { star: 1, pct: 1 },
+    ],
+};
+
+export const reviewStats = [
+    { label: "Chưa phản hồi", value: 12, color: "text-[#dc2626]", sub: "cần xử lý" },
+    { label: "Đã phản hồi", value: 244, color: "text-[#16a34a]", sub: "tỉ lệ 95.3%" },
+    { label: "Đánh giá tháng này", value: 38, color: "text-[#B86B05]", sub: "+12 so tháng trước" },
+    { label: "Vi phạm bị báo cáo", value: 2, color: "text-[#d97706]", sub: "đang xem xét" },
+];
+
+export const reviews = [
+    { id: "r1", name: "Nguyễn Văn An", initial: "A", avatar: "from-[#B86B05] to-[#DE9601]", rating: 5, date: "05/06/2026", product: "Sofa Góc Chữ L Nordic · Màu nâu gỗ", content: "Sản phẩm rất đẹp, chất lượng vượt mong đợi. Giao hàng nhanh, đóng gói cẩn thận. Sofa rất chắc chắn và êm ái. Sẽ ủng hộ shop thêm!", reply: { date: "05/06/2026", text: "Cảm ơn anh An rất nhiều! Shop rất vui khi sản phẩm làm anh hài lòng. Anh cần hỗ trợ gì thêm cứ nhắn shop nhé!" } },
+    { id: "r2", name: "Trần Thị Bích", initial: "T", avatar: "from-[#6366f1] to-[#8b5cf6]", rating: 3, date: "07/06/2026", product: "Bàn Làm Việc Gỗ Sồi Simple", content: "Bàn khá ổn, nhưng giao hàng hơi chậm so với dự kiến. Màu sắc đúng như ảnh. Tuy nhiên khi lắp ráp có 1 ốc vít bị thiếu, shop nên kiểm tra kỹ hơn trước khi giao.", reply: null, cardBorder: "border-[#DE9601]" },
+    { id: "r3", name: "Lê Minh Cường", initial: "M", avatar: "from-[#0891b2] to-[#06b6d4]", rating: 5, date: "06/06/2026", product: "Tủ Quần Áo 4 Cánh Gương", content: "Tủ quần áo rất đẹp và chắc chắn. Thợ lắp đặt chuyên nghiệp, cẩn thận. Gương phản chiếu sắc nét. Rất hài lòng với chất lượng!", reply: { date: "06/06/2026", text: "Cảm ơn anh Cường! Shop rất vui vì anh hài lòng. Chúc anh sử dụng tốt chiếc tủ nhé!" } },
+    { id: "r4", name: "Phạm Thị Thu", initial: "P", avatar: "from-[#dc2626] to-[#b91c1c]", rating: 1, date: "07/06/2026", product: "Ghế Ăn Gỗ Sồi Nordic Set 4", content: "Ghế giao về bị gãy chân, đóng gói sơ sài. Đã liên hệ shop nhưng chưa được giải quyết. Rất thất vọng.", reply: null, cardBorder: "border-[#fecaca]", alert: true },
+];
+
+/* ============================================================
+   Notifications (4.10)
+   ============================================================ */
+export const notifTabs = [
+    { key: "all", label: "Tất cả", count: 12 },
+    { key: "order", label: "Đơn hàng" },
+    { key: "review", label: "Đánh giá" },
+    { key: "stock", label: "Tồn kho" },
+    { key: "system", label: "Hệ thống" },
+];
+
+export const notifications = [
+    { id: "n1", group: "Hôm nay", type: "order", title: "Đơn hàng mới #DH240608-001", body: "Nguyễn Văn An đặt Sofa Góc Chữ L Nordic · 14.300.000₫ · Cần xác nhận", time: "09:14 · Vừa xong", unread: true },
+    { id: "n2", group: "Hôm nay", type: "review", title: "Đánh giá 1 sao cần phản hồi", body: "Phạm Thị Thu để lại đánh giá 1 sao cho Ghế Ăn Gỗ Sồi Nordic Set 4", time: "08:45 · 28 phút trước", unread: true },
+    { id: "n3", group: "Hôm nay", type: "stock", title: "Cảnh báo tồn kho thấp", body: "Bàn Làm Việc Gỗ Sồi Simple chỉ còn 4 sản phẩm trong kho", time: "07:30 · 2 giờ trước", unread: true },
+    { id: "n4", group: "Hôm qua", type: "wallet", title: "Giải ngân thành công", body: "20.000.000₫ đã được chuyển vào VCB ****2345", time: "10:15 · Hôm qua", unread: false },
+    { id: "n5", group: "Hôm qua", type: "order", title: "Đơn #DH240607-032 đã giao thành công", body: "Trần Thị Bích đã nhận hàng · 6.500.000₫", time: "15:42 · Hôm qua", unread: false },
+    { id: "n6", group: "Hôm qua", type: "system", title: "Cập nhật chính sách phí sàn", body: "Furni điều chỉnh phí dịch vụ từ 2% → 1.8% áp dụng từ 01/07/2026", time: "09:00 · Hôm qua", unread: false },
+];
+
+export const notifSettings = [
+    { key: "newOrder", label: "Đơn hàng mới", sub: "Khi có đơn mới cần xác nhận", on: true },
+    { key: "lateOrder", label: "Đơn hàng quá hạn xác nhận", sub: "Đơn chờ xác nhận quá 24h", on: true },
+    { key: "newReview", label: "Đánh giá mới", sub: "Khi khách để lại đánh giá sản phẩm", on: true },
+    { key: "lowStock", label: "Cảnh báo tồn kho thấp", sub: "Khi sản phẩm dưới ngưỡng tồn kho", on: true },
+    { key: "payout", label: "Giải ngân ví điện tử", sub: "Khi tiền được giải ngân vào ví", on: true },
+    { key: "system", label: "Thông báo hệ thống", sub: "Cập nhật chính sách, bảo trì sàn", on: false },
+];
+
+export const notif7d = [
+    { label: "Đơn hàng", value: 38, color: "text-[#2563eb]" },
+    { label: "Đánh giá", value: 12, color: "text-[#B86B05]" },
+    { label: "Cảnh báo kho", value: 3, color: "text-[#dc2626]" },
+    { label: "Hệ thống", value: 2, color: "text-[#16a34a]" },
+];

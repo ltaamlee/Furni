@@ -18,15 +18,15 @@ const NAV = [
             { to: "/vendor/products", label: "Sản phẩm", icon: IconBox, enabled: true },
             { to: "/vendor/orders", label: "Đơn hàng", icon: IconBag, badge: 5, enabled: true },
             { to: "/vendor/promotions", label: "Khuyến mãi", icon: IconTag, enabled: true },
-            { to: "/vendor/wallet", label: "Ví điện tử", icon: IconWallet },
-            { to: "/vendor/reports", label: "Báo cáo", icon: IconReport },
+            { to: "/vendor/wallet", label: "Ví điện tử", icon: IconWallet, enabled: true },
+            { to: "/vendor/reports", label: "Báo cáo", icon: IconReport, enabled: true },
         ],
     },
     {
         label: "Tương tác",
         items: [
-            { to: "/vendor/reviews", label: "Đánh giá", icon: IconStar },
-            { to: "/vendor/notifications", label: "Thông báo", icon: IconBell, badge: 3 },
+            { to: "/vendor/reviews", label: "Đánh giá", icon: IconStar, enabled: true },
+            { to: "/vendor/notifications", label: "Thông báo", icon: IconBell, badge: 3, enabled: true },
         ],
     },
     {
@@ -40,6 +40,10 @@ const BREADCRUMBS = {
     "/vendor/products": ["Sản phẩm", "Danh sách"],
     "/vendor/orders": ["Quản lý", "Đơn hàng"],
     "/vendor/promotions": ["Marketing", "Khuyến mãi"],
+    "/vendor/wallet": ["Tài chính", "Ví điện tử"],
+    "/vendor/reports": ["Tài chính", "Báo cáo doanh thu"],
+    "/vendor/reviews": ["Tương tác", "Đánh giá & bình luận"],
+    "/vendor/notifications": ["Tương tác", "Thông báo"],
     "/vendor/settings": ["Shop", "Cấu hình"],
 };
 

@@ -28,6 +28,10 @@ import VendorSettings from "./pages/vendor/Settings";
 import VendorProducts from "./pages/vendor/Products";
 import VendorOrders from "./pages/vendor/Orders";
 import VendorPromotions from "./pages/vendor/Promotions";
+import VendorWallet from "./pages/vendor/Wallet";
+import VendorReports from "./pages/vendor/Reports";
+import VendorReviews from "./pages/vendor/Reviews";
+import VendorNotifications from "./pages/vendor/Notifications";
 
 function App() {
     const { appLoading } = useContext(AuthContext);
@@ -74,6 +78,10 @@ function App() {
                     <Route path="products" element={<VendorProducts />} />
                     <Route path="orders" element={<VendorOrders />} />
                     <Route path="promotions" element={<VendorPromotions />} />
+                    <Route path="wallet" element={<VendorWallet />} />
+                    <Route path="reports" element={<VendorReports />} />
+                    <Route path="reviews" element={<VendorReviews />} />
+                    <Route path="notifications" element={<VendorNotifications />} />
                     <Route path="settings" element={<VendorSettings />} />
                 </Route>
 

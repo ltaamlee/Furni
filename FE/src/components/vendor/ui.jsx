@@ -171,6 +171,35 @@ export const Tabs = ({ tabs, active, onChange }) => (
     </div>
 );
 
+/* ---- Toggle switch ---- */
+export const Toggle = ({ on, onChange }) => (
+    <button
+        type="button"
+        onClick={onChange}
+        className={`w-[38px] h-[21px] rounded-full relative transition-colors shrink-0 ${on ? "bg-[#95520B]" : "bg-[#EDE8E0]"}`}
+        aria-pressed={on}
+    >
+        <span className={`absolute top-0.5 w-[17px] h-[17px] bg-white rounded-full shadow transition-all ${on ? "left-[19px]" : "left-0.5"}`} />
+    </button>
+);
+
+/* ---- Star rating (supports fractional, e.g. 4.7) ---- */
+export const Stars = ({ value, size = 14 }) => (
+    <div className="flex gap-0.5">
+        {[0, 1, 2, 3, 4].map((i) => {
+            const fill = Math.max(0, Math.min(1, value - i));
+            return (
+                <span key={i} className="relative inline-block leading-none" style={{ fontSize: size, color: "#e2d9ce" }}>
+                    ★
+                    {fill > 0 && (
+                        <span className="absolute left-0 top-0 overflow-hidden" style={{ width: `${fill * 100}%`, color: "#FBC309" }}>★</span>
+                    )}
+                </span>
+            );
+        })}
+    </div>
+);
+
 /* ---- Pagination (compact) ---- */
 export const Pagination = ({ pages = [1, 2, 3], current = 1, gap, total }) => (
     <div className="flex items-center justify-between mt-4">
