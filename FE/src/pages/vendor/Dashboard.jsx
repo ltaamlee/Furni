@@ -108,7 +108,7 @@ const Dashboard = () => {
                 <Card>
                     <CardTitle>
                         Đơn hàng gần đây
-                        <Btn variant="ghost" size="sm" className="text-[#B86B05]" title="Trang đơn hàng đang được phát triển">
+                        <Btn as="a" href="/vendor/orders" variant="ghost" size="sm" className="text-[#B86B05]">
                             Xem tất cả →
                         </Btn>
                     </CardTitle>

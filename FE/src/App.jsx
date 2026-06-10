@@ -25,6 +25,9 @@ import ProfilePage from "./pages/user/profile";
 import VendorRegister from "./pages/vendor/Register";
 import VendorDashboard from "./pages/vendor/Dashboard";
 import VendorSettings from "./pages/vendor/Settings";
+import VendorProducts from "./pages/vendor/Products";
+import VendorOrders from "./pages/vendor/Orders";
+import VendorPromotions from "./pages/vendor/Promotions";
 
 function App() {
     const { appLoading } = useContext(AuthContext);
@@ -68,6 +71,9 @@ function App() {
                 <Route path="/vendor" element={<VendorLayout />}>
                     <Route index element={<Navigate to="/vendor/dashboard" replace />} />
                     <Route path="dashboard" element={<VendorDashboard />} />
+                    <Route path="products" element={<VendorProducts />} />
+                    <Route path="orders" element={<VendorOrders />} />
+                    <Route path="promotions" element={<VendorPromotions />} />
                     <Route path="settings" element={<VendorSettings />} />
                 </Route>
 

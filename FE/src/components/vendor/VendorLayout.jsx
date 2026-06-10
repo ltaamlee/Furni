@@ -15,9 +15,9 @@ const NAV = [
         label: "Quản lý",
         items: [
             { to: "/vendor/dashboard", label: "Tổng quan", icon: IconGrid, enabled: true },
-            { to: "/vendor/products", label: "Sản phẩm", icon: IconBox },
-            { to: "/vendor/orders", label: "Đơn hàng", icon: IconBag, badge: 5 },
-            { to: "/vendor/promotions", label: "Khuyến mãi", icon: IconTag },
+            { to: "/vendor/products", label: "Sản phẩm", icon: IconBox, enabled: true },
+            { to: "/vendor/orders", label: "Đơn hàng", icon: IconBag, badge: 5, enabled: true },
+            { to: "/vendor/promotions", label: "Khuyến mãi", icon: IconTag, enabled: true },
             { to: "/vendor/wallet", label: "Ví điện tử", icon: IconWallet },
             { to: "/vendor/reports", label: "Báo cáo", icon: IconReport },
         ],
@@ -37,6 +37,9 @@ const NAV = [
 
 const BREADCRUMBS = {
     "/vendor/dashboard": ["Trang chủ", "Tổng quan"],
+    "/vendor/products": ["Sản phẩm", "Danh sách"],
+    "/vendor/orders": ["Quản lý", "Đơn hàng"],
+    "/vendor/promotions": ["Marketing", "Khuyến mãi"],
     "/vendor/settings": ["Shop", "Cấu hình"],
 };
 
