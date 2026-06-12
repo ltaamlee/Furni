@@ -26,6 +26,18 @@ const orderSchema = new mongoose.Schema({
             ref: 'Product',
             required: true
         },
+        // Shop bán sản phẩm này (multi-vendor) — mỗi dòng đơn thuộc về 1 shop
+        shop: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Shop',
+            default: null,
+            index: true
+        },
+        // Snapshot tên shop tại thời điểm đặt (đơn cũ không vỡ khi shop đổi tên/đóng cửa)
+        shopName: {
+            type: String,
+            default: ''
+        },
         quantity: {
             type: Number,
             required: true,
@@ -161,6 +173,9 @@ const orderSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+// Truy vấn đơn theo shop (vendor) + lọc trạng thái nhanh
+orderSchema.index({ 'products.shop': 1, status: 1, createdAt: -1 });
+
 // Tạo mã đơn hàng tự động
 orderSchema.pre('save', async function(next) {
     if (!this.orderNumber) {
@@ -219,4 +234,8 @@ orderSchema.methods.canAutoConfirm = function() {
 orderSchema.set('toJSON', { virtuals: true });
 orderSchema.set('toObject', { virtuals: true });
 
-module.exports = mongoose.model('Order', orderSchema);
+const Order = mongoose.model('Order', orderSchema);
+Order.ORDER_STATUS = ORDER_STATUS;
+
+module.exports = Order;
+module.exports.ORDER_STATUS = ORDER_STATUS;

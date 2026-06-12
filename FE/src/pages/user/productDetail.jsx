@@ -5,7 +5,7 @@ import ProductCard from "../../components/common/productCard";
 import { useToast } from "../../components/context/ToastContext";
 
 const ProductDetailPage = () => {
-    const { id } = useParams();
+    const { slug } = useParams();
     const navigate = useNavigate();
     const { showToast } = useToast();
 
@@ -16,22 +16,23 @@ const ProductDetailPage = () => {
     const [quantity, setQuantity] = useState(1);
     const [adding, setAdding] = useState(false);
     const [addedSuccess, setAddedSuccess] = useState(false);
+    const [selectedVariant, setSelectedVariant] = useState(null);
 
     const getToken = () => localStorage.getItem("access_token");
 
     useEffect(() => {
         fetchProduct();
-    }, [id]);
+    }, [slug]);
 
     const fetchProduct = async () => {
         try {
             setLoading(true);
-            const res = await getProductByIdApi(id);
+            const res = await getProductByIdApi(slug);
             if (res.success) {
                 setProduct(res.data.product);
-                // Fetch related products from same category
+                // Fetch related products from same category (loại trừ chính nó theo _id)
                 if (res.data.product.category?._id) {
-                    fetchRelatedProducts(res.data.product.category._id, id);
+                    fetchRelatedProducts(res.data.product.category._id, res.data.product._id);
                 }
             }
         } catch (error) {
@@ -105,6 +106,30 @@ const ProductDetailPage = () => {
     }
 
     const images = product.images?.length > 0 ? product.images : ["/placeholder.png"];
+
+    // Biến thể & giá/tồn kho hiển thị (theo biến thể đang chọn)
+    const variants = product.variants || [];
+    const activeVariant = selectedVariant != null ? variants[selectedVariant] : null;
+    const displayPrice = activeVariant?.price ?? product.price;
+    const displayStock = activeVariant?.stock ?? product.quantity;
+    const deliveryLabel = product.deliveryType === "with_installation" ? "Giao + lắp đặt" : "Giao hàng thường";
+
+    // Bảng thông số sản phẩm (chỉ hiển thị field có dữ liệu)
+    const dim = product.dimensions || {};
+    const hasDimensions = dim.length || dim.width || dim.height || dim.depth;
+    const specs = [
+        ["Thương hiệu", product.brand],
+        ["Chất liệu", product.material],
+        ["Màu sắc", product.color],
+        ["Phong cách", product.style],
+        hasDimensions && ["Kích thước (D×R×C)", `${dim.length || "-"} × ${dim.width || "-"} × ${dim.height || "-"} cm`],
+        product.weight && ["Cân nặng", `${product.weight} kg`],
+        ["Cần lắp ráp", product.requiresAssembly ? "Có" : "Không"],
+        ["Hình thức giao", deliveryLabel],
+    ].filter(Boolean).filter(([, v]) => v);
+
+    const shop = product.shop;
+    const shopInitial = shop?.name?.charAt(0)?.toUpperCase() || "S";
 
     return (
         <div className="min-h-screen bg-[#F5F5F0]">
@@ -205,20 +230,42 @@ const ProductDetailPage = () => {
                             <div className="bg-[#FAF8F5] rounded-xl p-4">
                                 <div className="flex items-baseline gap-3">
                                     <span className="text-3xl font-bold text-[#8B4513]">
-                                        {formatPrice(product.price)}
+                                        {formatPrice(displayPrice)}
                                     </span>
-                                    {product.originalPrice && product.originalPrice > product.price && (
+                                    {product.originalPrice && product.originalPrice > displayPrice && (
                                         <>
                                             <span className="text-lg text-gray-400 line-through">
                                                 {formatPrice(product.originalPrice)}
                                             </span>
                                             <span className="bg-red-100 text-red-600 text-sm px-2 py-1 rounded-full font-medium">
-                                                -{Math.round((1 - product.price / product.originalPrice) * 100)}%
+                                                -{Math.round((1 - displayPrice / product.originalPrice) * 100)}%
                                             </span>
                                         </>
                                     )}
                                 </div>
                             </div>
+
+                            {/* Variants / phân loại */}
+                            {variants.length > 0 && (
+                                <div>
+                                    <h3 className="font-bold text-gray-800 mb-2">Phân loại</h3>
+                                    <div className="flex flex-wrap gap-2">
+                                        {variants.map((v, i) => (
+                                            <button
+                                                key={v._id || i}
+                                                onClick={() => { setSelectedVariant(i === selectedVariant ? null : i); setQuantity(1); }}
+                                                className={`px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                                                    selectedVariant === i
+                                                        ? "border-[#8B4513] bg-[#8B4513]/10 text-[#8B4513]"
+                                                        : "border-gray-200 text-gray-600 hover:border-[#8B4513]"
+                                                }`}
+                                            >
+                                                {v.name}{v.size ? ` · ${v.size}` : ""}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Description */}
                             {product.description && (
@@ -229,11 +276,11 @@ const ProductDetailPage = () => {
                             )}
 
                             {/* Specifications */}
-                            {product.specifications && Object.keys(product.specifications).length > 0 && (
+                            {specs.length > 0 && (
                                 <div>
-                                    <h3 className="font-bold text-gray-800 mb-3">Thông số kỹ thuật</h3>
+                                    <h3 className="font-bold text-gray-800 mb-3">Thông số sản phẩm</h3>
                                     <div className="space-y-2 bg-[#FAF8F5] rounded-xl p-4">
-                                        {Object.entries(product.specifications).map(([key, value]) => (
+                                        {specs.map(([key, value]) => (
                                             <div key={key} className="flex justify-between py-2 border-b border-gray-200 last:border-0">
                                                 <span className="text-gray-500">{key}</span>
                                                 <span className="font-medium text-gray-800">{value}</span>
@@ -247,17 +294,17 @@ const ProductDetailPage = () => {
                             <div className="bg-[#FAF8F5] rounded-xl p-4">
                                 <div className="flex items-center justify-between mb-4">
                                     <span className="text-gray-600">Kho hàng:</span>
-                                    {product.quantity > 0 ? (
+                                    {displayStock > 0 ? (
                                         <span className="text-green-600 font-medium flex items-center gap-1">
                                             <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                                            Còn hàng ({product.quantity})
+                                            Còn hàng ({displayStock})
                                         </span>
                                     ) : (
                                         <span className="text-red-500 font-medium">Hết hàng</span>
                                     )}
                                 </div>
 
-                                {product.quantity > 0 && (
+                                {displayStock > 0 && (
                                     <>
                                         <div className="flex items-center gap-4 mb-4">
                                             <span className="text-gray-600">Số lượng:</span>
@@ -272,7 +319,7 @@ const ProductDetailPage = () => {
                                                 </button>
                                                 <span className="w-12 text-center font-semibold">{quantity}</span>
                                                 <button
-                                                    onClick={() => setQuantity(Math.min(product.quantity, quantity + 1))}
+                                                    onClick={() => setQuantity(Math.min(displayStock, quantity + 1))}
                                                     className="w-10 h-10 flex items-center justify-center text-lg hover:bg-gray-100 rounded-r-full"
                                                 >
                                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
@@ -358,6 +405,55 @@ const ProductDetailPage = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* Shop bán sản phẩm (Shopee-style) */}
+                {shop && (
+                    <div className="bg-white rounded-2xl shadow-sm p-5 mb-8">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                            <div className="flex items-center gap-4 flex-1 min-w-0">
+                                {shop.logo ? (
+                                    <img src={shop.logo} alt={shop.name} className="w-16 h-16 rounded-full object-cover border border-gray-200" />
+                                ) : (
+                                    <div className="w-16 h-16 rounded-full bg-[#8B4513] flex items-center justify-center text-white text-2xl font-bold flex-shrink-0">
+                                        {shopInitial}
+                                    </div>
+                                )}
+                                <div className="min-w-0">
+                                    <div className="font-bold text-lg text-gray-800 truncate">{shop.name}</div>
+                                    <div className="flex items-center gap-2 text-sm text-gray-500 mt-0.5">
+                                        <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                                        Đang hoạt động
+                                    </div>
+                                    {shop.address && (
+                                        <div className="flex items-center gap-1 text-xs text-gray-400 mt-1 truncate">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 flex-shrink-0">
+                                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+                                                <circle cx="12" cy="10" r="3" />
+                                            </svg>
+                                            {shop.address}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex gap-2 flex-shrink-0">
+                                <Link
+                                    to={`/shop/${shop.slug || shop._id}`}
+                                    className="px-5 py-2.5 border border-[#8B4513] text-[#8B4513] rounded-lg font-medium hover:bg-[#8B4513] hover:text-white transition flex items-center gap-2"
+                                >
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                                        <path d="M3 9l1-5h16l1 5M4 9v11a1 1 0 001 1h14a1 1 0 001-1V9M9 21v-6h6v6" />
+                                    </svg>
+                                    Xem Shop
+                                </Link>
+                            </div>
+                        </div>
+                        {shop.description && (
+                            <p className="text-sm text-gray-500 mt-3 pt-3 border-t border-gray-100 line-clamp-2">
+                                {shop.description}
+                            </p>
+                        )}
+                    </div>
+                )}
 
                 {/* Related Products */}
                 {relatedProducts.length > 0 && (

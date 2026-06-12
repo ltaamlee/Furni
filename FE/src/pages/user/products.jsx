@@ -305,7 +305,7 @@ const ProductsPage = () => {
                                         {bestSellers.slice(0, 3).map((product) => (
                                             <Link
                                                 key={product._id}
-                                                to={`/product/${product._id}`}
+                                                to={`/product/${product.slug || product._id}`}
                                                 className="flex gap-3 p-2 rounded-lg hover:bg-gray-50 transition"
                                             >
                                                 <img

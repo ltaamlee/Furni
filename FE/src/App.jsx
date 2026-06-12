@@ -15,6 +15,7 @@ import OrderHistoryPage from "./pages/user/orderHistory";
 import OrderDetailPage from "./pages/user/orderDetail";
 import ProductByCategoryPage from "./pages/user/productByCategory";
 import BestSellersPage from "./pages/user/bestSellers";
+import ShopPage from "./pages/user/shop";
 import LoginPage from "./pages/auth/login";
 import RegisterPage from "./pages/auth/register";
 import VerifyPasswordPage from "./pages/auth/verify-password";
@@ -57,8 +58,9 @@ function App() {
                 {/* Customer Layout - with Header & Footer */}
                 <Route element={<CustomerLayout />}>
                     <Route path="/" element={<HomePage />} />
+                    <Route path="/home" element={<HomePage />} />
                     <Route path="/products" element={<ProductsPage />} />
-                    <Route path="/product/:id" element={<ProductDetailPage />} />
+                    <Route path="/product/:slug" element={<ProductDetailPage />} />
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/checkout" element={<CheckoutPage />} />
                     <Route path="/order-success/:id" element={<OrderSuccessPage />} />
@@ -66,6 +68,7 @@ function App() {
                     <Route path="/orders/:id" element={<OrderDetailPage />} />
                     <Route path="/category/:categoryId" element={<ProductByCategoryPage />} />
                     <Route path="/best-sellers" element={<BestSellersPage />} />
+                    <Route path="/shop/:id" element={<ShopPage />} />
                 </Route>
 
                 {/* Vendor – shop registration (standalone, no sidebar) */}

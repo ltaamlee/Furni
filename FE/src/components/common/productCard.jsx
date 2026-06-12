@@ -60,7 +60,7 @@ const ProductCard = ({ product, onAddToCart }) => {
 
     return (
         <Link
-            to={`/product/${product._id}`}
+            to={`/product/${product.slug || product._id}`}
             className="group bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
         >
             {/* Image */}

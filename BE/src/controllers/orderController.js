@@ -19,9 +19,10 @@ const createOrder = async (req, res) => {
             });
         }
 
-        // Kiểm tra số lượng tồn kho
+        // Kiểm tra tồn kho + thu thập thông tin shop của từng sản phẩm
+        const productMap = {};
         for (const item of cart.products) {
-            const product = await Product.findById(item.product);
+            const product = await Product.findById(item.product).populate('shop', 'name');
             if (!product) {
                 return res.status(400).json({
                     success: false,
@@ -34,22 +35,28 @@ const createOrder = async (req, res) => {
                     message: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!`
                 });
             }
+            productMap[item.product.toString()] = product;
         }
 
         // Tính phí ship (miễn phí nếu > 500k)
         const shippingFee = cart.totalPrice >= 500000 ? 0 : 30000;
         const totalPrice = cart.totalPrice + shippingFee;
 
-        // Tạo đơn hàng
+        // Tạo đơn hàng (gắn shop cho từng dòng sản phẩm - multi-vendor)
         const order = new Order({
             user: req.user._id,
-            products: cart.products.map(item => ({
-                product: item.product,
-                quantity: item.quantity,
-                price: item.price,
-                name: item.name,
-                image: item.image
-            })),
+            products: cart.products.map(item => {
+                const product = productMap[item.product.toString()];
+                return {
+                    product: item.product,
+                    shop: product.shop?._id || product.shop || null,
+                    shopName: product.shop?.name || '',
+                    quantity: item.quantity,
+                    price: item.price,
+                    name: item.name,
+                    image: item.image
+                };
+            }),
             shippingAddress: {
                 ...shippingAddress,
                 note: note || ''

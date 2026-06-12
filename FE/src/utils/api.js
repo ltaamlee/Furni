@@ -125,6 +125,43 @@ const trackShipmentApi = (trackingNumber) => {
     return axios.get(URL_API);
 }
 
+// Public shop (storefront)
+const getShopApi = (idOrSlug) => axios.get(`/shops/${idOrSlug}`);
+const getShopProductsApi = (id, params = {}) => axios.get(`/shops/${id}/products`, { params });
+
+// Vendor APIs (role: vendor) — shop-scoped
+const getMyShopApi = () => axios.get("/vendor/shop");
+const getVendorDashboardApi = () => axios.get("/vendor/dashboard");
+
+const getVendorProductsApi = (params = {}) => axios.get("/vendor/products", { params });
+const createVendorProductApi = (data) => axios.post("/vendor/products", data);
+const updateVendorProductApi = (id, data) => axios.put(`/vendor/products/${id}`, data);
+const deleteVendorProductApi = (id) => axios.delete(`/vendor/products/${id}`);
+
+// Danh mục mà shop đang bán (cho phạm vi khuyến mãi)
+const getVendorCategoriesApi = () => axios.get("/vendor/categories");
+
+// Upload ảnh sản phẩm lên Cloudinary (multipart/form-data, field "images")
+const uploadVendorImagesApi = (files) => {
+    const fd = new FormData();
+    [...files].forEach((f) => fd.append("images", f));
+    return axios.post("/vendor/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+};
+
+// Xuất danh sách sản phẩm ra Excel (trả về Blob)
+const exportVendorProductsApi = (params = {}) =>
+    axios.get("/vendor/products/export", { params, responseType: "blob" });
+
+// Vendor orders (đơn hàng có sản phẩm của shop)
+const getVendorOrdersApi = (params = {}) => axios.get("/vendor/orders", { params });
+const getVendorOrderApi = (id) => axios.get(`/vendor/orders/${id}`);
+const updateVendorOrderStatusApi = (id, status, note) => axios.put(`/vendor/orders/${id}/status`, { status, note });
+
+const getVendorPromotionsApi = (params = {}) => axios.get("/vendor/promotions", { params });
+const createVendorPromotionApi = (data) => axios.post("/vendor/promotions", data);
+const updateVendorPromotionApi = (id, data) => axios.put(`/vendor/promotions/${id}`, data);
+const deleteVendorPromotionApi = (id) => axios.delete(`/vendor/promotions/${id}`);
+
 export {
     createUserApi,
     loginApi,
@@ -149,5 +186,23 @@ export {
     getShippingProvidersApi,
     calculateShippingFeesApi,
     getShippingByOrderApi,
-    trackShipmentApi
+    trackShipmentApi,
+    getShopApi,
+    getShopProductsApi,
+    getMyShopApi,
+    getVendorDashboardApi,
+    getVendorProductsApi,
+    createVendorProductApi,
+    updateVendorProductApi,
+    deleteVendorProductApi,
+    getVendorCategoriesApi,
+    uploadVendorImagesApi,
+    exportVendorProductsApi,
+    getVendorOrdersApi,
+    getVendorOrderApi,
+    updateVendorOrderStatusApi,
+    getVendorPromotionsApi,
+    createVendorPromotionApi,
+    updateVendorPromotionApi,
+    deleteVendorPromotionApi
 };
