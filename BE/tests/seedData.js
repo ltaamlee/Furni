@@ -23,6 +23,9 @@ const Product = require('../src/models/product');
 const Promotion = require('../src/models/promotion');
 const Order = require('../src/models/order');
 const Cart = require('../src/models/cart');
+const Transaction = require('../src/models/transaction');
+const Review = require('../src/models/review');
+const Notification = require('../src/models/notification');
 
 const now = new Date();
 const daysFromNow = (n) => new Date(now.getTime() + n * 86400000);
@@ -115,9 +118,12 @@ const seed = async () => {
             Product.deleteMany({}),
             Promotion.deleteMany({}),
             Order.deleteMany({}),
-            Cart.deleteMany({})
+            Cart.deleteMany({}),
+            Transaction.deleteMany({}),
+            Review.deleteMany({}),
+            Notification.deleteMany({})
         ]);
-        console.log('Cleared: users, categories, shops, wallets, products, promotions, orders, carts');
+        console.log('Cleared: users, categories, shops, wallets, products, promotions, orders, carts, transactions, reviews, notifications');
 
         // 2) Users (create -> hash mật khẩu)
         const users = await User.create(USERS);
@@ -131,8 +137,8 @@ const seed = async () => {
         console.log(`Created ${cats.length} categories`);
 
         // 4) Shop của vendor + ví
-        const shop = await Shop.create({ ...SHOP, slug: SHOP.name, owner: vendor._id });
-        await Wallet.create({
+        const shop = await Shop.create({ ...SHOP, slug: SHOP.name, owner: vendor._id, status: 'approved' });
+        const wallet = await Wallet.create({
             shop: shop._id,
             owner: vendor._id,
             balance: 45320000,
@@ -201,6 +207,46 @@ const seed = async () => {
         // Tạo tuần tự để pre-save sinh orderNumber không trùng
         for (const o of ORDERS) await Order.create(o);
         console.log(`Created ${ORDERS.length} sample orders (pending / preparing / delivered)`);
+
+        // 8) Giao dịch ví (doanh thu / phí sàn / rút tiền)
+        const TX = [
+            { type: 'credit', category: 'order_income', amount: 9310000, status: 'success', description: 'Đơn hoàn thành - Tủ TV Gỗ Sồi', balanceAfter: 45320000, createdAt: daysFromNow(-1) },
+            { type: 'credit', category: 'order_income', amount: 14014000, status: 'success', description: 'Đơn hoàn thành #DH240606', balanceAfter: 36010000, createdAt: daysFromNow(-3) },
+            { type: 'debit', category: 'platform_fee', amount: 1784000, status: 'success', description: 'Phí sàn 2% tháng 6/2026', balanceAfter: 33000000, createdAt: daysFromNow(-4) },
+            { type: 'debit', category: 'withdraw', amount: 20000000, status: 'success', description: 'Rút tiền về Vietcombank ****6789', balanceAfter: 25000000, createdAt: daysFromNow(-6) },
+            { type: 'debit', category: 'withdraw', amount: 30000000, status: 'pending', description: 'Rút tiền về Vietcombank ****6789', balanceAfter: 45320000, createdAt: daysFromNow(-1) }
+        ];
+        await Transaction.create(TX.map((t) => ({ ...t, wallet: wallet._id, shop: shop._id })));
+        console.log(`Created ${TX.length} wallet transactions`);
+
+        // 9) Đánh giá sản phẩm của shop (vài cái đã phản hồi, 1 cái 1 sao chưa phản hồi)
+        const review = (productName, rating, content, reply) => {
+            const p = byName[productName];
+            return {
+                type: 'product', user: customer._id, targetId: p._id, product: p._id, shop: shop._id,
+                rating, content,
+                vendorReply: reply ? { content: reply, repliedAt: daysFromNow(-1) } : { content: '', repliedAt: null }
+            };
+        };
+        const REVIEWS = [
+            review('Sofa Gỗ Sồi 3 Chỗ CLASSIC', 5, 'Sofa rất đẹp và chắc chắn, giao hàng nhanh. Rất hài lòng!', 'Cảm ơn anh/chị đã ủng hộ shop ạ!'),
+            review('Tủ TV Gỗ Sồi Minimalist', 5, 'Gỗ đẹp, đóng gói cẩn thận, thợ lắp đặt chuyên nghiệp.', 'Shop cảm ơn và chúc anh/chị sử dụng tốt!'),
+            review('Bàn Làm Việc Gỗ Sồi Simple Desk', 3, 'Bàn ổn nhưng giao hơi chậm so với dự kiến.', null),
+            review('Ghế Ăn Gỗ Sồi Nordic', 1, 'Ghế bị lỗi mộng, lung lay. Mong shop hỗ trợ đổi trả.', null)
+        ];
+        await Review.create(REVIEWS);
+        console.log(`Created ${REVIEWS.length} reviews`);
+
+        // 10) Thông báo cho vendor
+        const NOTIFS = [
+            { type: 'order', title: 'Đơn hàng mới cần xác nhận', body: 'Bạn có 1 đơn hàng mới đang chờ xác nhận.', isRead: false, link: '/vendor/orders', createdAt: daysFromNow(0) },
+            { type: 'review', title: 'Đánh giá 1 sao cần phản hồi', body: 'Sản phẩm "Ghế Ăn Gỗ Sồi Nordic" vừa nhận đánh giá 1 sao.', isRead: false, link: '/vendor/reviews', createdAt: daysFromNow(0) },
+            { type: 'stock', title: 'Cảnh báo tồn kho thấp', body: 'Một số sản phẩm sắp hết hàng, vui lòng nhập thêm.', isRead: false, link: '/vendor/products', createdAt: daysFromNow(-1) },
+            { type: 'wallet', title: 'Giao dịch ví thành công', body: '20.000.000₫ đã được giải ngân về Vietcombank ****6789.', isRead: true, link: '/vendor/wallet', createdAt: daysFromNow(-6) },
+            { type: 'system', title: 'Cập nhật chính sách phí sàn', body: 'Phí sàn điều chỉnh từ 2% xuống 1.8% từ 01/07/2026.', isRead: true, link: '', createdAt: daysFromNow(-2) }
+        ];
+        await Notification.create(NOTIFS.map((n) => ({ ...n, user: vendor._id })));
+        console.log(`Created ${NOTIFS.length} notifications`);
 
         console.log('\n==================== DONE ====================');
         console.log('Tài khoản:');

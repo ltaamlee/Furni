@@ -13,7 +13,19 @@ const {
     deletePromotion,
     getMyOrders,
     getMyOrderDetail,
-    updateMyOrderStatus
+    updateMyOrderStatus,
+    getReports,
+    getWallet,
+    getTransactions,
+    requestWithdraw,
+    addBankAccount,
+    getReviews,
+    replyReview,
+    getNotifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    deleteNotification,
+    updateMyShop
 } = require('../controllers/vendorController');
 
 // Tái sử dụng logic sản phẩm (đã tự gán shop + kiểm tra quyền theo vendor)
@@ -33,8 +45,26 @@ router.use(protect, authorize('vendor'));
 
 // Shop & dashboard
 router.get('/shop', getMyShop);
+router.put('/shop', updateMyShop);
 router.get('/dashboard', getDashboardSummary);
+router.get('/reports', getReports);
 router.get('/categories', getVendorCategories);
+
+// Ví điện tử
+router.get('/wallet', getWallet);
+router.get('/wallet/transactions', getTransactions);
+router.post('/wallet/withdraw', requestWithdraw);
+router.post('/wallet/bank-accounts', addBankAccount);
+
+// Đánh giá
+router.get('/reviews', getReviews);
+router.put('/reviews/:id/reply', replyReview);
+
+// Thông báo
+router.get('/notifications', getNotifications);
+router.put('/notifications/read-all', markAllNotificationsRead);
+router.put('/notifications/:id/read', markNotificationRead);
+router.delete('/notifications/:id', deleteNotification);
 
 // Upload ảnh (Cloudinary)
 router.post('/upload', uploadImagesMiddleware, uploadImages);

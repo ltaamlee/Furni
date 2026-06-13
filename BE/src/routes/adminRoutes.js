@@ -10,6 +10,8 @@ const {
   deleteUser
 } = require('../controllers/userController');
 
+const { getAllShopsAdmin, updateShopStatus } = require('../controllers/shopController');
+
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { validateUpdateProfile } = require('../middleware/validationMiddleware');
 
@@ -31,5 +33,9 @@ router.route('/users/:id')
   .get(getUser)
   .put(updateUser)
   .delete(deleteUser);
+
+// Shop approval (Admin only)
+router.get('/shops', getAllShopsAdmin);
+router.put('/shops/:id/status', updateShopStatus);
 
 module.exports = router;

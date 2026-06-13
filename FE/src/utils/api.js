@@ -129,9 +129,31 @@ const trackShipmentApi = (trackingNumber) => {
 const getShopApi = (idOrSlug) => axios.get(`/shops/${idOrSlug}`);
 const getShopProductsApi = (id, params = {}) => axios.get(`/shops/${id}/products`, { params });
 
+// Admin — duyệt cửa hàng
+const getAdminShopsApi = (params = {}) => axios.get("/admin/shops", { params });
+const updateShopStatusApi = (id, status, statusNote) => axios.put(`/admin/shops/${id}/status`, { status, statusNote });
+
 // Vendor APIs (role: vendor) — shop-scoped
 const getMyShopApi = () => axios.get("/vendor/shop");
+const updateMyShopApi = (data) => axios.put("/vendor/shop", data);
 const getVendorDashboardApi = () => axios.get("/vendor/dashboard");
+const getVendorReportsApi = (params = {}) => axios.get("/vendor/reports", { params });
+
+// Vendor wallet
+const getVendorWalletApi = () => axios.get("/vendor/wallet");
+const getVendorTransactionsApi = (params = {}) => axios.get("/vendor/wallet/transactions", { params });
+const vendorWithdrawApi = (data) => axios.post("/vendor/wallet/withdraw", data);
+const addVendorBankAccountApi = (data) => axios.post("/vendor/wallet/bank-accounts", data);
+
+// Vendor reviews
+const getVendorReviewsApi = (params = {}) => axios.get("/vendor/reviews", { params });
+const replyVendorReviewApi = (id, content) => axios.put(`/vendor/reviews/${id}/reply`, { content });
+
+// Vendor notifications
+const getVendorNotificationsApi = (params = {}) => axios.get("/vendor/notifications", { params });
+const markNotificationReadApi = (id) => axios.put(`/vendor/notifications/${id}/read`);
+const markAllNotificationsReadApi = () => axios.put("/vendor/notifications/read-all");
+const deleteNotificationApi = (id) => axios.delete(`/vendor/notifications/${id}`);
 
 const getVendorProductsApi = (params = {}) => axios.get("/vendor/products", { params });
 const createVendorProductApi = (data) => axios.post("/vendor/products", data);
@@ -189,8 +211,22 @@ export {
     trackShipmentApi,
     getShopApi,
     getShopProductsApi,
+    getAdminShopsApi,
+    updateShopStatusApi,
     getMyShopApi,
+    updateMyShopApi,
     getVendorDashboardApi,
+    getVendorReportsApi,
+    getVendorWalletApi,
+    getVendorTransactionsApi,
+    vendorWithdrawApi,
+    addVendorBankAccountApi,
+    getVendorReviewsApi,
+    replyVendorReviewApi,
+    getVendorNotificationsApi,
+    markNotificationReadApi,
+    markAllNotificationsReadApi,
+    deleteNotificationApi,
     getVendorProductsApi,
     createVendorProductApi,
     updateVendorProductApi,

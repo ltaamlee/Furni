@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const ExcelJS = require('exceljs');
 const Shop = require('../models/shop');
 const Product = require('../models/product');
@@ -5,6 +6,10 @@ const Category = require('../models/category');
 const Promotion = require('../models/promotion');
 const Order = require('../models/order');
 const { ORDER_STATUS } = require('../models/order');
+const Wallet = require('../models/wallet');
+const Transaction = require('../models/transaction');
+const Review = require('../models/review');
+const Notification = require('../models/notification');
 
 // Lấy shop của vendor đang đăng nhập (helper dùng chung)
 const getOwnerShop = async (userId) => Shop.findOne({ owner: userId });
@@ -27,6 +32,65 @@ const shopSliceOfOrder = (order, shopId) => {
     const shopSubtotal = shopItems.reduce((s, it) => s + it.price * it.quantity, 0);
     const shopQuantity = shopItems.reduce((s, it) => s + it.quantity, 0);
     return { shopItems, shopSubtotal, shopQuantity };
+};
+
+// ── Helpers tổng hợp doanh thu theo shop (chỉ tính dòng sản phẩm của shop) ──
+const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+
+// Doanh thu shop theo từng ngày trong `days` ngày gần nhất (đơn chưa huỷ)
+const revenueSeries = async (shopId, days) => {
+    const start = startOfDay(new Date(Date.now() - (days - 1) * 86400000));
+    const rows = await Order.aggregate([
+        { $match: { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED }, createdAt: { $gte: start } } },
+        { $unwind: '$products' },
+        { $match: { 'products.shop': shopId } },
+        { $group: { _id: { $dateToString: { format: '%d/%m', date: '$createdAt' } }, revenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } }
+    ]);
+    const map = {};
+    rows.forEach((r) => { map[r._id] = r.revenue; });
+    const labels = [];
+    const data = [];
+    for (let i = 0; i < days; i++) {
+        const d = new Date(start.getTime() + i * 86400000);
+        const key = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+        labels.push(key);
+        data.push(map[key] || 0);
+    }
+    return { labels, data };
+};
+
+// Top sản phẩm bán chạy của shop (theo doanh thu) trong khoảng thời gian
+const topProductsOfShop = async (shopId, since = null, limit = 5) => {
+    const match = { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED } };
+    if (since) match.createdAt = { $gte: since };
+    const rows = await Order.aggregate([
+        { $match: match },
+        { $unwind: '$products' },
+        { $match: { 'products.shop': shopId } },
+        { $group: { _id: '$products.product', name: { $first: '$products.name' }, sold: { $sum: '$products.quantity' }, revenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } },
+        { $sort: { revenue: -1 } },
+        { $limit: limit }
+    ]);
+    // Lấy tên danh mục
+    const ids = rows.map((r) => r._id).filter(Boolean);
+    const prods = await Product.find({ _id: { $in: ids } }).populate('category', 'name').select('category name');
+    const catOf = {};
+    prods.forEach((p) => { catOf[p._id.toString()] = p.category?.name || '—'; });
+    return rows.map((r, i) => ({ rank: i + 1, productId: r._id, name: r.name, cat: catOf[r._id?.toString()] || '—', sold: r.sold, revenue: r.revenue }));
+};
+
+// Tổng doanh thu + số đơn của shop kể từ `since`
+const shopRevenueTotals = async (shopId, since = null) => {
+    const match = { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED } };
+    if (since) match.createdAt = { $gte: since };
+    const rows = await Order.aggregate([
+        { $match: match },
+        { $unwind: '$products' },
+        { $match: { 'products.shop': shopId } },
+        { $group: { _id: '$_id', orderRevenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } },
+        { $group: { _id: null, revenue: { $sum: '$orderRevenue' }, orders: { $sum: 1 } } }
+    ]);
+    return { revenue: rows[0]?.revenue || 0, orders: rows[0]?.orders || 0 };
 };
 
 // Nhãn trạng thái sản phẩm (cho file Excel)
@@ -99,20 +163,62 @@ const getDashboardSummary = async (req, res) => {
 
         const base = { shop: shop._id };
         const orderBase = { 'products.shop': shop._id };
-        const [totalProducts, activeProducts, lowStock, runningPromotions, totalOrders, pendingOrders] = await Promise.all([
+        const todayStart = startOfDay(new Date());
+
+        const [
+            totalProducts, activeProducts, lowStock, runningPromotions, totalOrders, pendingOrders,
+            ordersToday, today, revenue7d, revenue30d, topProducts, recentOrdersRaw,
+            deliveredCount, cancelledCount, viewsAgg, wallet, ratingAgg
+        ] = await Promise.all([
             Product.countDocuments(base),
             Product.countDocuments({ ...base, status: 'active' }),
             Product.countDocuments({ ...base, quantity: { $lte: 5 } }),
             Promotion.countDocuments({ ...base, status: 'running' }),
             Order.countDocuments(orderBase),
-            Order.countDocuments({ ...orderBase, status: ORDER_STATUS.PENDING })
+            Order.countDocuments({ ...orderBase, status: ORDER_STATUS.PENDING }),
+            Order.countDocuments({ ...orderBase, createdAt: { $gte: todayStart } }),
+            shopRevenueTotals(shop._id, todayStart),
+            revenueSeries(shop._id, 7),
+            revenueSeries(shop._id, 30),
+            topProductsOfShop(shop._id, null, 5),
+            Order.find(orderBase).populate('user', 'fullName').sort('-createdAt').limit(5),
+            Order.countDocuments({ ...orderBase, status: ORDER_STATUS.DELIVERED }),
+            Order.countDocuments({ ...orderBase, status: ORDER_STATUS.CANCELLED }),
+            Product.aggregate([{ $match: base }, { $group: { _id: null, views: { $sum: '$views' } } }]),
+            Wallet.findOne({ shop: shop._id }),
+            Review.aggregate([{ $match: { shop: shop._id } }, { $group: { _id: null, avg: { $avg: '$rating' }, total: { $sum: 1 } } }])
         ]);
+
+        const recentOrders = recentOrdersRaw.map((o) => {
+            const { shopSubtotal } = shopSliceOfOrder(o, shop._id);
+            return { orderNumber: o.orderNumber, customer: o.shippingAddress?.fullName || o.user?.fullName || '—', total: shopSubtotal, status: o.status };
+        });
+
+        const completedTotal = deliveredCount + cancelledCount;
+        const completionRate = completedTotal ? Math.round((deliveredCount / completedTotal) * 1000) / 10 : 0;
 
         res.status(200).json({
             success: true,
             data: {
-                shop: { id: shop._id, name: shop.name, status: shop.isActive ? 'active' : 'inactive' },
-                stats: { totalProducts, activeProducts, lowStock, runningPromotions, totalOrders, pendingOrders }
+                shop: { id: shop._id, name: shop.name, status: shop.status, isActive: shop.isActive },
+                stats: {
+                    revenueToday: today.revenue,
+                    ordersToday,
+                    totalProducts, activeProducts, lowStock, runningPromotions,
+                    totalOrders, pendingOrders,
+                    visits: viewsAgg[0]?.views || 0
+                },
+                revenue7d,
+                revenue30d,
+                topProducts,
+                recentOrders,
+                quickStats: {
+                    completionRate,
+                    avgRating: Math.round((ratingAgg[0]?.avg || 0) * 10) / 10,
+                    totalReviews: ratingAgg[0]?.total || 0,
+                    lowStock,
+                    walletBalance: wallet?.balance || 0
+                }
             }
         });
     } catch (error) {
@@ -210,6 +316,9 @@ const createPromotion = async (req, res) => {
         const shop = await getOwnerShop(req.user._id);
         if (!shop) {
             return res.status(400).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+        }
+        if (shop.status !== Shop.STATUS.APPROVED) {
+            return res.status(403).json({ success: false, message: 'Cửa hàng của bạn chưa được duyệt nên chưa thể tạo khuyến mãi.' });
         }
 
         const data = pickPromoFields(req.body);
@@ -510,6 +619,359 @@ const updateMyOrderStatus = async (req, res) => {
     }
 };
 
+// @desc    Báo cáo doanh thu của shop
+// @route   GET /api/vendor/reports?period=month
+// @access  Private/Vendor
+const PERIOD_DAYS = { today: 1, '7d': 7, month: 30, quarter: 90 };
+const CHART_COLORS = ['#B86B05', '#95520B', '#DE9601', '#FBC309', '#7B440C', '#C4A882'];
+
+const getReports = async (req, res) => {
+    try {
+        const shop = await getOwnerShop(req.user._id);
+        if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+
+        const period = req.query.period || 'month';
+        const days = PERIOD_DAYS[period] || 30;
+        const since = startOfDay(new Date(Date.now() - (days - 1) * 86400000));
+
+        const [totals, prevTotals, revenue, topRaw, catRows, cancelledCount] = await Promise.all([
+            shopRevenueTotals(shop._id, since),
+            shopRevenueTotals(shop._id, startOfDay(new Date(Date.now() - (2 * days - 1) * 86400000))),
+            revenueSeries(shop._id, days),
+            topProductsOfShop(shop._id, since, 5),
+            Order.aggregate([
+                { $match: { 'products.shop': shop._id, status: { $ne: ORDER_STATUS.CANCELLED }, createdAt: { $gte: since } } },
+                { $unwind: '$products' },
+                { $match: { 'products.shop': shop._id } },
+                { $lookup: { from: 'products', localField: 'products.product', foreignField: '_id', as: 'p' } },
+                { $unwind: { path: '$p', preserveNullAndEmptyArrays: true } },
+                { $lookup: { from: 'categories', localField: 'p.category', foreignField: '_id', as: 'c' } },
+                { $unwind: { path: '$c', preserveNullAndEmptyArrays: true } },
+                { $group: { _id: { $ifNull: ['$c.name', 'Khác'] }, revenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } },
+                { $sort: { revenue: -1 } }
+            ]),
+            Order.countDocuments({ 'products.shop': shop._id, status: ORDER_STATUS.CANCELLED, createdAt: { $gte: since } })
+        ]);
+
+        const avgOrder = totals.orders ? Math.round(totals.revenue / totals.orders) : 0;
+        const returnRate = totals.orders + cancelledCount ? Math.round((cancelledCount / (totals.orders + cancelledCount)) * 1000) / 10 : 0;
+        const totalCatRev = catRows.reduce((s, c) => s + c.revenue, 0) || 1;
+        const categoryShares = catRows.map((c, i) => ({ label: c._id, value: Math.round((c.revenue / totalCatRev) * 100), color: CHART_COLORS[i % CHART_COLORS.length] }));
+        const topProducts = topRaw.map((p) => ({ ...p, share: Math.round((p.revenue / (totals.revenue || 1)) * 100) }));
+
+        res.status(200).json({
+            success: true,
+            data: {
+                period,
+                kpis: {
+                    totalRevenue: totals.revenue,
+                    orderCount: totals.orders,
+                    avgOrderValue: avgOrder,
+                    returnRate,
+                    revenueChangePct: prevTotals.revenue ? Math.round(((totals.revenue - (prevTotals.revenue - totals.revenue)) / Math.max(1, prevTotals.revenue - totals.revenue)) * 100) : 0
+                },
+                revenue,
+                categoryShares,
+                topProducts
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy báo cáo', error: error.message });
+    }
+};
+
+// ── Ví điện tử ───────────────────────────────────────────────
+const ensureWallet = async (shop) => {
+    let wallet = await Wallet.findOne({ shop: shop._id });
+    if (!wallet) wallet = await Wallet.create({ shop: shop._id, owner: shop.owner });
+    return wallet;
+};
+
+// @desc    Thông tin ví + thống kê tháng
+// @route   GET /api/vendor/wallet
+// @access  Private/Vendor
+const getWallet = async (req, res) => {
+    try {
+        const shop = await getOwnerShop(req.user._id);
+        if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+        const wallet = await ensureWallet(shop);
+
+        const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+        const agg = await Transaction.aggregate([
+            { $match: { wallet: wallet._id, status: 'success', createdAt: { $gte: monthStart } } },
+            { $group: { _id: '$category', total: { $sum: '$amount' } } }
+        ]);
+        const byCat = {};
+        agg.forEach((a) => { byCat[a._id] = a.total; });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                balance: wallet.balance,
+                pendingBalance: wallet.pendingBalance,
+                bankAccounts: wallet.bankAccounts,
+                monthly: {
+                    income: byCat.order_income || 0,
+                    withdrawn: byCat.withdraw || 0,
+                    platformFee: byCat.platform_fee || 0
+                }
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy ví', error: error.message });
+    }
+};
+
+// @desc    Lịch sử giao dịch ví
+// @route   GET /api/vendor/wallet/transactions?type=credit|debit|withdraw
+// @access  Private/Vendor
+const getTransactions = async (req, res) => {
+    try {
+        const shop = await getOwnerShop(req.user._id);
+        if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+        const wallet = await ensureWallet(shop);
+
+        const { type, page = 1, limit = 15 } = req.query;
+        const query = { wallet: wallet._id };
+        if (type === 'in') query.type = 'credit';
+        else if (type === 'out') query.type = 'debit';
+        else if (type === 'withdraw') query.category = 'withdraw';
+
+        const skip = (Number(page) - 1) * Number(limit);
+        const [transactions, total] = await Promise.all([
+            Transaction.find(query).sort('-createdAt').skip(skip).limit(Number(limit)),
+            Transaction.countDocuments(query)
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: { transactions, pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)), limit: Number(limit) } }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy giao dịch', error: error.message });
+    }
+};
+
+// @desc    Yêu cầu rút tiền
+// @route   POST /api/vendor/wallet/withdraw
+// @access  Private/Vendor
+const requestWithdraw = async (req, res) => {
+    try {
+        const shop = await getOwnerShop(req.user._id);
+        if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+        const wallet = await ensureWallet(shop);
+
+        const amount = Number(req.body.amount) || 0;
+        const { note, bankIndex } = req.body;
+        if (amount < 100000) return res.status(400).json({ success: false, message: 'Số tiền rút tối thiểu 100.000₫' });
+        if (amount > wallet.balance) return res.status(400).json({ success: false, message: 'Số dư khả dụng không đủ' });
+
+        wallet.balance -= amount; // giữ tiền lại khi chờ xử lý
+        await wallet.save();
+
+        const acc = wallet.bankAccounts[bankIndex] || wallet.bankAccounts[0];
+        const tx = await Transaction.create({
+            wallet: wallet._id, shop: shop._id, type: 'debit', category: 'withdraw',
+            amount, status: 'pending',
+            description: note || `Rút tiền về ${acc ? acc.bankName + ' ****' + String(acc.accountNumber).slice(-4) : 'ngân hàng'}`,
+            balanceAfter: wallet.balance
+        });
+
+        res.status(201).json({ success: true, message: 'Đã gửi yêu cầu rút tiền', data: { transaction: tx, balance: wallet.balance } });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi rút tiền', error: error.message });
+    }
+};
+
+// @desc    Thêm tài khoản ngân hàng nhận tiền
+// @route   POST /api/vendor/wallet/bank-accounts
+// @access  Private/Vendor
+const addBankAccount = async (req, res) => {
+    try {
+        const shop = await getOwnerShop(req.user._id);
+        if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+        const wallet = await ensureWallet(shop);
+
+        const { bankName, accountNumber, accountHolder, branch } = req.body;
+        if (!bankName || !accountNumber || !accountHolder) {
+            return res.status(400).json({ success: false, message: 'Vui lòng nhập đủ thông tin tài khoản' });
+        }
+        if (wallet.bankAccounts.length === 0) req.body.isDefault = true;
+        wallet.bankAccounts.push({ bankName, accountNumber, accountHolder, branch: branch || '', isDefault: wallet.bankAccounts.length === 0 });
+        await wallet.save();
+
+        res.status(201).json({ success: true, message: 'Đã thêm tài khoản ngân hàng', data: { bankAccounts: wallet.bankAccounts } });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi thêm tài khoản', error: error.message });
+    }
+};
+
+// ── Đánh giá ─────────────────────────────────────────────────
+// @desc    Đánh giá sản phẩm của shop + tổng quan
+// @route   GET /api/vendor/reviews
+// @access  Private/Vendor
+const getReviews = async (req, res) => {
+    try {
+        const shop = await getOwnerShop(req.user._id);
+        if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+
+        const { rating, replied, search, page = 1, limit = 10 } = req.query;
+        const query = { shop: shop._id };
+        if (rating) query.rating = Number(rating);
+        if (replied === 'true') query['vendorReply.repliedAt'] = { $ne: null };
+        else if (replied === 'false') query['vendorReply.repliedAt'] = null;
+        if (search) query.content = { $regex: search, $options: 'i' };
+
+        const skip = (Number(page) - 1) * Number(limit);
+        const [reviews, total] = await Promise.all([
+            Review.find(query).populate('user', 'fullName profileImage').populate('product', 'name images').sort('-createdAt').skip(skip).limit(Number(limit)),
+            Review.countDocuments(query)
+        ]);
+
+        // Tổng quan
+        const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+        const [distAgg, repliedCount, monthCount, reportedCount, avgAgg] = await Promise.all([
+            Review.aggregate([{ $match: { shop: shop._id } }, { $group: { _id: '$rating', count: { $sum: 1 } } }]),
+            Review.countDocuments({ shop: shop._id, 'vendorReply.repliedAt': { $ne: null } }),
+            Review.countDocuments({ shop: shop._id, createdAt: { $gte: monthStart } }),
+            Review.countDocuments({ shop: shop._id, isReported: true }),
+            Review.aggregate([{ $match: { shop: shop._id } }, { $group: { _id: null, avg: { $avg: '$rating' }, total: { $sum: 1 } } }])
+        ]);
+
+        const totalAll = avgAgg[0]?.total || 0;
+        const distMap = {};
+        distAgg.forEach((d) => { distMap[d._id] = d.count; });
+        const distribution = [5, 4, 3, 2, 1].map((star) => ({ star, pct: totalAll ? Math.round((distMap[star] || 0) / totalAll * 100) : 0 }));
+
+        res.status(200).json({
+            success: true,
+            data: {
+                reviews,
+                summary: { avg: Math.round((avgAgg[0]?.avg || 0) * 10) / 10, total: totalAll, distribution },
+                stats: { unreplied: totalAll - repliedCount, replied: repliedCount, thisMonth: monthCount, reported: reportedCount },
+                pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)), limit: Number(limit) }
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy đánh giá', error: error.message });
+    }
+};
+
+// @desc    Vendor phản hồi đánh giá
+// @route   PUT /api/vendor/reviews/:id/reply
+// @access  Private/Vendor
+const replyReview = async (req, res) => {
+    try {
+        const shop = await getOwnerShop(req.user._id);
+        if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+
+        const { content } = req.body;
+        if (!content || !content.trim()) return res.status(400).json({ success: false, message: 'Vui lòng nhập nội dung phản hồi' });
+
+        const review = await Review.findById(req.params.id);
+        if (!review) return res.status(404).json({ success: false, message: 'Không tìm thấy đánh giá' });
+        if (!review.shop || review.shop.toString() !== shop._id.toString()) {
+            return res.status(403).json({ success: false, message: 'Bạn không có quyền phản hồi đánh giá này' });
+        }
+
+        review.vendorReply = { content: content.trim(), repliedAt: new Date() };
+        await review.save();
+
+        res.status(200).json({ success: true, message: 'Đã gửi phản hồi', data: { review } });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi phản hồi đánh giá', error: error.message });
+    }
+};
+
+// ── Thông báo ────────────────────────────────────────────────
+// @desc    Danh sách thông báo của vendor + tóm tắt 7 ngày
+// @route   GET /api/vendor/notifications
+// @access  Private/Vendor
+const getNotifications = async (req, res) => {
+    try {
+        const { type, page = 1, limit = 20 } = req.query;
+        const query = { user: req.user._id };
+        if (type && type !== 'all') query.type = type;
+
+        const skip = (Number(page) - 1) * Number(limit);
+        const weekAgo = new Date(Date.now() - 7 * 86400000);
+        const [notifications, total, unreadCount, weekAgg] = await Promise.all([
+            Notification.find(query).sort('-createdAt').skip(skip).limit(Number(limit)),
+            Notification.countDocuments(query),
+            Notification.countDocuments({ user: req.user._id, isRead: false }),
+            Notification.aggregate([
+                { $match: { user: new mongoose.Types.ObjectId(req.user._id), createdAt: { $gte: weekAgo } } },
+                { $group: { _id: '$type', count: { $sum: 1 } } }
+            ])
+        ]);
+        const summary7d = {};
+        weekAgg.forEach((w) => { summary7d[w._id] = w.count; });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                notifications, unreadCount, summary7d,
+                pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)), limit: Number(limit) }
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy thông báo', error: error.message });
+    }
+};
+
+// @desc    Đánh dấu 1 thông báo đã đọc
+// @route   PUT /api/vendor/notifications/:id/read
+const markNotificationRead = async (req, res) => {
+    try {
+        await Notification.updateOne({ _id: req.params.id, user: req.user._id }, { isRead: true });
+        res.status(200).json({ success: true, message: 'Đã đánh dấu đã đọc' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi', error: error.message });
+    }
+};
+
+// @desc    Đánh dấu tất cả đã đọc
+// @route   PUT /api/vendor/notifications/read-all
+const markAllNotificationsRead = async (req, res) => {
+    try {
+        await Notification.updateMany({ user: req.user._id, isRead: false }, { isRead: true });
+        res.status(200).json({ success: true, message: 'Đã đánh dấu tất cả đã đọc' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi', error: error.message });
+    }
+};
+
+// @desc    Xoá 1 thông báo
+// @route   DELETE /api/vendor/notifications/:id
+const deleteNotification = async (req, res) => {
+    try {
+        await Notification.deleteOne({ _id: req.params.id, user: req.user._id });
+        res.status(200).json({ success: true, message: 'Đã xoá thông báo' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi', error: error.message });
+    }
+};
+
+// ── Cấu hình shop (Settings) ─────────────────────────────────
+const SHOP_FIELDS = ['name', 'description', 'phone', 'email', 'address', 'logo', 'banner', 'isActive'];
+// @desc    Cập nhật thông tin shop
+// @route   PUT /api/vendor/shop
+// @access  Private/Vendor
+const updateMyShop = async (req, res) => {
+    try {
+        const shop = await getOwnerShop(req.user._id);
+        if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+
+        SHOP_FIELDS.forEach((f) => { if (req.body[f] !== undefined) shop[f] = req.body[f]; });
+        if (req.body.slug) shop.slug = req.body.slug; // setter tự slugify
+        await shop.save();
+
+        res.status(200).json({ success: true, message: 'Cập nhật cửa hàng thành công', data: { shop } });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message || 'Lỗi khi cập nhật cửa hàng' });
+    }
+};
+
 module.exports = {
     getMyShop,
     getDashboardSummary,
@@ -522,5 +984,17 @@ module.exports = {
     deletePromotion,
     getMyOrders,
     getMyOrderDetail,
-    updateMyOrderStatus
+    updateMyOrderStatus,
+    getReports,
+    getWallet,
+    getTransactions,
+    requestWithdraw,
+    addBankAccount,
+    getReviews,
+    replyReview,
+    getNotifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    deleteNotification,
+    updateMyShop
 };

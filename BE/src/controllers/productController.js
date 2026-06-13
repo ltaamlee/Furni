@@ -156,6 +156,13 @@ const createProduct = async (req, res) => {
           message: 'Bạn chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước!'
         });
       }
+      // Shop phải được admin duyệt mới được đăng bán
+      if (shop.status !== Shop.STATUS.APPROVED) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cửa hàng của bạn chưa được duyệt nên chưa thể đăng bán sản phẩm.'
+        });
+      }
       data.shop = shop._id;
     } else if (req.body.shop) {
       data.shop = req.body.shop;
