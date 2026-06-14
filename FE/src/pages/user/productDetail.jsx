@@ -1,7 +1,19 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { getProductByIdApi, getProductsByCategoryApi, addToCartApi } from "../../utils/api";
+import {
+    getProductByIdApi,
+    getProductsByCategoryApi,
+    addToCartApi,
+    getProductStatsApi,
+    addToWishlistApi,
+    removeFromWishlistApi,
+    checkWishlistApi,
+    addToRecentlyViewedApi,
+    getSimilarProductsApi
+} from "../../utils/api";
 import ProductCard from "../../components/common/productCard";
+import ReviewList from "../../components/common/ReviewList";
+import ReviewModal from "../../components/common/ReviewModal";
 import { useToast } from "../../components/context/ToastContext";
 
 const ProductDetailPage = () => {
@@ -11,11 +23,17 @@ const ProductDetailPage = () => {
 
     const [product, setProduct] = useState(null);
     const [relatedProducts, setRelatedProducts] = useState([]);
+    const [similarProducts, setSimilarProducts] = useState([]);
+    const [productStats, setProductStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [selectedImage, setSelectedImage] = useState(0);
     const [quantity, setQuantity] = useState(1);
     const [adding, setAdding] = useState(false);
     const [addedSuccess, setAddedSuccess] = useState(false);
+    const [isInWishlist, setIsInWishlist] = useState(false);
+    const [wishlistLoading, setWishlistLoading] = useState(false);
+    const [reviewModalOpen, setReviewModalOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState("description");
 
     const getToken = () => localStorage.getItem("access_token");
 
@@ -23,16 +41,30 @@ const ProductDetailPage = () => {
         fetchProduct();
     }, [id]);
 
+    useEffect(() => {
+        if (product && getToken()) {
+            checkWishlistStatus();
+            trackRecentlyViewed();
+        }
+    }, [product]);
+
     const fetchProduct = async () => {
         try {
             setLoading(true);
             const res = await getProductByIdApi(id);
             if (res.success) {
                 setProduct(res.data.product);
-                // Fetch related products from same category
+                
+                // Fetch related products
                 if (res.data.product.category?._id) {
                     fetchRelatedProducts(res.data.product.category._id, id);
                 }
+                
+                // Fetch similar products
+                fetchSimilarProducts(id);
+                
+                // Fetch product stats
+                fetchProductStats(id);
             }
         } catch (error) {
             console.error("Error fetching product:", error);
@@ -45,7 +77,6 @@ const ProductDetailPage = () => {
         try {
             const res = await getProductsByCategoryApi(categoryId, { limit: 8 });
             if (res.success) {
-                // Filter out current product
                 const related = (res.data.products || []).filter(p => p._id !== excludeId);
                 setRelatedProducts(related.slice(0, 4));
             }
@@ -54,8 +85,45 @@ const ProductDetailPage = () => {
         }
     };
 
-    const formatPrice = (price) => {
-        return new Intl.NumberFormat("vi-VN").format(price) + " đ";
+    const fetchSimilarProducts = async (productId) => {
+        try {
+            const res = await getSimilarProductsApi(productId, { limit: 4 });
+            if (res.success) {
+                setSimilarProducts(res.data.products);
+            }
+        } catch (error) {
+            console.error("Error fetching similar products:", error);
+        }
+    };
+
+    const fetchProductStats = async (productId) => {
+        try {
+            const res = await getProductStatsApi(productId);
+            if (res.success) {
+                setProductStats(res.data);
+            }
+        } catch (error) {
+            console.error("Error fetching product stats:", error);
+        }
+    };
+
+    const checkWishlistStatus = async () => {
+        try {
+            const res = await checkWishlistApi(id);
+            if (res.success) {
+                setIsInWishlist(res.data.isInWishlist);
+            }
+        } catch (error) {
+            console.error("Error checking wishlist:", error);
+        }
+    };
+
+    const trackRecentlyViewed = async () => {
+        try {
+            await addToRecentlyViewedApi(id);
+        } catch (error) {
+            console.error("Error tracking recently viewed:", error);
+        }
     };
 
     const handleAddToCart = async () => {
@@ -80,6 +148,37 @@ const ProductDetailPage = () => {
         } finally {
             setAdding(false);
         }
+    };
+
+    const handleToggleWishlist = async () => {
+        const token = getToken();
+        if (!token) {
+            if (confirm("Bạn cần đăng nhập để thêm vào wishlist. Đăng nhập ngay?")) {
+                navigate("/login");
+            }
+            return;
+        }
+
+        try {
+            setWishlistLoading(true);
+            if (isInWishlist) {
+                await removeFromWishlistApi(id);
+                setIsInWishlist(false);
+                showToast("Đã xóa khỏi danh sách yêu thích!", "success");
+            } else {
+                await addToWishlistApi(id);
+                setIsInWishlist(true);
+                showToast("Đã thêm vào danh sách yêu thích!", "success");
+            }
+        } catch (error) {
+            showToast(error.message || "Có lỗi xảy ra!", "error");
+        } finally {
+            setWishlistLoading(false);
+        }
+    };
+
+    const formatPrice = (price) => {
+        return new Intl.NumberFormat("vi-VN").format(price) + " đ";
     };
 
     if (loading) {
@@ -127,16 +226,32 @@ const ProductDetailPage = () => {
                     <div className="grid lg:grid-cols-2 gap-8">
                         {/* Image Gallery */}
                         <div className="space-y-4">
-                            {/* Main Image */}
-                            <div className="aspect-square bg-[#FAF8F5] rounded-2xl overflow-hidden">
+                            <div className="aspect-square bg-[#FAF8F5] rounded-2xl overflow-hidden relative">
                                 <img
                                     src={images[selectedImage]}
                                     alt={product.name}
                                     className="w-full h-full object-cover"
                                 />
+                                {/* Wishlist Button */}
+                                <button
+                                    onClick={handleToggleWishlist}
+                                    disabled={wishlistLoading}
+                                    className={`absolute top-4 right-4 w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition ${
+                                        isInWishlist
+                                            ? "bg-red-500 text-white"
+                                            : "bg-white/90 text-gray-400 hover:text-red-500"
+                                    }`}
+                                >
+                                    {wishlistLoading ? (
+                                        <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+                                    ) : (
+                                        <svg viewBox="0 0 24 24" fill={isInWishlist ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" className="w-6 h-6">
+                                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                        </svg>
+                                    )}
+                                </button>
                             </div>
                             
-                            {/* Thumbnails */}
                             {images.length > 1 && (
                                 <div className="flex gap-3 overflow-x-auto pb-2">
                                     {images.map((img, index) => (
@@ -174,8 +289,8 @@ const ProductDetailPage = () => {
                                 )}
                                 <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-3">{product.name}</h1>
                                 
-                                {/* Rating */}
-                                <div className="flex items-center gap-4 text-sm">
+                                {/* Rating & Stats */}
+                                <div className="flex flex-wrap items-center gap-4 text-sm">
                                     <div className="flex items-center gap-1">
                                         <div className="flex">
                                             {[...Array(5)].map((_, i) => (
@@ -192,12 +307,12 @@ const ProductDetailPage = () => {
                                             ))}
                                         </div>
                                         <span className="font-medium text-gray-700">{product.averageRating || 0}</span>
-                                        <span className="text-gray-400">({product.reviewCount || 0} đánh giá)</span>
+                                        <span className="text-gray-400">({productStats?.reviewerCount || product.totalRatings || 0} đánh giá)</span>
                                     </div>
                                     <span className="text-gray-300">|</span>
-                                    <span className="text-gray-500">Đã bán: {product.sold || 0}</span>
+                                    <span className="text-gray-500">👤 {productStats?.buyerCount || 0} khách mua</span>
                                     <span className="text-gray-300">|</span>
-                                    <span className="text-gray-500">👁️ {product.views || 0}</span>
+                                    <span className="text-gray-500">👁️ {product.views || 0} lượt xem</span>
                                 </div>
                             </div>
 
@@ -229,16 +344,36 @@ const ProductDetailPage = () => {
                             )}
 
                             {/* Specifications */}
-                            {product.specifications && Object.keys(product.specifications).length > 0 && (
+                            {product.dimensions && Object.values(product.dimensions).some(v => v) && (
                                 <div>
                                     <h3 className="font-bold text-gray-800 mb-3">Thông số kỹ thuật</h3>
                                     <div className="space-y-2 bg-[#FAF8F5] rounded-xl p-4">
-                                        {Object.entries(product.specifications).map(([key, value]) => (
-                                            <div key={key} className="flex justify-between py-2 border-b border-gray-200 last:border-0">
-                                                <span className="text-gray-500">{key}</span>
-                                                <span className="font-medium text-gray-800">{value}</span>
+                                        {product.brand && (
+                                            <div className="flex justify-between py-2 border-b border-gray-200">
+                                                <span className="text-gray-500">Thương hiệu</span>
+                                                <span className="font-medium text-gray-800">{product.brand}</span>
                                             </div>
-                                        ))}
+                                        )}
+                                        {product.material && (
+                                            <div className="flex justify-between py-2 border-b border-gray-200">
+                                                <span className="text-gray-500">Chất liệu</span>
+                                                <span className="font-medium text-gray-800">{product.material}</span>
+                                            </div>
+                                        )}
+                                        {product.color && (
+                                            <div className="flex justify-between py-2 border-b border-gray-200">
+                                                <span className="text-gray-500">Màu sắc</span>
+                                                <span className="font-medium text-gray-800">{product.color}</span>
+                                            </div>
+                                        )}
+                                        {product.dimensions && (
+                                            <div className="flex justify-between py-2 border-b border-gray-200">
+                                                <span className="text-gray-500">Kích thước</span>
+                                                <span className="font-medium text-gray-800">
+                                                    {product.dimensions.width} x {product.dimensions.depth} x {product.dimensions.height} cm
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -323,6 +458,17 @@ const ProductDetailPage = () => {
                                             >
                                                 Mua ngay
                                             </button>
+                                            <button
+                                                onClick={handleToggleWishlist}
+                                                disabled={wishlistLoading}
+                                                className={`px-6 py-4 border-2 rounded-full font-bold transition ${
+                                                    isInWishlist
+                                                        ? "border-red-500 text-red-500 bg-red-50"
+                                                        : "border-gray-300 text-gray-600 hover:border-red-500 hover:text-red-500"
+                                                }`}
+                                            >
+                                                {isInWishlist ? "❤️ Yêu thích" : "🤍 Yêu thích"}
+                                            </button>
                                         </div>
                                     </>
                                 )}
@@ -359,11 +505,28 @@ const ProductDetailPage = () => {
                     </div>
                 </div>
 
-                {/* Related Products */}
-                {relatedProducts.length > 0 && (
-                    <div className="bg-white rounded-2xl shadow-sm p-6">
+                {/* Reviews Section */}
+                <div className="bg-white rounded-2xl shadow-sm p-6 mb-8">
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-xl font-bold text-gray-800">ĐÁNH GIÁ SẢN PHẨM</h2>
+                        <button
+                            onClick={() => setReviewModalOpen(true)}
+                            className="bg-[#8B4513] text-white px-6 py-2.5 rounded-full font-medium hover:bg-[#A0522D] transition flex items-center gap-2"
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+                                <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                            </svg>
+                            Viết đánh giá
+                        </button>
+                    </div>
+                    <ReviewList productId={id} />
+                </div>
+
+                {/* Similar Products */}
+                {(similarProducts.length > 0 || relatedProducts.length > 0) && (
+                    <div className="bg-white rounded-2xl shadow-sm p-6 mb-8">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-bold text-gray-800">SẢN PHẨM LIÊN QUAN</h2>
+                            <h2 className="text-xl font-bold text-gray-800">SẢN PHẨM TƯƠNG TỰ</h2>
                             <Link 
                                 to={`/category/${product.category?._id}`}
                                 className="text-[#8B4513] hover:text-[#A0522D] font-medium"
@@ -372,7 +535,7 @@ const ProductDetailPage = () => {
                             </Link>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            {relatedProducts.map((relatedProduct) => (
+                            {(similarProducts.length > 0 ? similarProducts : relatedProducts).map((relatedProduct) => (
                                 <ProductCard
                                     key={relatedProduct._id}
                                     product={relatedProduct}
@@ -383,6 +546,14 @@ const ProductDetailPage = () => {
                     </div>
                 )}
             </div>
+
+            {/* Review Modal */}
+            <ReviewModal
+                isOpen={reviewModalOpen}
+                onClose={() => setReviewModalOpen(false)}
+                product={product}
+                onReviewCreated={() => fetchProductStats(id)}
+            />
         </div>
     );
 };

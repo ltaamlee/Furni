@@ -1,48 +1,41 @@
-import { useState, useEffect, useContext } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import { AuthContext } from "../../components/context/authContext";
 import { getUserApi, updateUserApi, updatePasswordApi } from "../../utils/api";
 import { useToast } from "../../components/context/ToastContext";
 
-const ProfilePage = () => {
-    const { auth, setAuth } = useContext(AuthContext);
+const UserProfile = () => {
+    const { auth, logout } = useContext(AuthContext);
     const { showToast } = useToast();
-    const [activeTab, setActiveTab] = useState("info");
+    const [activeTab, setActiveTab] = useState("profile");
     const [loading, setLoading] = useState(true);
-    const [updating, setUpdating] = useState(false);
-
+    const [saving, setSaving] = useState(false);
     const [profile, setProfile] = useState({
         fullName: "",
-        email: "",
         phone: "",
-        address: ""
+        email: ""
     });
-
-    const [passwords, setPasswords] = useState({
+    const [password, setPassword] = useState({
         currentPassword: "",
         newPassword: "",
         confirmPassword: ""
     });
 
     useEffect(() => {
-        fetchProfile();
+        fetchUser();
     }, []);
 
-    const fetchProfile = async () => {
+    const fetchUser = async () => {
         try {
-            setLoading(true);
             const res = await getUserApi();
             if (res.success) {
-                const user = res.data.user;
                 setProfile({
-                    fullName: user.fullName || "",
-                    email: user.email || "",
-                    phone: user.phone || "",
-                    address: user.address || ""
+                    fullName: res.data.user.fullName,
+                    phone: res.data.user.phone,
+                    email: res.data.user.email
                 });
             }
         } catch (error) {
-            console.error("Error fetching profile:", error);
-            showToast("Không thể tải thông tin profile", "error");
+            console.error("Error fetching user:", error);
         } finally {
             setLoading(false);
         }
@@ -51,237 +44,204 @@ const ProfilePage = () => {
     const handleProfileSubmit = async (e) => {
         e.preventDefault();
         try {
-            setUpdating(true);
+            setSaving(true);
             const res = await updateUserApi(profile);
             if (res.success) {
                 showToast("Cập nhật thông tin thành công!", "success");
-                // Update auth context
-                setAuth({
-                    ...auth,
-                    user: { ...auth.user, ...res.data.user }
-                });
             }
         } catch (error) {
             showToast(error.message || "Cập nhật thất bại!", "error");
         } finally {
-            setUpdating(false);
+            setSaving(false);
         }
     };
 
     const handlePasswordSubmit = async (e) => {
         e.preventDefault();
-        if (passwords.newPassword !== passwords.confirmPassword) {
-            showToast("Mật khẩu mới không khớp!", "error");
+        if (password.newPassword !== password.confirmPassword) {
+            showToast("Mật khẩu xác nhận không khớp!", "error");
             return;
         }
-        if (passwords.newPassword.length < 6) {
+        if (password.newPassword.length < 6) {
             showToast("Mật khẩu mới phải có ít nhất 6 ký tự!", "error");
             return;
         }
         try {
-            setUpdating(true);
-            const res = await updatePasswordApi(passwords.currentPassword, passwords.newPassword);
+            setSaving(true);
+            const res = await updatePasswordApi(password.currentPassword, password.newPassword);
             if (res.success) {
                 showToast("Đổi mật khẩu thành công!", "success");
-                setPasswords({ currentPassword: "", newPassword: "", confirmPassword: "" });
+                setPassword({ currentPassword: "", newPassword: "", confirmPassword: "" });
             }
         } catch (error) {
-            showToast(error.message || "Đổi mật khẩu thất bại!", "error");
+            showToast(error.response?.data?.message || "Đổi mật khẩu thất bại!", "error");
         } finally {
-            setUpdating(false);
+            setSaving(false);
+        }
+    };
+
+    const handleLogout = () => {
+        if (confirm("Bạn có chắc muốn đăng xuất?")) {
+            logout();
+            window.location.href = "/login";
         }
     };
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center">
+            <div className="min-h-screen flex items-center justify-center bg-[#F5F5F0]">
                 <div className="w-12 h-12 border-4 border-gray-300 border-t-[#8B4513] rounded-full animate-spin"></div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 py-8">
-            <div className="max-w-4xl mx-auto px-4">
+        <div className="min-h-screen bg-[#F5F5F0] py-8">
+            <div className="max-w-5xl mx-auto px-4">
                 {/* Header */}
-                <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-gray-800">TÀI KHOẢN CỦA TÔI</h1>
-                    <p className="text-gray-500 mt-2">Quản lý thông tin cá nhân của bạn</p>
+                <div className="bg-gradient-to-r from-[#8B4513] to-[#A0522D] rounded-2xl p-6 text-white mb-8">
+                    <h1 className="text-2xl font-bold">Xin chào, {auth?.user?.fullName}!</h1>
+                    <p className="opacity-80 mt-1">Quản lý tài khoản của bạn</p>
                 </div>
 
-                <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                    {/* Tabs */}
-                    <div className="flex border-b">
-                        <button
-                            onClick={() => setActiveTab("info")}
-                            className={`flex-1 py-4 px-6 font-medium text-center transition ${
-                                activeTab === "info"
-                                    ? "text-[#8B4513] border-b-2 border-[#8B4513] bg-orange-50/50"
-                                    : "text-gray-500 hover:text-gray-700"
-                            }`}
-                        >
-                            <div className="flex items-center justify-center gap-2">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
-                                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                </svg>
-                                Thông tin cá nhân
-                            </div>
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("password")}
-                            className={`flex-1 py-4 px-6 font-medium text-center transition ${
-                                activeTab === "password"
-                                    ? "text-[#8B4513] border-b-2 border-[#8B4513] bg-orange-50/50"
-                                    : "text-gray-500 hover:text-gray-700"
-                            }`}
-                        >
-                            <div className="flex items-center justify-center gap-2">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
-                                    <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                </svg>
-                                Đổi mật khẩu
-                            </div>
-                        </button>
+                <div className="grid lg:grid-cols-4 gap-8">
+                    {/* Sidebar */}
+                    <div className="lg:col-span-1">
+                        <div className="bg-white rounded-2xl shadow-sm p-4">
+                            <nav className="space-y-2">
+                                {[
+                                    { id: "profile", label: "Hồ sơ", icon: "👤" },
+                                    { id: "password", label: "Đổi mật khẩu", icon: "🔒" },
+                                    { id: "orders", label: "Đơn hàng", icon: "📦", link: "/order-history" },
+                                    { id: "wishlist", label: "Yêu thích", icon: "❤️", link: "/wishlist" },
+                                    { id: "reviews", label: "Đánh giá", icon: "⭐", link: "/my-reviews" },
+                                    { id: "loyalty", label: "Tích điểm", icon: "💎", link: "/loyalty" },
+                                    { id: "coupons", label: "Mã giảm giá", icon: "🎟️", link: "/coupons" }
+                                ].map((item) => (
+                                    item.link ? (
+                                        <a
+                                            key={item.id}
+                                            href={item.link}
+                                            className="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 hover:bg-[#FAF8F5] transition"
+                                        >
+                                            <span>{item.icon}</span>
+                                            <span className="font-medium">{item.label}</span>
+                                        </a>
+                                    ) : (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => setActiveTab(item.id)}
+                                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${
+                                                activeTab === item.id
+                                                    ? "bg-[#8B4513] text-white"
+                                                    : "text-gray-700 hover:bg-[#FAF8F5]"
+                                            }`}
+                                        >
+                                            <span>{item.icon}</span>
+                                            <span className="font-medium">{item.label}</span>
+                                        </button>
+                                    )
+                                ))}
+                                <button
+                                    onClick={handleLogout}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 transition mt-4"
+                                >
+                                    <span>🚪</span>
+                                    <span className="font-medium">Đăng xuất</span>
+                                </button>
+                            </nav>
+                        </div>
                     </div>
 
                     {/* Content */}
-                    <div className="p-6">
-                        {/* Profile Info Tab */}
-                        {activeTab === "info" && (
-                            <form onSubmit={handleProfileSubmit} className="space-y-6">
-                                {/* Avatar */}
-                                <div className="flex items-center gap-6 pb-6 border-b">
-                                    <div className="w-20 h-20 bg-[#8B4513] rounded-full flex items-center justify-center text-white text-2xl font-bold">
-                                        {profile.fullName?.charAt(0)?.toUpperCase() || "U"}
-                                    </div>
+                    <div className="lg:col-span-3">
+                        {/* Profile Tab */}
+                        {activeTab === "profile" && (
+                            <div className="bg-white rounded-2xl shadow-sm p-6">
+                                <h2 className="text-xl font-bold text-gray-800 mb-6">Thông tin tài khoản</h2>
+                                <form onSubmit={handleProfileSubmit} className="space-y-4">
                                     <div>
-                                        <p className="font-semibold text-gray-800">{profile.fullName}</p>
-                                        <p className="text-sm text-gray-500">{auth.user?.role === "admin" ? "Quản trị viên" : "Khách hàng"}</p>
-                                    </div>
-                                </div>
-
-                                {/* Form Fields */}
-                                <div className="grid md:grid-cols-2 gap-6">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Họ và tên *
-                                        </label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Họ và tên</label>
                                         <input
                                             type="text"
                                             value={profile.fullName}
                                             onChange={(e) => setProfile({ ...profile, fullName: e.target.value })}
-                                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
-                                            placeholder="Nhập họ và tên"
-                                            required
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Email *
-                                        </label>
-                                        <input
-                                            type="email"
-                                            value={profile.email}
-                                            onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                                            className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50"
-                                            disabled
-                                        />
-                                        <p className="text-xs text-gray-500 mt-1">Email không thể thay đổi</p>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Số điện thoại
-                                        </label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại</label>
                                         <input
                                             type="tel"
                                             value={profile.phone}
                                             onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-                                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
-                                            placeholder="Nhập số điện thoại"
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Địa chỉ
-                                        </label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                                         <input
-                                            type="text"
-                                            value={profile.address}
-                                            onChange={(e) => setProfile({ ...profile, address: e.target.value })}
-                                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
-                                            placeholder="Nhập địa chỉ"
+                                            type="email"
+                                            value={profile.email}
+                                            onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
                                         />
                                     </div>
-                                </div>
-
-                                <div className="flex justify-end pt-4">
                                     <button
                                         type="submit"
-                                        disabled={updating}
-                                        className="px-8 py-3 bg-[#8B4513] text-white font-semibold rounded-xl hover:bg-[#A0522D] transition disabled:opacity-50 flex items-center gap-2"
+                                        disabled={saving}
+                                        className="w-full bg-[#8B4513] text-white py-3 rounded-xl font-semibold hover:bg-[#A0522D] transition disabled:opacity-50"
                                     >
-                                        {updating && <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>}
-                                        {updating ? "Đang lưu..." : "Lưu thay đổi"}
+                                        {saving ? "Đang lưu..." : "Lưu thay đổi"}
                                     </button>
-                                </div>
-                            </form>
+                                </form>
+                            </div>
                         )}
 
                         {/* Password Tab */}
                         {activeTab === "password" && (
-                            <form onSubmit={handlePasswordSubmit} className="space-y-6 max-w-lg">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Mật khẩu hiện tại *
-                                    </label>
-                                    <input
-                                        type="password"
-                                        value={passwords.currentPassword}
-                                        onChange={(e) => setPasswords({ ...passwords, currentPassword: e.target.value })}
-                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
-                                        placeholder="Nhập mật khẩu hiện tại"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Mật khẩu mới *
-                                    </label>
-                                    <input
-                                        type="password"
-                                        value={passwords.newPassword}
-                                        onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })}
-                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
-                                        placeholder="Nhập mật khẩu mới (ít nhất 6 ký tự)"
-                                        required
-                                        minLength={6}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Xác nhận mật khẩu mới *
-                                    </label>
-                                    <input
-                                        type="password"
-                                        value={passwords.confirmPassword}
-                                        onChange={(e) => setPasswords({ ...passwords, confirmPassword: e.target.value })}
-                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
-                                        placeholder="Nhập lại mật khẩu mới"
-                                        required
-                                    />
-                                </div>
-
-                                <div className="pt-4">
+                            <div className="bg-white rounded-2xl shadow-sm p-6">
+                                <h2 className="text-xl font-bold text-gray-800 mb-6">Đổi mật khẩu</h2>
+                                <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Mật khẩu hiện tại</label>
+                                        <input
+                                            type="password"
+                                            value={password.currentPassword}
+                                            onChange={(e) => setPassword({ ...password, currentPassword: e.target.value })}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Mật khẩu mới</label>
+                                        <input
+                                            type="password"
+                                            value={password.newPassword}
+                                            onChange={(e) => setPassword({ ...password, newPassword: e.target.value })}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Xác nhận mật khẩu mới</label>
+                                        <input
+                                            type="password"
+                                            value={password.confirmPassword}
+                                            onChange={(e) => setPassword({ ...password, confirmPassword: e.target.value })}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent"
+                                            required
+                                        />
+                                    </div>
                                     <button
                                         type="submit"
-                                        disabled={updating}
-                                        className="px-8 py-3 bg-[#8B4513] text-white font-semibold rounded-xl hover:bg-[#A0522D] transition disabled:opacity-50 flex items-center gap-2"
+                                        disabled={saving}
+                                        className="w-full bg-[#8B4513] text-white py-3 rounded-xl font-semibold hover:bg-[#A0522D] transition disabled:opacity-50"
                                     >
-                                        {updating && <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>}
-                                        {updating ? "Đang xử lý..." : "Đổi mật khẩu"}
+                                        {saving ? "Đang lưu..." : "Đổi mật khẩu"}
                                     </button>
-                                </div>
-                            </form>
+                                </form>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -290,4 +250,4 @@ const ProfilePage = () => {
     );
 };
 
-export default ProfilePage;
+export default UserProfile;

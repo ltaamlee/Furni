@@ -19,6 +19,11 @@ import RegisterPage from "./pages/auth/register";
 import VerifyPasswordPage from "./pages/auth/verify-password";
 import ForgotPasswordPage from "./pages/auth/forgot-password";
 import ProfilePage from "./pages/user/profile";
+import WishlistPage from "./components/common/WishlistPage";
+import LoyaltyPointsPage from "./components/common/LoyaltyPointsPage";
+import MyReviewsPage from "./pages/user/myReviews";
+import CouponList from "./components/common/CouponList";
+import RecentlyViewedPage from "./components/common/RecentlyViewedPage";
 
 function App() {
     const { appLoading } = useContext(AuthContext);
@@ -39,9 +44,14 @@ function App() {
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/verify-password" element={<VerifyPasswordPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                <Route path="/profile" element={<ProfilePage />} />
+<Route path="/profile" element={<ProfilePage />} />
+                    <Route path="/wishlist" element={<WishlistPage />} />
+                    <Route path="/loyalty" element={<LoyaltyPointsPage />} />
+                    <Route path="/my-reviews" element={<MyReviewsPage />} />
+                    <Route path="/coupons" element={<CouponList />} />
+                    <Route path="/recently-viewed" element={<RecentlyViewedPage />} />
 
-                {/* Customer Layout - with Header & Footer */}
+                    {/* Customer Layout - with Header & Footer */}
                 <Route element={<CustomerLayout />}>
                     <Route path="/" element={<HomePage />} />
                     <Route path="/products" element={<ProductsPage />} />

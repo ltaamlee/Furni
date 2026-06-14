@@ -1,5 +1,5 @@
 const { ShippingProvider, ShippingOrder, SHIPPING_STATUS } = require('../models/shipping');
-const Order = require('../models/order');
+const Order = require('../models/Order');
 
 // @desc    Get all shipping providers
 // @route   GET /api/shipping/providers

@@ -99,8 +99,118 @@ const getTrendingProductsApi = (params = {}) => {
     return axios.get(URL_API, { params });
 }
 
+const getSimilarProductsApi = (productId, params = {}) => {
+    const URL_API = `/products/similar/${productId}`;
+    return axios.get(URL_API, { params });
+}
+
 const getCategoriesApi = () => {
     const URL_API = "/categories";
+    return axios.get(URL_API);
+}
+
+// Review APIs
+const getProductReviewsApi = (productId, params = {}) => {
+    const URL_API = `/reviews/product/${productId}`;
+    return axios.get(URL_API, { params });
+}
+
+const getMyReviewsApi = (params = {}) => {
+    const URL_API = "/reviews/my-reviews";
+    return axios.get(URL_API, { params });
+}
+
+const createReviewApi = (data) => {
+    const URL_API = "/reviews";
+    return axios.post(URL_API, data);
+}
+
+const updateReviewApi = (reviewId, data) => {
+    const URL_API = `/reviews/${reviewId}`;
+    return axios.put(URL_API, data);
+}
+
+const deleteReviewApi = (reviewId) => {
+    const URL_API = `/reviews/${reviewId}`;
+    return axios.delete(URL_API);
+}
+
+const getPurchasableProductsApi = () => {
+    const URL_API = "/reviews/purchasable";
+    return axios.get(URL_API);
+}
+
+const getProductStatsApi = (productId) => {
+    const URL_API = `/reviews/stats/${productId}`;
+    return axios.get(URL_API);
+}
+
+// Wishlist APIs
+const getWishlistApi = (params = {}) => {
+    const URL_API = "/wishlist";
+    return axios.get(URL_API, { params });
+}
+
+const addToWishlistApi = (productId) => {
+    const URL_API = `/wishlist/${productId}`;
+    return axios.post(URL_API);
+}
+
+const removeFromWishlistApi = (productId) => {
+    const URL_API = `/wishlist/${productId}`;
+    return axios.delete(URL_API);
+}
+
+const checkWishlistApi = (productId) => {
+    const URL_API = `/wishlist/check/${productId}`;
+    return axios.get(URL_API);
+}
+
+// Recently Viewed APIs
+const getRecentlyViewedApi = (params = {}) => {
+    const URL_API = "/wishlist/recently-viewed";
+    return axios.get(URL_API, { params });
+}
+
+const addToRecentlyViewedApi = (productId) => {
+    const URL_API = `/wishlist/recently-viewed/${productId}`;
+    return axios.post(URL_API);
+}
+
+// Coupon APIs
+const getAvailableCouponsApi = () => {
+    const URL_API = "/loyalty/coupons";
+    return axios.get(URL_API);
+}
+
+const getMyCouponsApi = (params = {}) => {
+    const URL_API = "/loyalty/coupons/my-coupons";
+    return axios.get(URL_API, { params });
+}
+
+const validateCouponApi = (data) => {
+    const URL_API = "/loyalty/coupons/validate";
+    return axios.post(URL_API, data);
+}
+
+const redeemCouponApi = (couponId) => {
+    const URL_API = "/loyalty/coupons/redeem";
+    return axios.post(URL_API, { couponId });
+}
+
+// Loyalty Points APIs
+const getMyPointsApi = () => {
+    const URL_API = "/loyalty/points";
+    return axios.get(URL_API);
+}
+
+const getPointHistoryApi = (params = {}) => {
+    const URL_API = "/loyalty/points/history";
+    return axios.get(URL_API, { params });
+}
+
+const getExchangeableCouponsApi = () => {
+    const URL_API = "/loyalty/points/exchangeable";
     return axios.get(URL_API);
 }
 
@@ -145,7 +255,28 @@ export {
     getProductsByCategoryApi,
     getBestSellersApi,
     getTrendingProductsApi,
+    getSimilarProductsApi,
     getCategoriesApi,
+    getProductReviewsApi,
+    getMyReviewsApi,
+    createReviewApi,
+    updateReviewApi,
+    deleteReviewApi,
+    getPurchasableProductsApi,
+    getProductStatsApi,
+    getWishlistApi,
+    addToWishlistApi,
+    removeFromWishlistApi,
+    checkWishlistApi,
+    getRecentlyViewedApi,
+    addToRecentlyViewedApi,
+    getAvailableCouponsApi,
+    getMyCouponsApi,
+    validateCouponApi,
+    redeemCouponApi,
+    getMyPointsApi,
+    getPointHistoryApi,
+    getExchangeableCouponsApi,
     getShippingProvidersApi,
     calculateShippingFeesApi,
     getShippingByOrderApi,

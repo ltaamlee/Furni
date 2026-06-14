@@ -16,6 +16,9 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const shippingRoutes = require('./routes/shippingRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
+const loyaltyRoutes = require('./routes/loyaltyRoutes');
+const wishlistRoutes = require('./routes/wishlistRoutes');
 const { errorHandler } = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -50,6 +53,9 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/shipping', shippingRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/loyalty', loyaltyRoutes);
+app.use('/api/wishlist', wishlistRoutes);
 // Health check
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Server is running' });
