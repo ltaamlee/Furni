@@ -162,23 +162,30 @@ const validateProduct = [
     .isLength({ max: 1000 })
     .withMessage('Mô tả không được vượt quá 1000 ký tự'),
 
+  body('dimensions.length')
+    .optional({ nullable: true })
+    .isNumeric()
+    .withMessage('Chiều dài phải là số'),
+
   body('dimensions.width')
-    .notEmpty()
-    .withMessage('Vui lòng nhập chiều rộng')
+    .optional({ nullable: true })
     .isNumeric()
     .withMessage('Chiều rộng phải là số'),
 
   body('dimensions.depth')
-    .notEmpty()
-    .withMessage('Vui lòng nhập độ dày')
+    .optional({ nullable: true })
     .isNumeric()
     .withMessage('Độ dày phải là số'),
 
   body('dimensions.height')
-    .notEmpty()
-    .withMessage('Vui lòng nhập chiều cao')
+    .optional({ nullable: true })
     .isNumeric()
     .withMessage('Chiều cao phải là số'),
+
+  body('weight')
+    .optional({ nullable: true })
+    .isNumeric()
+    .withMessage('Cân nặng phải là số'),
 
   body('brand')
     .optional()
@@ -194,6 +201,26 @@ const validateProduct = [
     .optional()
     .isLength({ max: 100 })
     .withMessage('Chất liệu không được vượt quá 100 ký tự'),
+
+  body('style')
+    .optional()
+    .isLength({ max: 100 })
+    .withMessage('Phong cách không được vượt quá 100 ký tự'),
+
+  body('status')
+    .optional()
+    .isIn(['active', 'hidden', 'draft', 'out_of_stock'])
+    .withMessage('Trạng thái không hợp lệ'),
+
+  body('deliveryType')
+    .optional()
+    .isIn(['standard', 'with_installation'])
+    .withMessage('Loại giao hàng không hợp lệ'),
+
+  body('variants')
+    .optional()
+    .isArray()
+    .withMessage('Biến thể phải là mảng'),
 
   body('price')
     .notEmpty()

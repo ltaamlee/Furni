@@ -1,5 +1,24 @@
+const mongoose = require('mongoose');
 const Product = require('../models/product');
 const Category = require('../models/category');
+const Shop = require('../models/shop');
+
+// Các field sản phẩm vendor có thể gửi lên (whitelist)
+const PRODUCT_FIELDS = [
+    'name', 'description', 'dimensions', 'weight', 'brand', 'color', 'material',
+    'style', 'requiresAssembly', 'deliveryType', 'variant', 'variants',
+    'price', 'originalPrice', 'quantity', 'category', 'images',
+    'metaTitle', 'metaDescription', 'status', 'isActive'
+];
+
+// Lọc body chỉ giữ các field hợp lệ và bỏ field undefined
+const pickProductFields = (body) => {
+    const data = {};
+    PRODUCT_FIELDS.forEach((key) => {
+        if (body[key] !== undefined) data[key] = body[key];
+    });
+    return data;
+};
 
 // @desc    Get all products
 // @route   GET /api/products
@@ -24,7 +43,11 @@ const getAllProducts = async (req, res) => {
     if (category) {
       query.category = category;
     }
-    
+
+    if (req.query.shop) {
+      query.shop = req.query.shop;
+    }
+
     if (brand) {
       query.brand = brand;
     }
@@ -49,6 +72,7 @@ const getAllProducts = async (req, res) => {
     const skip = (Number(page) - 1) * Number(limit);
     const products = await Product.find(query)
       .populate('category', 'name')
+      .populate('shop', 'name slug logo')
       .sort({ [sort]: order === 'desc' ? -1 : 1 })
       .skip(skip)
       .limit(Number(limit));
@@ -79,7 +103,13 @@ const getAllProducts = async (req, res) => {
 // @access  Public
 const getProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate('category', 'name');
+    // Cho phép tra cứu theo ObjectId hoặc theo slug (URL thân thiện: /product/:slug)
+    const { id } = req.params;
+    const lookup = mongoose.isValidObjectId(id) ? { _id: id } : { slug: id };
+
+    const product = await Product.findOne(lookup)
+      .populate('category', 'name')
+      .populate('shop', 'name slug logo banner description phone email address isActive');
 
     if (!product) {
       return res.status(404).json({
@@ -106,22 +136,10 @@ const getProduct = async (req, res) => {
 // @access  Private/Vendor+Admin
 const createProduct = async (req, res) => {
   try {
-    const { 
-      name, 
-      description, 
-      dimensions, 
-      brand, 
-      color, 
-      material, 
-      variant,
-      price, 
-      quantity, 
-      category, 
-      images 
-    } = req.body;
+    const data = pickProductFields(req.body);
 
     // Check if category exists
-    const categoryExists = await Category.findById(category);
+    const categoryExists = await Category.findById(data.category);
     if (!categoryExists) {
       return res.status(400).json({
         success: false,
@@ -129,19 +147,28 @@ const createProduct = async (req, res) => {
       });
     }
 
-    const product = await Product.create({
-      name,
-      description,
-      dimensions,
-      brand,
-      color,
-      material,
-      variant,
-      price,
-      quantity,
-      category,
-      images
-    });
+    // Gán shop: vendor -> shop của chính họ; admin có thể truyền shop trong body
+    if (req.user && req.user.role === 'vendor') {
+      const shop = await Shop.findOne({ owner: req.user._id });
+      if (!shop) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bạn chưa có cửa hàng. Vui lòng đăng ký cửa hàng trước!'
+        });
+      }
+      // Shop phải được admin duyệt mới được đăng bán
+      if (shop.status !== Shop.STATUS.APPROVED) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cửa hàng của bạn chưa được duyệt nên chưa thể đăng bán sản phẩm.'
+        });
+      }
+      data.shop = shop._id;
+    } else if (req.body.shop) {
+      data.shop = req.body.shop;
+    }
+
+    const product = await Product.create(data);
 
     res.status(201).json({
       success: true,
@@ -162,21 +189,6 @@ const createProduct = async (req, res) => {
 // @access  Private/Vendor+Admin
 const updateProduct = async (req, res) => {
   try {
-    const { 
-      name, 
-      description, 
-      dimensions, 
-      brand, 
-      color, 
-      material, 
-      variant,
-      price, 
-      quantity, 
-      category, 
-      images,
-      isActive
-    } = req.body;
-
     let product = await Product.findById(req.params.id);
 
     if (!product) {
@@ -186,9 +198,20 @@ const updateProduct = async (req, res) => {
       });
     }
 
+    // Vendor chỉ được sửa sản phẩm thuộc shop của mình
+    if (req.user && req.user.role === 'vendor') {
+      const shop = await Shop.findOne({ owner: req.user._id });
+      if (!shop || !product.shop || product.shop.toString() !== shop._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Bạn không có quyền sửa sản phẩm này'
+        });
+      }
+    }
+
     // Check if category exists if being updated
-    if (category) {
-      const categoryExists = await Category.findById(category);
+    if (req.body.category) {
+      const categoryExists = await Category.findById(req.body.category);
       if (!categoryExists) {
         return res.status(400).json({
           success: false,
@@ -197,16 +220,8 @@ const updateProduct = async (req, res) => {
       }
     }
 
-    // Update fields
-    const updateData = {
-      name, description, dimensions, brand, color, material, variant,
-      price, quantity, category, images, isActive
-    };
-
-    // Remove undefined fields
-    Object.keys(updateData).forEach(key => {
-      if (updateData[key] === undefined) delete updateData[key];
-    });
+    // Update fields (whitelist, bỏ undefined)
+    const updateData = pickProductFields(req.body);
 
     product = await Product.findByIdAndUpdate(
       req.params.id,
@@ -233,13 +248,26 @@ const updateProduct = async (req, res) => {
 // @access  Private/Vendor+Admin
 const deleteProduct = async (req, res) => {
     try {
-        const product = await Product.findByIdAndDelete(req.params.id);
+        const product = await Product.findById(req.params.id);
         if (!product) {
             return res.status(404).json({
                 success: false,
                 message: 'Không tìm thấy sản phẩm'
             });
         }
+
+        // Vendor chỉ được xóa sản phẩm thuộc shop của mình
+        if (req.user && req.user.role === 'vendor') {
+            const shop = await Shop.findOne({ owner: req.user._id });
+            if (!shop || !product.shop || product.shop.toString() !== shop._id.toString()) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Bạn không có quyền xóa sản phẩm này'
+                });
+            }
+        }
+
+        await product.deleteOne();
         res.status(200).json({
             success: true,
             message: 'Xóa sản phẩm thành công'
@@ -441,20 +469,36 @@ const getProductRatings = async (req, res) => {
 // @access  Public
 const getProductsByCategory = async (req, res) => {
     try {
-        const { categoryId } = req.params;
+        const { slug } = req.params;
         const { page = 1, limit = 12, sort = '-createdAt' } = req.query;
 
-        const products = await Product.find({ category: categoryId, isActive: true })
-            .populate('category', 'name')
+        const category = await Category.findOne({ slug });
+
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                message: 'Không tìm thấy danh mục'
+            });
+        }
+
+        const products = await Product.find({
+            category: category._id,
+            isActive: true
+        })
+            .populate('category', 'name slug')
             .sort(sort)
             .skip((page - 1) * limit)
             .limit(parseInt(limit));
 
-        const total = await Product.countDocuments({ category: categoryId, isActive: true });
+        const total = await Product.countDocuments({
+            category: category._id,
+            isActive: true
+        });
 
         res.status(200).json({
             success: true,
             data: {
+                category,
                 products,
                 pagination: {
                     page: parseInt(page),
@@ -507,7 +551,7 @@ const getTrendingProducts = async (req, res) => {
 
         const products = await Product.find({ isActive: true })
             .populate('category', 'name')
-            .sort({ viewCount: -1 })
+            .sort({ views: -1 })
             .limit(parseInt(limit));
 
         res.status(200).json({

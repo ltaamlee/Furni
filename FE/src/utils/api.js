@@ -84,8 +84,8 @@ const getProductByIdApi = (productId) => {
     return axios.get(URL_API);
 }
 
-const getProductsByCategoryApi = (categoryId, params = {}) => {
-    const URL_API = `/products/category/${categoryId}`;
+const getProductsByCategoryApi = (slug, params = {}) => {
+    const URL_API = `/products/category/${slug}`;
     return axios.get(URL_API, { params });
 }
 
@@ -235,6 +235,65 @@ const trackShipmentApi = (trackingNumber) => {
     return axios.get(URL_API);
 }
 
+// Public shop (storefront)
+const getShopApi = (idOrSlug) => axios.get(`/shops/${idOrSlug}`);
+const getShopProductsApi = (id, params = {}) => axios.get(`/shops/${id}/products`, { params });
+
+// Admin — duyệt cửa hàng
+const getAdminShopsApi = (params = {}) => axios.get("/admin/shops", { params });
+const updateShopStatusApi = (id, status, statusNote) => axios.put(`/admin/shops/${id}/status`, { status, statusNote });
+
+// Vendor APIs (role: vendor) — shop-scoped
+const getMyShopApi = () => axios.get("/vendor/shop");
+const updateMyShopApi = (data) => axios.put("/vendor/shop", data);
+const getVendorDashboardApi = () => axios.get("/vendor/dashboard");
+const getVendorReportsApi = (params = {}) => axios.get("/vendor/reports", { params });
+
+// Vendor wallet
+const getVendorWalletApi = () => axios.get("/vendor/wallet");
+const getVendorTransactionsApi = (params = {}) => axios.get("/vendor/wallet/transactions", { params });
+const vendorWithdrawApi = (data) => axios.post("/vendor/wallet/withdraw", data);
+const addVendorBankAccountApi = (data) => axios.post("/vendor/wallet/bank-accounts", data);
+
+// Vendor reviews
+const getVendorReviewsApi = (params = {}) => axios.get("/vendor/reviews", { params });
+const replyVendorReviewApi = (id, content) => axios.put(`/vendor/reviews/${id}/reply`, { content });
+
+// Vendor notifications
+const getVendorNotificationsApi = (params = {}) => axios.get("/vendor/notifications", { params });
+const markNotificationReadApi = (id) => axios.put(`/vendor/notifications/${id}/read`);
+const markAllNotificationsReadApi = () => axios.put("/vendor/notifications/read-all");
+const deleteNotificationApi = (id) => axios.delete(`/vendor/notifications/${id}`);
+
+const getVendorProductsApi = (params = {}) => axios.get("/vendor/products", { params });
+const createVendorProductApi = (data) => axios.post("/vendor/products", data);
+const updateVendorProductApi = (id, data) => axios.put(`/vendor/products/${id}`, data);
+const deleteVendorProductApi = (id) => axios.delete(`/vendor/products/${id}`);
+
+// Danh mục mà shop đang bán (cho phạm vi khuyến mãi)
+const getVendorCategoriesApi = () => axios.get("/vendor/categories");
+
+// Upload ảnh sản phẩm lên Cloudinary (multipart/form-data, field "images")
+const uploadVendorImagesApi = (files) => {
+    const fd = new FormData();
+    [...files].forEach((f) => fd.append("images", f));
+    return axios.post("/vendor/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+};
+
+// Xuất danh sách sản phẩm ra Excel (trả về Blob)
+const exportVendorProductsApi = (params = {}) =>
+    axios.get("/vendor/products/export", { params, responseType: "blob" });
+
+// Vendor orders (đơn hàng có sản phẩm của shop)
+const getVendorOrdersApi = (params = {}) => axios.get("/vendor/orders", { params });
+const getVendorOrderApi = (id) => axios.get(`/vendor/orders/${id}`);
+const updateVendorOrderStatusApi = (id, status, note) => axios.put(`/vendor/orders/${id}/status`, { status, note });
+
+const getVendorPromotionsApi = (params = {}) => axios.get("/vendor/promotions", { params });
+const createVendorPromotionApi = (data) => axios.post("/vendor/promotions", data);
+const updateVendorPromotionApi = (id, data) => axios.put(`/vendor/promotions/${id}`, data);
+const deleteVendorPromotionApi = (id) => axios.delete(`/vendor/promotions/${id}`);
+
 export {
     createUserApi,
     loginApi,
@@ -280,5 +339,37 @@ export {
     getShippingProvidersApi,
     calculateShippingFeesApi,
     getShippingByOrderApi,
-    trackShipmentApi
+    trackShipmentApi,
+    getShopApi,
+    getShopProductsApi,
+    getAdminShopsApi,
+    updateShopStatusApi,
+    getMyShopApi,
+    updateMyShopApi,
+    getVendorDashboardApi,
+    getVendorReportsApi,
+    getVendorWalletApi,
+    getVendorTransactionsApi,
+    vendorWithdrawApi,
+    addVendorBankAccountApi,
+    getVendorReviewsApi,
+    replyVendorReviewApi,
+    getVendorNotificationsApi,
+    markNotificationReadApi,
+    markAllNotificationsReadApi,
+    deleteNotificationApi,
+    getVendorProductsApi,
+    createVendorProductApi,
+    updateVendorProductApi,
+    deleteVendorProductApi,
+    getVendorCategoriesApi,
+    uploadVendorImagesApi,
+    exportVendorProductsApi,
+    getVendorOrdersApi,
+    getVendorOrderApi,
+    updateVendorOrderStatusApi,
+    getVendorPromotionsApi,
+    createVendorPromotionApi,
+    updateVendorPromotionApi,
+    deleteVendorPromotionApi
 };

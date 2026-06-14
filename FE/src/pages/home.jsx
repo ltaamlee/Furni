@@ -71,6 +71,7 @@ const HomePage = () => {
     }, []);
 
     const fetchData = async () => {
+        console.log("Fetching home page data...");
         try {
             setLoading(true);
             const [categoriesRes, bestSellersRes, trendingRes] = await Promise.all([
@@ -116,7 +117,7 @@ const HomePage = () => {
     return (
         <div className="min-h-screen bg-[#F5F5F0]">
             {/* Hero Banner */}
-            <section className="bg-gradient-to-r from-[#8B4513] via-[#A0522D] to-[#CD853F] py-12 md:py-16">
+            <section className="bg-linear-to-r from-[#8B4513] via-[#A0522D] to-[#CD853F] py-12 md:py-16">
                 <div className="max-w-7xl mx-auto px-4">
                     <div className="flex flex-col lg:flex-row items-center gap-8">
                         {/* Hero Content */}
@@ -187,9 +188,9 @@ const HomePage = () => {
                     >
                         {categories.map((cat) => (
                             <Link
-                                key={cat._id}
-                                to={`/category/${cat._id}`}
-                                className="flex-shrink-0 bg-[#FAF8F5] rounded-xl p-6 text-center hover:shadow-lg transition-all hover:-translate-y-1 w-32"
+                                key={cat.slug}
+                                to={`/category/${cat.slug}`}
+                                className="shrink-0 bg-[#FAF8F5] rounded-xl p-6 text-center hover:shadow-lg transition-all hover:-translate-y-1 w-32"
                             >
                                 <div className="text-[#8B4513] mb-3 flex justify-center">
                                     {categoryIcons[cat.name] || (

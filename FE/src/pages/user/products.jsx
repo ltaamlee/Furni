@@ -226,7 +226,7 @@ const ProductsPage = () => {
                             )}
                             {category && category !== "all" && (
                                 <span className="flex items-center gap-1 px-3 py-1 bg-[#8B4513]/10 text-[#8B4513] rounded-full text-sm">
-                                    {categories.find(c => c._id === category)?.name || category}
+                                    {categories.find(c => c.slug === category)?.name || category}
                                     <button onClick={() => updateFilter("category", "all")} className="ml-1">×</button>
                                 </span>
                             )}
@@ -263,10 +263,10 @@ const ProductsPage = () => {
                                     </button>
                                     {categories.map((cat) => (
                                         <button
-                                            key={cat._id}
-                                            onClick={() => updateFilter("category", cat._id)}
+                                            key={cat.slug}
+                                            onClick={() => updateFilter("category", cat.slug)}
                                             className={`w-full text-left px-3 py-2 rounded-lg transition ${
-                                                category === cat._id 
+                                                category === cat.slug 
                                                     ? "bg-[#8B4513] text-white" 
                                                     : "hover:bg-gray-100 text-gray-600"
                                             }`}
@@ -305,7 +305,7 @@ const ProductsPage = () => {
                                         {bestSellers.slice(0, 3).map((product) => (
                                             <Link
                                                 key={product._id}
-                                                to={`/product/${product._id}`}
+                                                to={`/product/${product.slug || product._id}`}
                                                 className="flex gap-3 p-2 rounded-lg hover:bg-gray-50 transition"
                                             >
                                                 <img
@@ -352,9 +352,9 @@ const ProductsPage = () => {
                                         </button>
                                         {categories.map((cat) => (
                                             <button
-                                                key={cat._id}
-                                                onClick={() => { updateFilter("category", cat._id); setShowFilters(false); }}
-                                                className={`w-full text-left px-3 py-2 rounded-lg ${category === cat._id ? "bg-[#8B4513] text-white" : "hover:bg-gray-100"}`}
+                                                key={cat.slug}
+                                                onClick={() => { updateFilter("category", cat.slug); setShowFilters(false); }}
+                                                className={`w-full text-left px-3 py-2 rounded-lg ${category === cat.slug ? "bg-[#8B4513] text-white" : "hover:bg-gray-100"}`}
                                             >
                                                 {cat.name}
                                             </button>

@@ -20,7 +20,7 @@ const { validateProduct } = require('../middleware/validationMiddleware');
 router.get('/', getAllProducts);
 router.get('/best-sellers', getBestSellers);
 router.get('/trending', getTrendingProducts);
-router.get('/category/:categoryId', getProductsByCategory);
+router.get('/category/:slug', getProductsByCategory);
 router.get('/:id', getProduct);
 router.get('/ratings/:pid', getProductRatings);
 

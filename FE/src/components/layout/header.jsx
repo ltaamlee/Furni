@@ -230,7 +230,16 @@ export default function Header() {
                         </svg>
                         Mã giảm giá
                       </Link>
-                      {(user.role === "vendor" || user.role === "admin") && (
+
+                      {user.role === "vendor" && (
+                        <Link to="/vendor/dashboard" className="flex items-center gap-3 px-4 py-2 hover:bg-gray-50" onClick={() => setOpen(false)}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5 text-[#8B4513]">
+                            <path d="M3 9l1-5h16l1 5M4 9v11a1 1 0 001 1h14a1 1 0 001-1V9M9 21v-6h6v6" />
+                          </svg>
+                          Quản lý cửa hàng
+                        </Link>
+                      )}
+                      {user.role === "admin" && (
                         <Link to="/admin" className="flex items-center gap-3 px-4 py-2 hover:bg-gray-50" onClick={() => setOpen(false)}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5 text-gray-500">
                             <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -253,7 +262,7 @@ export default function Header() {
                 </div>
               )}
             </div>
-
+            
             {/* CART */}
             <Link to="/cart" className="relative p-2 hover:bg-gray-100 rounded-full transition">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6 text-gray-600">

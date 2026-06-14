@@ -1,0 +1,34 @@
+/* ============================================================
+   Vendor Portal – scoped styles
+   Loaded once by VendorLayout. All rules are scoped under
+   .vendor-shell so nothing here can leak into customer/admin UI.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700;800&display=swap');
+
+.vendor-shell {
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
+  color: #1C1108;
+}
+
+/* Hide scrollbar on the dark sidebar */
+.vendor-sidebar-scroll {
+  scrollbar-width: none;
+}
+.vendor-sidebar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Slim scrollbar for inner scroll areas */
+.vendor-thin-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.vendor-thin-scroll::-webkit-scrollbar-track { background: transparent; }
+.vendor-thin-scroll::-webkit-scrollbar-thumb { background: #D5C9BC; border-radius: 3px; }
+
+/* Hide scrollbar on horizontal tab strips */
+.vendor-no-scrollbar { scrollbar-width: none; }
+.vendor-no-scrollbar::-webkit-scrollbar { display: none; }
+
+@keyframes vendor-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.vendor-fade-in { animation: vendor-fade-in .25s ease-out; }

@@ -1,6 +1,7 @@
-import { Outlet } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import CustomerLayout from "./components/layout/CustomerLayout";
+import VendorLayout from "./components/vendor/VendorLayout";
 import { useContext } from "react";
 import { AuthContext } from "./components/context/authContext";
 
@@ -14,6 +15,7 @@ import OrderHistoryPage from "./pages/user/orderHistory";
 import OrderDetailPage from "./pages/user/orderDetail";
 import ProductByCategoryPage from "./pages/user/productByCategory";
 import BestSellersPage from "./pages/user/bestSellers";
+import ShopPage from "./pages/user/shop";
 import LoginPage from "./pages/auth/login";
 import RegisterPage from "./pages/auth/register";
 import VerifyPasswordPage from "./pages/auth/verify-password";
@@ -24,6 +26,18 @@ import LoyaltyPointsPage from "./components/common/LoyaltyPointsPage";
 import MyReviewsPage from "./pages/user/myReviews";
 import CouponList from "./components/common/CouponList";
 import RecentlyViewedPage from "./components/common/RecentlyViewedPage";
+
+// Vendor pages
+import VendorRegister from "./pages/vendor/Register";
+import VendorDashboard from "./pages/vendor/Dashboard";
+import VendorSettings from "./pages/vendor/Settings";
+import VendorProducts from "./pages/vendor/Products";
+import VendorOrders from "./pages/vendor/Orders";
+import VendorPromotions from "./pages/vendor/Promotions";
+import VendorWallet from "./pages/vendor/Wallet";
+import VendorReports from "./pages/vendor/Reports";
+import VendorReviews from "./pages/vendor/Reviews";
+import VendorNotifications from "./pages/vendor/Notifications";
 
 function App() {
     const { appLoading } = useContext(AuthContext);
@@ -54,15 +68,34 @@ function App() {
                     {/* Customer Layout - with Header & Footer */}
                 <Route element={<CustomerLayout />}>
                     <Route path="/" element={<HomePage />} />
+                    <Route path="/home" element={<HomePage />} />
                     <Route path="/products" element={<ProductsPage />} />
-                    <Route path="/product/:id" element={<ProductDetailPage />} />
+                    <Route path="/product/:slug" element={<ProductDetailPage />} />
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/checkout" element={<CheckoutPage />} />
                     <Route path="/order-success/:id" element={<OrderSuccessPage />} />
                     <Route path="/orders" element={<OrderHistoryPage />} />
                     <Route path="/orders/:id" element={<OrderDetailPage />} />
-                    <Route path="/category/:categoryId" element={<ProductByCategoryPage />} />
+                    <Route path="/category/:slug" element={<ProductByCategoryPage />} />
                     <Route path="/best-sellers" element={<BestSellersPage />} />
+                    <Route path="/shop/:id" element={<ShopPage />} />
+                </Route>
+
+                {/* Vendor – shop registration (standalone, no sidebar) */}
+                <Route path="/vendor/register" element={<VendorRegister />} />
+
+                {/* Vendor – portal (sidebar + topbar layout) */}
+                <Route path="/vendor" element={<VendorLayout />}>
+                    <Route index element={<Navigate to="/vendor/dashboard" replace />} />
+                    <Route path="dashboard" element={<VendorDashboard />} />
+                    <Route path="products" element={<VendorProducts />} />
+                    <Route path="orders" element={<VendorOrders />} />
+                    <Route path="promotions" element={<VendorPromotions />} />
+                    <Route path="wallet" element={<VendorWallet />} />
+                    <Route path="reports" element={<VendorReports />} />
+                    <Route path="reviews" element={<VendorReviews />} />
+                    <Route path="notifications" element={<VendorNotifications />} />
+                    <Route path="settings" element={<VendorSettings />} />
                 </Route>
 
                 {/* 404 */}

@@ -2,6 +2,14 @@ const mongoose = require('mongoose');
 const validator = require('validator');
 const slugify = require('slugify');
 
+// Trạng thái duyệt cửa hàng — shop phải được admin duyệt (approved) mới được bán
+const SHOP_STATUS = {
+    PENDING: 'pending',     // Chờ duyệt (mới đăng ký)
+    APPROVED: 'approved',   // Đã duyệt — được phép đăng bán
+    SUSPENDED: 'suspended', // Bị tạm khoá
+    REJECTED: 'rejected'    // Bị từ chối
+};
+
 const ShopSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -57,10 +65,31 @@ const ShopSchema = new mongoose.Schema({
         maxlength: [500, 'Địa chỉ không được vượt quá 500 ký tự!'],
         default: null
     },
+    // Trạng thái duyệt (admin kiểm duyệt trước khi shop được bán)
+    status: {
+        type: String,
+        enum: Object.values(SHOP_STATUS),
+        default: SHOP_STATUS.PENDING
+    },
+    // Lý do từ chối / tạm khoá (admin nhập)
+    statusNote: {
+        type: String,
+        default: ''
+    },
+    // isActive: vendor tự bật/tắt cửa hàng (nghỉ bán tạm thời) — khác với duyệt
     isActive: {
         type: Boolean,
         default: true
     }
 }, { timestamps: true });
 
-module.exports = mongoose.model('Shop', ShopSchema);
+// Shop có đang được phép bán không (đã duyệt + đang mở)
+ShopSchema.methods.canSell = function () {
+    return this.status === SHOP_STATUS.APPROVED && this.isActive !== false;
+};
+
+const Shop = mongoose.model('Shop', ShopSchema);
+Shop.STATUS = SHOP_STATUS;
+
+module.exports = Shop;
+module.exports.STATUS = SHOP_STATUS;

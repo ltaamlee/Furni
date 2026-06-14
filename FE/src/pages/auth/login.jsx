@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import { useContext, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../components/context/authContext';
 import { loginApi } from '../../utils/api';
@@ -71,18 +71,12 @@ const Divider = ({ label }) => (
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { setAuth, setAppLoading } = useContext(AuthContext);
+  const { setAuth } = useContext(AuthContext);
 
   const [form, setForm] = useState({ usernameOrEmail: '', password: '', rememberMe: false });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState({ type: '', message: '' });
-
-  // Trigger auth context to refresh (re-read token from localStorage)
-  const refreshAuth = () => {
-    setAppLoading(true);
-    setTimeout(() => setAppLoading(false), 100);
-  };
 
   // Field change handler
   const handleChange = (e) => {
@@ -127,9 +121,8 @@ const LoginPage = () => {
           },
         });
 
-        refreshAuth();
         setAlert({ type: 'success', message: 'Đăng nhập thành công! Đang chuyển hướng...' });
-        setTimeout(() => navigate('/'), 1000);
+        setTimeout(() => navigate('/'), 800);
       } else {
         setAlert({ type: 'error', message: data.message || 'Đăng nhập thất bại!' });
       }

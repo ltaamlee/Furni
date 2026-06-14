@@ -17,8 +17,12 @@ instance.interceptors.response.use(function (response){
     return response;
 }, function (error){
     // Log error for debugging
-    console.log("API Error:", error?.response?.status, error?.response?.data);
-    
+    console.log(
+        "API Error:",
+        error?.config?.url,
+        error?.response?.status,
+        error?.response?.data
+    );    
     // Handle 401 Unauthorized - clear token and redirect to login
     if (error?.response?.status === 401) {
         localStorage.removeItem("access_token");

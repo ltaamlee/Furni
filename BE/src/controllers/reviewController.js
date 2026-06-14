@@ -3,6 +3,7 @@ const Product = require('../models/Product');
 const Order = require('../models/Order');
 const Coupon = require('../models/Coupon');
 const LoyaltyPoint = require('../models/LoyaltyPoint');
+const mongoose = require('mongoose');
 
 // @desc    Create a review for a product
 // @route   POST /api/reviews
@@ -179,9 +180,19 @@ const getProductReviews = async (req, res) => {
 
         // Get rating distribution
         const ratingStats = await Review.aggregate([
-            { $match: { product: require('mongoose').Types.ObjectId(productId), status: 'approved' } },
-            { $group: { _id: '$rating', count: { $sum: 1 } } }
-        ]);
+        {
+            $match: {
+                product: new mongoose.Types.ObjectId(productId),
+                status: 'approved'
+            }
+        },
+        {
+            $group: {
+                _id: '$rating',
+                count: { $sum: 1 }
+            }
+        }
+    ]);
 
         const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
         ratingStats.forEach(stat => {

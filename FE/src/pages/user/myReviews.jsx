@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { getMyReviewsApi, deleteReviewApi } from "../../utils/api";
 import { useNavigate } from "react-router-dom";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "../../components/context/ToastContext";
 
 const MyReviewsPage = () => {
     const navigate = useNavigate();

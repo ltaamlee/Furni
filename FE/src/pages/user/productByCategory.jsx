@@ -4,7 +4,7 @@ import { getProductsByCategoryApi, getCategoriesApi } from "../../utils/api";
 import ProductCard from "../../components/common/productCard";
 
 const ProductByCategoryPage = () => {
-    const { categoryId } = useParams();
+    const { slug } = useParams();
     const [products, setProducts] = useState([]);
     const [category, setCategory] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -19,13 +19,13 @@ const ProductByCategoryPage = () => {
     useEffect(() => {
         fetchCategory();
         fetchProducts(true);
-    }, [categoryId, sort]);
+    }, [slug, sort]);
 
     const fetchCategory = async () => {
         try {
             const res = await getCategoriesApi();
             if (res.success) {
-                const cat = res.data.categories?.find(c => c._id === categoryId);
+                const cat = res.data.categories?.find(c => c.slug === slug);
                 setCategory(cat || { name: "Danh mục" });
             }
         } catch (error) {
@@ -42,7 +42,7 @@ const ProductByCategoryPage = () => {
             }
 
             const currentPage = reset ? 1 : page;
-            const res = await getProductsByCategoryApi(categoryId, {
+            const res = await getProductsByCategoryApi(slug, {
                 page: currentPage,
                 limit: 12,
                 sort,
