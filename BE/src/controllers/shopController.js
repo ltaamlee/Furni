@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Shop = require('../models/shop');
 const Product = require('../models/product');
+const { attachPricing } = require('../utils/pricing');
 
 // @desc    Lấy thông tin công khai của 1 shop (theo id hoặc slug)
 // @route   GET /api/shops/:idOrSlug
@@ -62,9 +63,10 @@ const getShopProducts = async (req, res) => {
 
         const skip = (Number(page) - 1) * Number(limit);
         const [products, total] = await Promise.all([
-            Product.find(query).populate('category', 'name').sort(sort).skip(skip).limit(Number(limit)),
+            Product.find(query).populate('category', 'name').sort(sort).skip(skip).limit(Number(limit)).lean(),
             Product.countDocuments(query)
         ]);
+        await attachPricing(products);
 
         res.status(200).json({
             success: true,

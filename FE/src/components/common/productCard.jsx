@@ -73,6 +73,11 @@ const ProductCard = ({ product, onAddToCart }) => {
                 
                 {/* Badges */}
                 <div className="absolute top-3 left-3 flex flex-col gap-2">
+                    {product.salePrice != null && product.salePrice < product.price && (
+                        <span className="bg-[#B86B05] text-white text-xs px-2 py-1 rounded-full font-semibold">
+                            -{Math.round((1 - product.salePrice / product.price) * 100)}%
+                        </span>
+                    )}
                     {product.sold > 10 && (
                         <span className="bg-[#E53E3E] text-white text-xs px-2 py-1 rounded-full font-semibold">
                             Bán chạy
@@ -134,9 +139,16 @@ const ProductCard = ({ product, onAddToCart }) => {
 
                 {/* Price */}
                 <div className="flex items-center justify-between">
-                    <span className="text-lg font-bold text-[#8B4513]">
-                        {formatPrice(product.price)}
-                    </span>
+                    <div className="flex flex-col">
+                        {product.salePrice != null && product.salePrice < product.price ? (
+                            <>
+                                <span className="text-lg font-bold text-[#E53E3E]">{formatPrice(product.salePrice)}</span>
+                                <span className="text-xs text-gray-400 line-through">{formatPrice(product.price)}</span>
+                            </>
+                        ) : (
+                            <span className="text-lg font-bold text-[#8B4513]">{formatPrice(product.price)}</span>
+                        )}
+                    </div>
                     {product.quantity > 0 ? (
                         <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
                             Còn hàng

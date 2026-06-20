@@ -38,6 +38,7 @@ import VendorWallet from "./pages/vendor/Wallet";
 import VendorReports from "./pages/vendor/Reports";
 import VendorReviews from "./pages/vendor/Reviews";
 import VendorNotifications from "./pages/vendor/Notifications";
+import VendorBlog from "./pages/vendor/Blog";
 
 function App() {
     const { appLoading } = useContext(AuthContext);
@@ -93,6 +94,7 @@ function App() {
                     <Route path="promotions" element={<VendorPromotions />} />
                     <Route path="wallet" element={<VendorWallet />} />
                     <Route path="reports" element={<VendorReports />} />
+                    <Route path="blog" element={<VendorBlog />} />
                     <Route path="reviews" element={<VendorReviews />} />
                     <Route path="notifications" element={<VendorNotifications />} />
                     <Route path="settings" element={<VendorSettings />} />

@@ -271,12 +271,13 @@ const ProductDetailPage = () => {
     const images = product.images?.length > 0 ? product.images : ["/placeholder.png"];
     const variants = product.variants || [];
     const activeVariant = selectedVariant !== null ? variants[selectedVariant] : null;
-    const displayPrice = activeVariant?.price ?? product.price;
+    // Giá khuyến mãi (chỉ áp cho giá sản phẩm, bỏ qua khi đã chọn biến thể riêng)
+    const onSale = !activeVariant && product.salePrice != null && product.salePrice < product.price;
+    const base = activeVariant?.price ?? product.price;
+    const displayPrice = onSale ? product.salePrice : base;
+    const strikePrice = onSale ? product.price : (product.originalPrice && product.originalPrice > base ? product.originalPrice : null);
     const displayStock = activeVariant?.stock ?? product.quantity;
-    const discountPct =
-        product.originalPrice && product.originalPrice > displayPrice
-            ? Math.round((1 - displayPrice / product.originalPrice) * 100)
-            : null;
+    const discountPct = strikePrice ? Math.round((1 - displayPrice / strikePrice) * 100) : null;
 
     const deliveryLabel =
         product.deliveryType === "with_installation"
@@ -422,14 +423,14 @@ const ProductDetailPage = () => {
 
                             {/* Price */}
                             <div className="bg-[#FAF8F5] rounded-xl p-4">
-                                <div className="flex items-baseline gap-3">
+                                <div className="flex items-baseline gap-3 flex-wrap">
                                     <span className="text-3xl font-bold text-[#8B4513]">
                                         {formatPrice(displayPrice)}
                                     </span>
                                     {discountPct !== null && (
                                         <>
                                             <span className="text-lg text-gray-400 line-through">
-                                                {formatPrice(product.originalPrice)}
+                                                {formatPrice(strikePrice)}
                                             </span>
                                             <span className="bg-red-100 text-red-600 text-sm px-2 py-1 rounded-full font-medium">
                                                 -{discountPct}%
@@ -437,6 +438,9 @@ const ProductDetailPage = () => {
                                         </>
                                     )}
                                 </div>
+                                {onSale && product.promotion?.name && (
+                                    <div className="mt-1.5 text-sm text-red-600 font-medium">🔥 {product.promotion.name}</div>
+                                )}
                             </div>
 
                             {/* Variants */}

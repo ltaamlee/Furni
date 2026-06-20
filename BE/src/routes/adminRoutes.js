@@ -11,6 +11,9 @@ const {
 } = require('../controllers/userController');
 
 const { getAllShopsAdmin, updateShopStatus } = require('../controllers/shopController');
+const {
+    getAdminPromotions, createAdminPromotion, updateAdminPromotion, deleteAdminPromotion
+} = require('../controllers/promotionController');
 
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { validateUpdateProfile } = require('../middleware/validationMiddleware');
@@ -37,5 +40,13 @@ router.route('/users/:id')
 // Shop approval (Admin only)
 router.get('/shops', getAllShopsAdmin);
 router.put('/shops/:id/status', updateShopStatus);
+
+// Khuyến mãi toàn sàn (Admin only)
+router.route('/promotions')
+  .get(getAdminPromotions)
+  .post(createAdminPromotion);
+router.route('/promotions/:id')
+  .put(updateAdminPromotion)
+  .delete(deleteAdminPromotion);
 
 module.exports = router;

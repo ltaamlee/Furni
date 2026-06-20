@@ -165,6 +165,8 @@ const getDashboardSummary = async (req, res) => {
         const orderBase = { 'products.shop': shop._id };
         const todayStart = startOfDay(new Date());
 
+        await Promotion.syncLifecycleStatuses(base);
+
         const [
             totalProducts, activeProducts, lowStock, runningPromotions, totalOrders, pendingOrders,
             ordersToday, today, revenue7d, revenue30d, topProducts, recentOrdersRaw,
@@ -288,6 +290,7 @@ const getMyPromotions = async (req, res) => {
 
         const { status, page = 1, limit = 20, sort = '-createdAt' } = req.query;
         const query = { shop: shop._id };
+        await Promotion.syncLifecycleStatuses(query);
         if (status && status !== 'all') query.status = status;
 
         const skip = (Number(page) - 1) * Number(limit);

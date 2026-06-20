@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { PageHeader, Card, CardTitle, Btn, Toggle, Tabs } from "../../components/vendor/ui";
-import { notifTabs, notifSettings as seedSettings } from "../../components/vendor/data";
+import { notifSettings as seedSettings } from "../../components/vendor/data";
 import {
     IconBag, IconStar, IconAlertTriangle, IconDollar, IconAlertCircle, IconCheck, IconX,
 } from "../../components/vendor/icons";
@@ -23,6 +24,15 @@ const SUMMARY_META = [
     { key: "stock", label: "Cảnh báo kho", color: "text-[#dc2626]" },
     { key: "system", label: "Hệ thống", color: "text-[#16a34a]" },
 ];
+// Tab lọc theo loại thông báo (đếm động theo dữ liệu thật)
+const TAB_DEFS = [
+    { key: "all", label: "Tất cả" },
+    { key: "order", label: "Đơn hàng" },
+    { key: "review", label: "Đánh giá" },
+    { key: "stock", label: "Tồn kho" },
+    { key: "wallet", label: "Ví" },
+    { key: "system", label: "Hệ thống" },
+];
 
 const sameDay = (a, b) => a.toDateString() === b.toDateString();
 const groupOf = (d) => {
@@ -35,11 +45,15 @@ const groupOf = (d) => {
 };
 const timeOf = (d) => new Date(d).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
 
-const NotifItem = ({ n, onRead, onDelete }) => {
+const NotifItem = ({ n, onOpen, onRead, onDelete }) => {
     const { bg, color, Icon } = NOTIF_STYLE[n.type] || NOTIF_STYLE.system;
     const unread = !n.isRead;
+    const clickable = !!n.link;
     return (
-        <div className={`group flex items-start gap-3 px-4 py-3 border-b border-[#EDE8E0] relative cursor-pointer transition-colors hover:bg-[#FDFAF7] ${unread ? "bg-[#fffcf5]" : ""}`}>
+        <div
+            onClick={() => onOpen(n)}
+            className={`group flex items-start gap-3 px-4 py-3 border-b border-[#EDE8E0] relative transition-colors hover:bg-[#FDFAF7] ${unread ? "bg-[#fffcf5]" : ""} ${clickable ? "cursor-pointer" : ""}`}
+        >
             {unread && <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#B86B05] rounded-r-[2px]" />}
             <div className="w-[38px] h-[38px] rounded-[6px] flex items-center justify-center shrink-0" style={{ background: bg }}>
                 <Icon size={18} style={{ color }} />
@@ -51,11 +65,11 @@ const NotifItem = ({ n, onRead, onDelete }) => {
             </div>
             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 {unread && (
-                    <button onClick={() => onRead(n._id)} title="Đánh dấu đã đọc" className="w-[26px] h-[26px] border border-[#EDE8E0] bg-white rounded-[5px] flex items-center justify-center text-[#9E8E7E] hover:border-[#B86B05] hover:text-[#B86B05]">
+                    <button onClick={(e) => { e.stopPropagation(); onRead(n._id); }} title="Đánh dấu đã đọc" className="w-[26px] h-[26px] border border-[#EDE8E0] bg-white rounded-[5px] flex items-center justify-center text-[#9E8E7E] hover:border-[#B86B05] hover:text-[#B86B05]">
                         <IconCheck size={12} strokeWidth={2.5} />
                     </button>
                 )}
-                <button onClick={() => onDelete(n._id)} title="Xóa" className="w-[26px] h-[26px] border border-[#EDE8E0] bg-white rounded-[5px] flex items-center justify-center text-[#9E8E7E] hover:border-[#B86B05] hover:text-[#B86B05]">
+                <button onClick={(e) => { e.stopPropagation(); onDelete(n._id); }} title="Xóa" className="w-[26px] h-[26px] border border-[#EDE8E0] bg-white rounded-[5px] flex items-center justify-center text-[#9E8E7E] hover:border-[#B86B05] hover:text-[#B86B05]">
                     <IconX size={12} />
                 </button>
             </div>
@@ -65,6 +79,7 @@ const NotifItem = ({ n, onRead, onDelete }) => {
 
 const Notifications = () => {
     const { showToast } = useToast();
+    const navigate = useNavigate();
     const [tab, setTab] = useState("all");
     const [list, setList] = useState([]);
     const [summary7d, setSummary7d] = useState({});
@@ -93,12 +108,23 @@ const Notifications = () => {
     }, [fetchNotifs]);
 
     const unreadCount = useMemo(() => list.filter((n) => !n.isRead).length, [list]);
+    const counts = useMemo(() => {
+        const c = { all: list.length };
+        list.forEach((n) => { c[n.type] = (c[n.type] || 0) + 1; });
+        return c;
+    }, [list]);
+    const tabs = TAB_DEFS.map((t) => ({ ...t, count: counts[t.key] ?? 0 }));
     const filtered = tab === "all" ? list : list.filter((n) => n.type === tab);
     const groups = [...new Set(filtered.map((n) => groupOf(n.createdAt)))];
 
     const markRead = async (id) => {
         setList((l) => l.map((n) => (n._id === id ? { ...n, isRead: true } : n)));
         await markNotificationReadApi(id).catch(() => {});
+    };
+    // Click vào thông báo: đánh dấu đã đọc rồi điều hướng tới đúng vị trí
+    const openNotif = (n) => {
+        if (!n.isRead) markRead(n._id);
+        if (n.link) navigate(n.link);
     };
     const deleteNotif = async (id) => {
         setList((l) => l.filter((n) => n._id !== id));
@@ -121,7 +147,7 @@ const Notifications = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
                 {/* Notification list */}
                 <div>
-                    <Tabs tabs={notifTabs} active={tab} onChange={setTab} />
+                    <Tabs tabs={tabs} active={tab} onChange={setTab} />
                     <div className="bg-white border border-[#EDE8E0] rounded-[10px] shadow-[0_1px_3px_rgba(0,0,0,0.08)] overflow-hidden -mt-[18px]">
                         {loading ? (
                             <div className="text-center py-12 text-[#9E8E7E] text-[13px]">Đang tải...</div>
@@ -132,7 +158,7 @@ const Notifications = () => {
                                 <div key={g}>
                                     <div className="px-4"><div className="text-[11px] font-bold text-[#9E8E7E] uppercase tracking-[0.07em] pt-3.5 pb-2 border-b border-[#EDE8E0]">{g}</div></div>
                                     {filtered.filter((n) => groupOf(n.createdAt) === g).map((n) => (
-                                        <NotifItem key={n._id} n={n} onRead={markRead} onDelete={deleteNotif} />
+                                        <NotifItem key={n._id} n={n} onOpen={openNotif} onRead={markRead} onDelete={deleteNotif} />
                                     ))}
                                 </div>
                             ))

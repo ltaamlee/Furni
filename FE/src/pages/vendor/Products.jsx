@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader, Btn, Tabs, Badge, Label, SearchInput, selectClass, inputClass } from "../../components/vendor/ui";
 import SlideOver from "../../components/vendor/SlideOver";
 import { formatVND, productStyles } from "../../components/vendor/data";
@@ -275,7 +276,10 @@ const ProductModal = ({ open, onClose, categories, editing, onSaved }) => {
 
 const Products = () => {
     const { showToast } = useToast();
-    const [tab, setTab] = useState("all");
+    const [searchParams, setSearchParams] = useSearchParams();
+    const requestedTab = searchParams.get("status");
+    const initialTab = TAB_DEFS.some((item) => item.key === requestedTab) ? requestedTab : "all";
+    const [tab, setTab] = useState(initialTab);
     const [search, setSearch] = useState("");
     const [category, setCategory] = useState("");
     const [page, setPage] = useState(1);
@@ -385,7 +389,10 @@ const Products = () => {
                 }
             />
 
-            <Tabs tabs={tabs} active={tab} onChange={(k) => changeFilter(() => setTab(k))} />
+            <Tabs tabs={tabs} active={tab} onChange={(k) => changeFilter(() => {
+                setTab(k);
+                setSearchParams(k === "all" ? {} : { status: k }, { replace: true });
+            })} />
 
             <div className="flex items-center gap-2 mb-3.5 flex-wrap">
                 <SearchInput placeholder="Tìm tên, slug sản phẩm..." value={search} onChange={(e) => changeFilter(() => setSearch(e.target.value))} />

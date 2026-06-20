@@ -1,5 +1,6 @@
 const Cart = require('../models/cart');
 const Product = require('../models/product');
+const { currentSalePrice } = require('../utils/pricing');
 
 // @desc    Get user's cart
 // @route   GET /api/cart
@@ -61,6 +62,9 @@ const addToCart = async (req, res) => {
             });
         }
 
+        // Giá tại thời điểm thêm giỏ = đã trừ khuyến mãi đang chạy (nếu có)
+        const salePrice = await currentSalePrice(product);
+
         let cart = await Cart.findOne({ user: req.user._id });
 
         if (!cart) {
@@ -69,7 +73,7 @@ const addToCart = async (req, res) => {
                 products: [{
                     product: productId,
                     quantity,
-                    price: product.price,
+                    price: salePrice,
                     name: product.name,
                     image: product.images[0] || null
                 }]
@@ -88,11 +92,12 @@ const addToCart = async (req, res) => {
                     });
                 }
                 existingProduct.quantity = newQuantity;
+                existingProduct.price = salePrice; // cập nhật giá KM mới nhất
             } else {
                 cart.products.push({
                     product: productId,
                     quantity,
-                    price: product.price,
+                    price: salePrice,
                     name: product.name,
                     image: product.images[0] || null
                 });

@@ -26,6 +26,7 @@ const Cart = require('../src/models/cart');
 const Transaction = require('../src/models/transaction');
 const Review = require('../src/models/review');
 const Notification = require('../src/models/notification');
+const Blog = require('../src/models/blog');
 
 const now = new Date();
 const daysFromNow = (n) => new Date(now.getTime() + n * 86400000);
@@ -121,7 +122,8 @@ const seed = async () => {
             Cart.deleteMany({}),
             Transaction.deleteMany({}),
             Review.deleteMany({}),
-            Notification.deleteMany({})
+            Notification.deleteMany({}),
+            Blog.deleteMany({})
         ]);
         console.log('Cleared: users, categories, shops, wallets, products, promotions, orders, carts, transactions, reviews, notifications');
 
@@ -247,6 +249,17 @@ const seed = async () => {
         ];
         await Notification.create(NOTIFS.map((n) => ({ ...n, user: vendor._id })));
         console.log(`Created ${NOTIFS.length} notifications`);
+
+        // 11) Bài viết blog của shop
+        const BLOGS = [
+            { title: '5 cách phối sofa Nordic cho phòng khách nhỏ', category: 'inspiration', status: 'published', excerpt: 'Không gian nhỏ vẫn có thể sang trọng và ấm cúng nếu bạn biết chọn đúng kiểu sofa và cách bố trí.', content: 'Với những căn hộ diện tích khiêm tốn, việc chọn đúng kiểu sofa là yếu tố quyết định...', coverImage: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=800', tags: ['sofa nordic', 'phòng khách', 'không gian nhỏ'], views: 2840, likes: 312, commentsCount: 48, isPinned: true, publishedAt: daysFromNow(-2) },
+            { title: 'Chọn bàn ăn gỗ sồi hợp phong thủy gia đình', category: 'styling', status: 'published', excerpt: 'Bàn ăn không chỉ là nơi sum họp mà còn ảnh hưởng tới vận khí gia đình.', content: 'Cùng tìm hiểu cách chọn chất liệu, hình dáng và kích thước bàn ăn phù hợp...', coverImage: 'https://images.unsplash.com/photo-1617806118233-18e1de247200?w=800', tags: ['bàn ăn', 'gỗ sồi', 'phong thủy'], views: 1967, likes: 208, commentsCount: 33, publishedAt: daysFromNow(-6) },
+            { title: 'Cách bảo quản đồ gỗ tự nhiên bền đẹp 10 năm', category: 'guide', status: 'published', excerpt: 'Gỗ tự nhiên cần được chăm sóc đúng cách để giữ màu và độ bền.', content: 'Hướng dẫn chi tiết từ vệ sinh tới đánh bóng đồ gỗ tự nhiên...', coverImage: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=800', tags: ['bảo quản', 'gỗ tự nhiên', 'mẹo'], views: 4103, likes: 521, commentsCount: 67, publishedAt: daysFromNow(-12) },
+            { title: 'Nội thất xanh 2026: vật liệu tái chế lên ngôi', category: 'trend', status: 'scheduled', excerpt: 'Người tiêu dùng ngày càng quan tâm tới tính bền vững.', content: 'Điểm qua những vật liệu thân thiện môi trường đang dẫn đầu xu hướng...', coverImage: null, tags: ['xu hướng', 'bền vững'], scheduledAt: daysFromNow(5) },
+            { title: 'Hành trình 15 năm của Furni Official Store', category: 'brand_story', status: 'draft', excerpt: 'Từ một xưởng mộc nhỏ tới thương hiệu nội thất được yêu thích.', content: 'Câu chuyện về đam mê với gỗ và sự tử tế...', coverImage: null, tags: ['thương hiệu', 'câu chuyện'] }
+        ];
+        await Blog.create(BLOGS.map((b) => ({ ...b, shop: shop._id, author: vendor._id })));
+        console.log(`Created ${BLOGS.length} blog posts`);
 
         console.log('\n==================== DONE ====================');
         console.log('Tài khoản:');

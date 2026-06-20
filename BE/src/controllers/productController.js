@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Product = require('../models/product');
 const Category = require('../models/category');
 const Shop = require('../models/shop');
+const { attachPricing } = require('../utils/pricing');
 
 // Các field sản phẩm vendor có thể gửi lên (whitelist)
 const PRODUCT_FIELDS = [
@@ -75,7 +76,10 @@ const getAllProducts = async (req, res) => {
       .populate('shop', 'name slug logo')
       .sort({ [sort]: order === 'desc' ? -1 : 1 })
       .skip(skip)
-      .limit(Number(limit));
+      .limit(Number(limit))
+      .lean();
+
+    await attachPricing(products);
 
     res.status(200).json({
       success: true,
@@ -109,7 +113,8 @@ const getProduct = async (req, res) => {
 
     const product = await Product.findOne(lookup)
       .populate('category', 'name')
-      .populate('shop', 'name slug logo banner description phone email address isActive');
+      .populate('shop', 'name slug logo banner description phone email address isActive')
+      .lean();
 
     if (!product) {
       return res.status(404).json({
@@ -117,6 +122,8 @@ const getProduct = async (req, res) => {
         message: 'Không tìm thấy sản phẩm'
       });
     }
+
+    await attachPricing(product);
 
     res.status(200).json({
       success: true,
@@ -486,9 +493,13 @@ const getProductsByCategory = async (req, res) => {
             isActive: true
         })
             .populate('category', 'name slug')
+            .populate('shop', 'name slug logo')
             .sort(sort)
             .skip((page - 1) * limit)
-            .limit(parseInt(limit));
+            .limit(parseInt(limit))
+            .lean();
+
+        await attachPricing(products);
 
         const total = await Product.countDocuments({
             category: category._id,
@@ -526,8 +537,12 @@ const getBestSellers = async (req, res) => {
 
         const products = await Product.find({ isActive: true })
             .populate('category', 'name')
+            .populate('shop', 'name slug logo')
             .sort({ sold: -1 })
-            .limit(parseInt(limit));
+            .limit(parseInt(limit))
+            .lean();
+
+        await attachPricing(products);
 
         res.status(200).json({
             success: true,
