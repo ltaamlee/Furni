@@ -59,7 +59,7 @@ const revenueSeries = async (shopId, days) => {
     return { labels, data };
 };
 
-// Top sản phẩm bán chạy của shop (theo doanh thu) trong khoảng thời gian
+// Top sản phẩm bán chạy của shop theo số lượng; doanh thu dùng để phá hòa.
 const topProductsOfShop = async (shopId, since = null, limit = 5) => {
     const match = { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED } };
     if (since) match.createdAt = { $gte: since };
@@ -68,7 +68,7 @@ const topProductsOfShop = async (shopId, since = null, limit = 5) => {
         { $unwind: '$products' },
         { $match: { 'products.shop': shopId } },
         { $group: { _id: '$products.product', name: { $first: '$products.name' }, sold: { $sum: '$products.quantity' }, revenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } },
-        { $sort: { revenue: -1 } },
+        { $sort: { sold: -1, revenue: -1 } },
         { $limit: limit }
     ]);
     // Lấy tên danh mục

@@ -57,7 +57,7 @@ const Reports = () => {
         { label: "Tổng doanh thu", value: formatVND(kpis.totalRevenue || 0), accent: true, change: `${(kpis.revenueChangePct || 0) >= 0 ? "+" : ""}${kpis.revenueChangePct || 0}%`, trend: (kpis.revenueChangePct || 0) < 0 ? "down" : "up" },
         { label: "Số đơn hàng", value: kpis.orderCount || 0 },
         { label: "Giá trị TB / đơn", value: formatVND(kpis.avgOrderValue || 0) },
-        { label: "Tỉ lệ hoàn hàng", value: `${kpis.returnRate || 0}%`, change: `${kpis.returnRate || 0}%`, trend: "down" },
+        { label: "Tỉ lệ hủy đơn", value: `${kpis.returnRate || 0}%`, change: `${kpis.returnRate || 0}%`, trend: "down" },
     ];
 
     return (
@@ -124,7 +124,7 @@ const Reports = () => {
                             <table className="w-full border-collapse min-w-[640px]">
                                 <thead>
                                     <tr>
-                                        {["#", "Sản phẩm", "Danh mục", "Số lượng bán", "Doanh thu", "Tỉ trọng"].map((h) => (
+                                        {["#", "Sản phẩm", "Danh mục", "Số lượng bán", "Doanh thu", "Tỉ trọng doanh thu"].map((h) => (
                                             <th key={h} className="bg-[#FAF7F4] px-3.5 py-2.5 text-left text-[11.5px] font-semibold text-[#6B5C4C] uppercase tracking-[0.04em] border-b border-[#EDE8E0] whitespace-nowrap">{h}</th>
                                         ))}
                                     </tr>

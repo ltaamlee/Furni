@@ -1,5 +1,5 @@
 import { useState, useEffect, useContext } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import "./vendor.css";
 import { AuthContext } from "../context/authContext";
 import { getMyShopApi } from "../../utils/api";
@@ -21,7 +21,7 @@ const NAV = [
         items: [
             { to: "/vendor/dashboard", label: "Tổng quan", icon: IconGrid, enabled: true },
             { to: "/vendor/products", label: "Sản phẩm", icon: IconBox, enabled: true },
-            { to: "/vendor/orders", label: "Đơn hàng", icon: IconBag, badge: 5, enabled: true },
+            { to: "/vendor/orders", label: "Đơn hàng", icon: IconBag, enabled: true },
             { to: "/vendor/promotions", label: "Khuyến mãi", icon: IconTag, enabled: true },
             { to: "/vendor/wallet", label: "Ví điện tử", icon: IconWallet, enabled: true },
             { to: "/vendor/reports", label: "Báo cáo", icon: IconReport, enabled: true },
@@ -32,7 +32,7 @@ const NAV = [
         items: [
             { to: "/vendor/blog", label: "Blog", icon: IconDoc, enabled: true },
             { to: "/vendor/reviews", label: "Đánh giá", icon: IconStar, enabled: true },
-            { to: "/vendor/notifications", label: "Thông báo", icon: IconBell, badge: 3, enabled: true },
+            { to: "/vendor/notifications", label: "Thông báo", icon: IconBell, enabled: true },
         ],
     },
     {
@@ -117,8 +117,8 @@ const Sidebar = ({ open, onClose, shop }) => (
             <div className="flex items-center gap-2.5 px-4 pt-[18px] pb-3.5 border-b border-white/[0.07]">
                 <div className="w-[34px] h-[34px] bg-[#95520B] rounded-lg flex items-center justify-center font-extrabold text-[15px] text-white shrink-0">F</div>
                 <div>
-                    <div className="text-white font-bold text-[15px] leading-none">Furni</div>
-                    <div className="text-[#A8896A] text-[10.5px]">Vendor Portal</div>
+                    <div className="text-white font-bold text-[15px] leading-none">Sora</div>
+                    <div className="text-[#A8896A] text-[10.5px]">Vendor Control</div>
                 </div>
                 <button onClick={onClose} className="ml-auto text-[#EDD9C0] lg:hidden" aria-label="Đóng menu">
                     <IconX size={18} />
@@ -126,7 +126,12 @@ const Sidebar = ({ open, onClose, shop }) => (
             </div>
 
             {/* Shop */}
-            <div className="px-3.5 py-3 border-b border-white/[0.07] flex items-center gap-2.5">
+            <Link
+                to={shop ? `/shop/${shop.slug || shop._id}` : "/vendor/dashboard"}
+                onClick={onClose}
+                title={shop ? `Xem cửa hàng ${shop.name}` : "Đang tải cửa hàng"}
+                className="px-3.5 py-3 border-b border-white/[0.07] flex items-center gap-2.5 transition-colors hover:bg-white/[0.05]"
+            >
                 <div className="w-9 h-9 bg-[#95520B] rounded-lg flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden">
                     {shop?.logo ? <img src={shop.logo} alt="" className="w-full h-full object-cover" /> : initialsOf(shop?.name, 1)}
                 </div>
@@ -137,7 +142,7 @@ const Sidebar = ({ open, onClose, shop }) => (
                         {shop?.isActive === false ? "Tạm nghỉ" : "Đang hoạt động"}
                     </div>
                 </div>
-            </div>
+            </Link>
 
             {/* Nav */}
             <nav className="flex-1 px-2.5 py-2">
@@ -169,7 +174,7 @@ const Sidebar = ({ open, onClose, shop }) => (
     </>
 );
 
-const Topbar = ({ crumbs, onOpenSidebar, user }) => (
+const Topbar = ({ crumbs, onOpenSidebar, user, shop }) => (
     <header className="bg-white border-b border-[#EDE8E0] px-4 sm:px-6 h-14 flex items-center gap-3.5 sticky top-0 z-50">
         {/* Mobile hamburger */}
         <button onClick={onOpenSidebar} className="lg:hidden text-[#6B5C4C]" aria-label="Mở menu">
@@ -195,13 +200,17 @@ const Topbar = ({ crumbs, onOpenSidebar, user }) => (
                 <IconBell size={16} />
                 <span className="absolute top-1 right-1 w-[7px] h-[7px] bg-[#BF4343] rounded-full border-[1.5px] border-white" />
             </button>
-            <div className="flex items-center gap-2 px-2.5 py-[5px] border-[1.5px] border-[#EDE8E0] rounded-[6px] cursor-pointer transition-colors hover:border-[#B86B05]">
+            <Link
+                to={shop ? `/shop/${shop.slug || shop._id}` : "/vendor/dashboard"}
+                title={shop ? `Xem cửa hàng ${shop.name}` : "Đang tải cửa hàng"}
+                className="flex items-center gap-2 px-2.5 py-[5px] border-[1.5px] border-[#EDE8E0] rounded-[6px] cursor-pointer transition-colors hover:border-[#B86B05]"
+            >
                 <div className="w-6 h-6 bg-[#B86B05] rounded-full flex items-center justify-center text-white text-[10px] font-bold">
                     {initialsOf(user?.fullName)}
                 </div>
                 <span className="text-[13px] font-medium text-[#1C1108] hidden sm:inline">{user?.fullName || "Vendor"}</span>
                 <IconChevronDown size={12} strokeWidth={2.5} className="text-[#6B5C4C]" />
-            </div>
+            </Link>
         </div>
     </header>
 );
@@ -225,7 +234,7 @@ const VendorLayout = () => {
         <div className="vendor-shell flex min-h-screen bg-[#FAF7F4]">
             <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} shop={shop} />
             <div className="flex-1 flex flex-col min-h-screen lg:ml-[236px]">
-                <Topbar crumbs={crumbs} onOpenSidebar={() => setSidebarOpen(true)} user={auth?.user} />
+                <Topbar crumbs={crumbs} onOpenSidebar={() => setSidebarOpen(true)} user={auth?.user} shop={shop} />
                 <main className="flex-1 p-[22px_16px] sm:p-[22px_24px]">
                     <Outlet />
                 </main>
