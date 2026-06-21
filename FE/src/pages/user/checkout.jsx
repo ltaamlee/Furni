@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../../components/context/authContext";
-import { getCartApi, createOrderApi, getShippingProvidersApi, calculateShippingFeesApi } from "../../utils/api";
+import { getCartApi, createOrderApi, getShippingProvidersApi, calculateShippingFeesApi, createPayOSPaymentWithCartApi } from "../../utils/api";
 import CheckoutSteps from "../../components/common/CheckoutSteps";
 
 const CheckoutPage = () => {
@@ -30,6 +30,8 @@ const CheckoutPage = () => {
         note: "",
         selectedProvider: null
     });
+
+    const [paymentMethod, setPaymentMethod] = useState("COD");
 
     const formatPrice = (price) => {
         return new Intl.NumberFormat("vi-VN").format(price) + " đ";
@@ -122,16 +124,28 @@ const CheckoutPage = () => {
                     city: shippingInfo.city,
                     note: shippingInfo.note
                 },
-                paymentMethod: "COD",
+                paymentMethod: paymentMethod,
                 shippingProvider: shippingInfo.selectedProvider,
                 shippingFee: selectedProviderData?.fee || 0
             };
 
-            const res = await createOrderApi(orderData);
-            if (res.success) {
-                navigate(`/order-success/${res.data._id}`);
-            } else {
-                alert(res.message || "Đặt hàng thất bại!");
+            // Nếu là COD thì tạo đơn hàng trực tiếp
+            if (paymentMethod === "COD") {
+                const res = await createOrderApi(orderData);
+                if (res.success) {
+                    navigate(`/order-success/${res.data._id}`);
+                } else {
+                    alert(res.message || "Đặt hàng thất bại!");
+                }
+            } else if (paymentMethod === "PAYOS") {
+                // Nếu là PayOS thì gọi API tạo payment link
+                const res = await createPayOSPaymentWithCartApi(orderData);
+                if (res.success && res.data.checkoutUrl) {
+                    // Chuyển hướng đến trang thanh toán PayOS
+                    window.location.href = res.data.checkoutUrl;
+                } else {
+                    alert(res.message || "Không thể tạo thanh toán PayOS!");
+                }
             }
         } catch (error) {
             alert(error.message || "Có lỗi xảy ra!");
@@ -142,8 +156,8 @@ const CheckoutPage = () => {
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="w-12 h-12 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="min-h-screen flex items-center justify-center bg-[#FAF7F4]">
+                <div className="w-10 h-10 border-3 border-[#D5C9BC] border-t-[#B86B05] rounded-full animate-spin"></div>
             </div>
         );
     }
@@ -154,11 +168,12 @@ const CheckoutPage = () => {
     const total = subtotal + shippingFee;
 
     return (
-        <div className="min-h-screen bg-gray-50 py-8">
+        <div className="min-h-screen bg-[#FAF7F4] py-10">
             <div className="max-w-6xl mx-auto px-4">
                 {/* Header */}
-                <div className="text-center mb-4">
-                    <h1 className="text-2xl md:text-3xl font-bold text-gray-800">THANH TOÁN ĐƠN HÀNG</h1>
+                <div className="mb-8">
+                    <h1 className="text-2xl md:text-3xl font-extrabold text-[#1C1108]">THANH TOÁN ĐƠN HÀNG</h1>
+                    <p className="text-sm text-[#A8896A] mt-1">Hoàn tất đơn hàng của bạn</p>
                 </div>
 
                 {/* Progress Steps */}
@@ -169,53 +184,55 @@ const CheckoutPage = () => {
                     <div className="lg:col-span-2">
                         {/* Step 1: Customer Info */}
                         {step === 1 && (
-                            <div className="bg-white rounded-2xl shadow-sm p-6">
+                            <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 md:p-8">
                                 <div className="flex items-center gap-3 mb-6">
-                                    <span className="text-2xl">👤</span>
+                                    <div className="w-10 h-10 bg-[#B86B05]/10 rounded-xl flex items-center justify-center">
+                                        <span className="text-lg">👤</span>
+                                    </div>
                                     <div>
-                                        <h2 className="text-xl font-bold text-gray-800">THÔNG TIN KHÁCH HÀNG</h2>
-                                        <p className="text-gray-500 text-sm">Add your name, phone number and address.</p>
+                                        <h2 className="text-lg font-bold text-[#1C1108]">THÔNG TIN KHÁCH HÀNG</h2>
+                                        <p className="text-xs text-[#A8896A] mt-0.5">Vui lòng điền đầy đủ thông tin</p>
                                     </div>
                                 </div>
                                 <form onSubmit={handleCustomerInfoSubmit} className="space-y-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Họ và tên *</label>
+                                        <label className="block text-sm font-semibold text-[#1C1108] mb-1.5">Họ và tên *</label>
                                         <input
                                             type="text"
                                             value={customerInfo.fullName}
                                             onChange={(e) => setCustomerInfo({ ...customerInfo, fullName: e.target.value })}
-                                            className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            className="input"
                                             placeholder="Nhập họ và tên"
                                             required
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại *</label>
+                                        <label className="block text-sm font-semibold text-[#1C1108] mb-1.5">Số điện thoại *</label>
                                         <input
                                             type="tel"
                                             value={customerInfo.phone}
                                             onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-                                            className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            className="input"
                                             placeholder="0xxx xxx xxx"
                                             required
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                                        <label className="block text-sm font-semibold text-[#1C1108] mb-1.5">Email *</label>
                                         <input
                                             type="email"
                                             value={customerInfo.email}
                                             onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
-                                            className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            className="input"
                                             placeholder="email@example.com"
                                             required
                                         />
                                     </div>
                                     <button
                                         type="submit"
-                                        className="w-full bg-green-600 text-white py-3 rounded-full font-semibold hover:bg-green-700 transition"
+                                        className="w-full btn-primary py-3.5 mt-2"
                                     >
-                                        TIẾP TỤC
+                                        TIẾP TỤC →
                                     </button>
                                 </form>
                             </div>
@@ -223,51 +240,51 @@ const CheckoutPage = () => {
 
                         {/* Step 2: Shipping & Payment */}
                         {step === 2 && (
-                            <div className="bg-white rounded-2xl shadow-sm p-6">
+                            <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 md:p-8">
                                 <div className="flex items-center gap-3 mb-6">
-                                    <span className="text-2xl">🚚</span>
+                                    <div className="w-10 h-10 bg-[#B86B05]/10 rounded-xl flex items-center justify-center">
+                                        <span className="text-lg">🚚</span>
+                                    </div>
                                     <div>
-                                        <h2 className="text-xl font-bold text-gray-800">VẬN CHUYỂN</h2>
-                                        <p className="text-gray-500 text-sm">With many payment method, included yours.</p>
+                                        <h2 className="text-lg font-bold text-[#1C1108]">VẬN CHUYỂN</h2>
+                                        <p className="text-xs text-[#A8896A] mt-0.5">Chọn đơn vị vận chuyển và phương thức thanh toán</p>
                                     </div>
                                 </div>
-                                <form onSubmit={handleShippingSubmit} className="space-y-4">
+                                <form onSubmit={handleShippingSubmit} className="space-y-5">
                                     {/* Address */}
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Địa chỉ giao hàng *</label>
+                                        <label className="block text-sm font-semibold text-[#1C1108] mb-1.5">Địa chỉ giao hàng *</label>
                                         <input
                                             type="text"
                                             value={shippingInfo.address}
                                             onChange={(e) => setShippingInfo({ ...shippingInfo, address: e.target.value })}
-                                            className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            className="input"
                                             placeholder="Số nhà, đường, phường/xã, quận/huyện"
                                             required
                                         />
                                     </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Tỉnh/Thành phố</label>
-                                            <select
-                                                value={shippingInfo.city}
-                                                onChange={(e) => {
-                                                    setShippingInfo({ ...shippingInfo, city: e.target.value, selectedProvider: null });
-                                                }}
-                                                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
-                                            >
-                                                <option value="TP. Hồ Chí Minh">TP. Hồ Chí Minh</option>
-                                                <option value="Hà Nội">Hà Nội</option>
-                                                <option value="Đà Nẵng">Đà Nẵng</option>
-                                                <option value="Cần Thơ">Cần Thơ</option>
-                                                <option value="Hải Phòng">Hải Phòng</option>
-                                            </select>
-                                        </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-[#1C1108] mb-1.5">Tỉnh/Thành phố</label>
+                                        <select
+                                            value={shippingInfo.city}
+                                            onChange={(e) => {
+                                                setShippingInfo({ ...shippingInfo, city: e.target.value, selectedProvider: null });
+                                            }}
+                                            className="input"
+                                        >
+                                            <option value="TP. Hồ Chí Minh">TP. Hồ Chí Minh</option>
+                                            <option value="Hà Nội">Hà Nội</option>
+                                            <option value="Đà Nẵng">Đà Nẵng</option>
+                                            <option value="Cần Thơ">Cần Thơ</option>
+                                            <option value="Hải Phòng">Hải Phòng</option>
+                                        </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Ghi chú (tùy chọn)</label>
+                                        <label className="block text-sm font-semibold text-[#1C1108] mb-1.5">Ghi chú (tùy chọn)</label>
                                         <textarea
                                             value={shippingInfo.note}
                                             onChange={(e) => setShippingInfo({ ...shippingInfo, note: e.target.value })}
-                                            className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                            className="input resize-none"
                                             placeholder="Ghi chú cho đơn hàng..."
                                             rows={2}
                                         />
@@ -275,19 +292,19 @@ const CheckoutPage = () => {
 
                                     {/* Shipping Providers */}
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Đơn vị vận chuyển *</label>
+                                        <label className="block text-sm font-semibold text-[#1C1108] mb-3">Đơn vị vận chuyển *</label>
                                         <div className="space-y-2">
                                             {providers.length === 0 ? (
-                                                <p className="text-gray-500 text-sm">Đang tải đơn vị vận chuyển...</p>
+                                                <p className="text-sm text-[#A8896A] py-4 text-center">Đang tải đơn vị vận chuyển...</p>
                                             ) : (
                                                 shippingFees.map((fee) => (
                                                     <label
                                                         key={fee.provider.code}
-                                                        className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition
-                                                            ${shippingInfo.selectedProvider === fee.provider.code
-                                                                ? 'border-green-500 bg-green-50'
-                                                                : 'hover:bg-gray-50'
-                                                            }`}
+                                                        className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors ${
+                                                            shippingInfo.selectedProvider === fee.provider.code
+                                                                ? 'border-[#B86B05] bg-[#B86B05]/5'
+                                                                : 'border-[#EDE8E0] hover:border-[#D5C9BC]'
+                                                        }`}
                                                     >
                                                         <input
                                                             type="radio"
@@ -295,16 +312,16 @@ const CheckoutPage = () => {
                                                             value={fee.provider.code}
                                                             checked={shippingInfo.selectedProvider === fee.provider.code}
                                                             onChange={(e) => setShippingInfo({ ...shippingInfo, selectedProvider: e.target.value })}
-                                                            className="w-5 h-5 text-green-600"
+                                                            className="w-4 h-4 accent-[#B86B05]"
                                                         />
                                                         <div className="flex-1">
                                                             <div className="flex justify-between items-center">
-                                                                <span className="font-medium">{fee.provider.name}</span>
-                                                                <span className={`font-bold ${fee.isFree ? 'text-green-600' : 'text-gray-800'}`}>
+                                                                <span className="font-semibold text-sm text-[#1C1108]">{fee.provider.name}</span>
+                                                                <span className={`font-bold text-sm ${fee.isFree ? 'text-green-600' : 'text-[#1C1108]'}`}>
                                                                     {fee.isFree ? 'MIỄN PHÍ' : formatPrice(fee.fee)}
                                                                 </span>
                                                             </div>
-                                                            <p className="text-sm text-gray-500">
+                                                            <p className="text-xs text-[#A8896A] mt-0.5">
                                                                 Giao trong {fee.estimatedDays.min}-{fee.estimatedDays.max} ngày
                                                             </p>
                                                         </div>
@@ -316,35 +333,56 @@ const CheckoutPage = () => {
 
                                     {/* Payment Method */}
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Phương thức thanh toán</label>
+                                        <label className="block text-sm font-semibold text-[#1C1108] mb-3">Phương thức thanh toán</label>
                                         <div className="space-y-2">
-                                            <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:bg-gray-50">
+                                            <label className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors ${
+                                                paymentMethod === "COD" ? 'border-[#B86B05] bg-[#B86B05]/5' : 'border-[#EDE8E0] hover:border-[#D5C9BC]'
+                                            }`}>
                                                 <input
                                                     type="radio"
                                                     name="payment"
                                                     value="COD"
-                                                    checked={true}
-                                                    readOnly
-                                                    className="w-5 h-5 text-green-600"
+                                                    checked={paymentMethod === "COD"}
+                                                    onChange={(e) => setPaymentMethod(e.target.value)}
+                                                    className="w-4 h-4 accent-[#B86B05]"
                                                 />
-                                                <span className="font-medium">💵 COD - Thanh toán khi nhận hàng</span>
+                                                <span className="font-semibold text-sm text-[#1C1108]">💵 COD - Thanh toán khi nhận hàng</span>
+                                            </label>
+
+                                            <label className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors ${
+                                                paymentMethod === "PAYOS" ? 'border-[#B86B05] bg-[#B86B05]/5' : 'border-[#EDE8E0] hover:border-[#D5C9BC]'
+                                            }`}>
+                                                <input
+                                                    type="radio"
+                                                    name="payment"
+                                                    value="PAYOS"
+                                                    checked={paymentMethod === "PAYOS"}
+                                                    onChange={(e) => setPaymentMethod(e.target.value)}
+                                                    className="w-4 h-4 accent-[#B86B05]"
+                                                />
+                                                <span className="font-semibold text-sm text-[#1C1108]">💳 PayOS - Thanh toán qua Ví điện tử / Ngân hàng</span>
                                             </label>
                                         </div>
+                                        {paymentMethod === "PAYOS" && (
+                                            <p className="mt-2 text-xs text-[#A8896A]">
+                                                Bạn sẽ được chuyển đến cổng thanh toán PayOS để hoàn tất thanh toán.
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div className="flex gap-3 pt-2">
                                         <button
                                             type="button"
                                             onClick={() => setStep(1)}
-                                            className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-full font-semibold hover:bg-gray-300 transition"
+                                            className="flex-1 btn-secondary py-3.5"
                                         >
                                             ← QUAY LẠI
                                         </button>
                                         <button
                                             type="submit"
-                                            className="flex-1 bg-green-600 text-white py-3 rounded-full font-semibold hover:bg-green-700 transition"
+                                            className="flex-1 btn-primary py-3.5"
                                         >
-                                            TIẾP TỤC
+                                            TIẾP TỤC →
                                         </button>
                                     </div>
                                 </form>
@@ -353,55 +391,62 @@ const CheckoutPage = () => {
 
                         {/* Step 3: Review */}
                         {step === 3 && (
-                            <div className="bg-white rounded-2xl shadow-sm p-6">
+                            <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 md:p-8">
                                 <div className="flex items-center gap-3 mb-6">
-                                    <span className="text-2xl">📋</span>
+                                    <div className="w-10 h-10 bg-[#B86B05]/10 rounded-xl flex items-center justify-center">
+                                        <span className="text-lg">📋</span>
+                                    </div>
                                     <div>
-                                        <h2 className="text-xl font-bold text-gray-800">XÁC NHẬN ĐẶT HÀNG</h2>
-                                        <p className="text-gray-500 text-sm">Review all your information before the confimation.</p>
+                                        <h2 className="text-lg font-bold text-[#1C1108]">XÁC NHẬN ĐẶT HÀNG</h2>
+                                        <p className="text-xs text-[#A8896A] mt-0.5">Kiểm tra thông tin trước khi xác nhận</p>
                                     </div>
                                 </div>
 
                                 {/* Customer Info */}
-                                <div className="border-b pb-4 mb-4">
-                                    <h3 className="font-semibold text-gray-700 mb-2">👤 Thông tin khách hàng</h3>
-                                    <p className="text-gray-600">{customerInfo.fullName}</p>
-                                    <p className="text-gray-600">{customerInfo.phone} | {customerInfo.email}</p>
+                                <div className="border-b border-[#EDE8E0] pb-4 mb-4">
+                                    <h3 className="font-semibold text-sm text-[#1C1108] mb-2 flex items-center gap-2">👤 Thông tin khách hàng</h3>
+                                    <p className="text-sm text-[#6B5C4C]">{customerInfo.fullName}</p>
+                                    <p className="text-sm text-[#6B5C4C]">{customerInfo.phone} | {customerInfo.email}</p>
                                 </div>
 
                                 {/* Shipping Info */}
-                                <div className="border-b pb-4 mb-4">
-                                    <h3 className="font-semibold text-gray-700 mb-2">🚚 Địa chỉ giao hàng</h3>
-                                    <p className="text-gray-600">{shippingInfo.address}</p>
-                                    <p className="text-gray-600">{shippingInfo.city}</p>
-                                    {shippingInfo.note && <p className="text-gray-500 text-sm italic">Ghi chú: {shippingInfo.note}</p>}
+                                <div className="border-b border-[#EDE8E0] pb-4 mb-4">
+                                    <h3 className="font-semibold text-sm text-[#1C1108] mb-2 flex items-center gap-2">🚚 Địa chỉ giao hàng</h3>
+                                    <p className="text-sm text-[#6B5C4C]">{shippingInfo.address}, {shippingInfo.city}</p>
+                                    {shippingInfo.note && <p className="text-xs text-[#A8896A] italic mt-1">Ghi chú: {shippingInfo.note}</p>}
                                 </div>
 
                                 {/* Shipping Provider */}
-                                <div className="border-b pb-4 mb-4">
-                                    <h3 className="font-semibold text-gray-700 mb-2">🚚 Đơn vị vận chuyển</h3>
-                                    <p className="text-gray-600">{selectedProviderData?.provider.name}</p>
-                                    <p className="text-sm text-gray-500">
-                                        Dự kiến giao: {selectedProviderData?.estimatedDays.min}-{selectedProviderData?.estimatedDays.max} ngày
+                                <div className="border-b border-[#EDE8E0] pb-4 mb-4">
+                                    <h3 className="font-semibold text-sm text-[#1C1108] mb-2 flex items-center gap-2">📦 Đơn vị vận chuyển</h3>
+                                    <p className="text-sm text-[#6B5C4C]">{selectedProviderData?.provider.name}</p>
+                                    <p className="text-xs text-[#A8896A]">Dự kiến giao: {selectedProviderData?.estimatedDays.min}-{selectedProviderData?.estimatedDays.max} ngày</p>
+                                </div>
+
+                                {/* Payment Method */}
+                                <div className="border-b border-[#EDE8E0] pb-4 mb-4">
+                                    <h3 className="font-semibold text-sm text-[#1C1108] mb-2 flex items-center gap-2">💳 Phương thức thanh toán</h3>
+                                    <p className="text-sm text-[#6B5C4C]">
+                                        {paymentMethod === "COD" ? "💵 COD - Thanh toán khi nhận hàng" : "💳 PayOS - Thanh toán qua Ví điện tử / Ngân hàng"}
                                     </p>
                                 </div>
 
                                 {/* Products */}
-                                <div className="mb-4">
-                                    <h3 className="font-semibold text-gray-700 mb-3">📦 Sản phẩm ({cart?.totalQuantity})</h3>
-                                    <div className="space-y-3">
+                                <div className="mb-5">
+                                    <h3 className="font-semibold text-sm text-[#1C1108] mb-3 flex items-center gap-2">🛒 Sản phẩm ({cart?.totalQuantity})</h3>
+                                    <div className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar">
                                         {cart?.products.map((item) => (
                                             <div key={item.product._id || item.product} className="flex gap-3 items-center">
                                                 <img
                                                     src={item.image || "/placeholder.png"}
                                                     alt={item.name}
-                                                    className="w-16 h-16 object-cover rounded-lg"
+                                                    className="w-14 h-14 object-cover rounded-lg"
                                                 />
-                                                <div className="flex-1">
-                                                    <p className="font-medium text-gray-800">{item.name}</p>
-                                                    <p className="text-sm text-gray-500">x{item.quantity}</p>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium text-[#1C1108] line-clamp-1">{item.name}</p>
+                                                    <p className="text-xs text-[#A8896A]">x{item.quantity}</p>
                                                 </div>
-                                                <p className="font-bold text-green-600">{formatPrice(item.price * item.quantity)}</p>
+                                                <p className="font-bold text-sm text-[#1C1108]">{formatPrice(item.price * item.quantity)}</p>
                                             </div>
                                         ))}
                                     </div>
@@ -411,16 +456,16 @@ const CheckoutPage = () => {
                                     <button
                                         type="button"
                                         onClick={() => setStep(2)}
-                                        className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-full font-semibold hover:bg-gray-300 transition"
+                                        className="flex-1 btn-secondary py-3.5"
                                     >
                                         ← QUAY LẠI
                                     </button>
                                     <button
                                         onClick={handlePlaceOrder}
                                         disabled={submitting}
-                                        className="flex-1 bg-green-600 text-white py-3 rounded-full font-semibold hover:bg-green-700 transition disabled:opacity-50"
+                                        className="flex-1 btn-primary py-3.5 disabled:opacity-50"
                                     >
-                                        {submitting ? "ĐANG XỬ LÝ..." : "ĐẶT HÀNG"}
+                                        {submitting ? "ĐANG XỬ LÝ..." : paymentMethod === "PAYOS" ? "THANH TOÁN NGAY" : "ĐẶT HÀNG"}
                                     </button>
                                 </div>
                             </div>
@@ -429,28 +474,28 @@ const CheckoutPage = () => {
 
                     {/* Order Summary Sidebar */}
                     <div className="lg:col-span-1">
-                        <div className="bg-white rounded-2xl shadow-sm p-6 sticky top-24">
-                            <h3 className="text-lg font-bold text-gray-800 mb-4">TÓM TẮT ĐƠN HÀNG</h3>
+                        <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 sticky top-24">
+                            <h3 className="text-base font-bold text-[#1C1108] mb-5">TÓM TẮT ĐƠN HÀNG</h3>
                             <div className="space-y-3 text-sm">
                                 <div className="flex justify-between">
-                                    <span className="text-gray-600">Tạm tính ({cart?.totalQuantity} sản phẩm)</span>
-                                    <span className="font-medium">{formatPrice(subtotal)}</span>
+                                    <span className="text-[#6B5C4C]">Tạm tính ({cart?.totalQuantity} sản phẩm)</span>
+                                    <span className="font-semibold text-[#1C1108]">{formatPrice(subtotal)}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-gray-600">Phí vận chuyển</span>
-                                    <span className="font-medium">
-                                        {shippingFee === 0 ? "Miễn phí" : formatPrice(shippingFee)}
+                                    <span className="text-[#6B5C4C]">Phí vận chuyển</span>
+                                    <span className="font-semibold text-[#1C1108]">
+                                        {shippingFee === 0 ? <span className="text-green-600">Miễn phí</span> : formatPrice(shippingFee)}
                                     </span>
                                 </div>
                                 {selectedProviderData?.isFree && (
-                                    <p className="text-xs text-green-600">✓ Miễn phí vận chuyển!</p>
+                                    <p className="text-xs text-green-600 font-medium">✓ Miễn phí vận chuyển!</p>
                                 )}
                                 {!selectedProviderData?.isFree && subtotal < 500000 && (
                                     <p className="text-xs text-orange-500">Mua thêm {formatPrice(500000 - subtotal)} để được miễn phí ship!</p>
                                 )}
-                                <div className="border-t pt-3 flex justify-between">
-                                    <span className="font-bold text-gray-800">Tổng cộng</span>
-                                    <span className="font-bold text-xl text-green-600">{formatPrice(total)}</span>
+                                <div className="border-t border-[#EDE8E0] pt-3 flex justify-between">
+                                    <span className="font-bold text-[#1C1108]">Tổng cộng</span>
+                                    <span className="font-extrabold text-xl text-[#B86B05]">{formatPrice(total)}</span>
                                 </div>
                             </div>
                         </div>

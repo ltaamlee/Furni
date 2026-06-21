@@ -1,12 +1,14 @@
 const Cart = require('../models/cart');
 const Product = require('../models/product');
+const Shop = require('../models/Shop');
 
-// @desc    Get user's cart
+// @desc    Get user's cart with shop and promotion info
 // @route   GET /api/cart
 // @access  Private
 const getCart = async (req, res) => {
     try {
-        const cart = await Cart.findOne({ user: req.user._id });
+        const cart = await Cart.findOne({ user: req.user._id })
+            .populate('products.product', 'name images price discount shop promotion');
 
         if (!cart) {
             return res.status(200).json({
@@ -19,11 +21,69 @@ const getCart = async (req, res) => {
             });
         }
 
+        // Transform cart items to include shop info and calculate discount
+        const transformedProducts = await Promise.all(cart.products.map(async (item) => {
+            const product = item.product;
+            const discount = product?.discount || 0;
+            const originalPrice = product?.price || item.price;
+            const discountedPrice = discount > 0 
+                ? Math.round(originalPrice * (1 - discount / 100)) 
+                : originalPrice;
+
+            // Get shop info
+            let shopInfo = {
+                _id: item.shop || product?.shop,
+                name: item.shopName || 'Cửa hàng',
+                avatar: item.shopAvatar || null
+            };
+
+            if (product?.shop) {
+                try {
+                    const shop = await Shop.findById(product.shop).select('name avatar');
+                    if (shop) {
+                        shopInfo = {
+                            _id: shop._id,
+                            name: shop.name,
+                            avatar: shop.avatar
+                        };
+                    }
+                } catch (e) {
+                    // Keep default shop info
+                }
+            }
+
+            return {
+                product: item.product._id,
+                quantity: item.quantity,
+                price: discountedPrice,
+                originalPrice: originalPrice,
+                discount: discount,
+                name: product?.name || item.name,
+                image: product?.images?.[0] || item.image,
+                shop: shopInfo._id,
+                shopName: shopInfo.name,
+                shopAvatar: shopInfo.avatar,
+                addedAt: item.addedAt || cart.createdAt
+            };
+        }));
+
+        // Recalculate totals
+        const totalQuantity = transformedProducts.reduce((sum, item) => sum + item.quantity, 0);
+        const totalPrice = transformedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
         res.status(200).json({
             success: true,
-            data: cart
+            data: {
+                _id: cart._id,
+                products: transformedProducts,
+                totalPrice,
+                totalQuantity,
+                createdAt: cart.createdAt,
+                updatedAt: cart.updatedAt
+            }
         });
     } catch (error) {
+        console.error('Get cart error:', error);
         res.status(500).json({
             success: false,
             message: 'Lỗi khi lấy giỏ hàng',
@@ -39,7 +99,7 @@ const addToCart = async (req, res) => {
     try {
         const { productId, quantity = 1 } = req.body;
 
-        const product = await Product.findById(productId);
+        const product = await Product.findById(productId).populate('shop', 'name avatar');
         if (!product) {
             return res.status(404).json({
                 success: false,
@@ -61,6 +121,20 @@ const addToCart = async (req, res) => {
             });
         }
 
+        // Calculate discount
+        const discount = product.discount || 0;
+        const originalPrice = product.price;
+        const discountedPrice = discount > 0 
+            ? Math.round(originalPrice * (1 - discount / 100)) 
+            : originalPrice;
+
+        // Get shop info
+        const shopInfo = product.shop ? {
+            _id: product.shop._id,
+            name: product.shop.name,
+            avatar: product.shop.avatar
+        } : null;
+
         let cart = await Cart.findOne({ user: req.user._id });
 
         if (!cart) {
@@ -69,9 +143,14 @@ const addToCart = async (req, res) => {
                 products: [{
                     product: productId,
                     quantity,
-                    price: product.price,
+                    price: discountedPrice,
+                    originalPrice: originalPrice,
                     name: product.name,
-                    image: product.images[0] || null
+                    image: product.images[0] || null,
+                    shop: shopInfo?._id,
+                    shopName: shopInfo?.name || 'Cửa hàng',
+                    shopAvatar: shopInfo?.avatar || null,
+                    discount: discount
                 }]
             });
         } else {
@@ -92,9 +171,15 @@ const addToCart = async (req, res) => {
                 cart.products.push({
                     product: productId,
                     quantity,
-                    price: product.price,
+                    price: discountedPrice,
+                    originalPrice: originalPrice,
                     name: product.name,
-                    image: product.images[0] || null
+                    image: product.images[0] || null,
+                    shop: shopInfo?._id,
+                    shopName: shopInfo?.name || 'Cửa hàng',
+                    shopAvatar: shopInfo?.avatar || null,
+                    discount: discount,
+                    addedAt: new Date()
                 });
             }
         }
@@ -107,6 +192,7 @@ const addToCart = async (req, res) => {
             data: cart
         });
     } catch (error) {
+        console.error('Add to cart error:', error);
         res.status(500).json({
             success: false,
             message: 'Lỗi khi thêm vào giỏ hàng',
@@ -173,6 +259,7 @@ const updateCartItem = async (req, res) => {
             data: cart
         });
     } catch (error) {
+        console.error('Update cart error:', error);
         res.status(500).json({
             success: false,
             message: 'Lỗi khi cập nhật giỏ hàng',
@@ -216,6 +303,7 @@ const removeFromCart = async (req, res) => {
             data: cart
         });
     } catch (error) {
+        console.error('Remove from cart error:', error);
         res.status(500).json({
             success: false,
             message: 'Lỗi khi xóa sản phẩm',
@@ -246,6 +334,7 @@ const clearCart = async (req, res) => {
             data: cart
         });
     } catch (error) {
+        console.error('Clear cart error:', error);
         res.status(500).json({
             success: false,
             message: 'Lỗi khi xóa giỏ hàng',

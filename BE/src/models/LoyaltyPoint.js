@@ -1,5 +1,13 @@
 const mongoose = require('mongoose');
 
+// Tier thresholds configuration
+const TIER_THRESHOLDS = {
+    bronze: 0,
+    silver: 100000,
+    gold: 500000,
+    diamond: 2000000
+};
+
 const loyaltyPointSchema = new mongoose.Schema({
     user: {
         type: mongoose.Schema.Types.ObjectId,
@@ -50,7 +58,7 @@ const loyaltyPointSchema = new mongoose.Schema({
     }],
     tier: {
         type: String,
-        enum: ['bronze', 'silver', 'gold', 'platinum'],
+        enum: ['bronze', 'silver', 'gold', 'diamond'],
         default: 'bronze'
     },
     tierProgress: {
@@ -63,10 +71,21 @@ const loyaltyPointSchema = new mongoose.Schema({
 // Calculate tier based on total earned points
 loyaltyPointSchema.methods.calculateTier = function() {
     const total = this.totalEarned;
-    if (total >= 1000000) return 'platinum';
-    if (total >= 500000) return 'gold';
-    if (total >= 200000) return 'silver';
+    if (total >= TIER_THRESHOLDS.diamond) return 'diamond';
+    if (total >= TIER_THRESHOLDS.gold) return 'gold';
+    if (total >= TIER_THRESHOLDS.silver) return 'silver';
     return 'bronze';
+};
+
+// Get tier multiplier for earning points
+loyaltyPointSchema.methods.getTierMultiplier = function() {
+    const multipliers = {
+        bronze: 1,
+        silver: 1.2,
+        gold: 1.5,
+        diamond: 2
+    };
+    return multipliers[this.tier] || 1;
 };
 
 // Update tier automatically
@@ -77,38 +96,43 @@ loyaltyPointSchema.methods.updateTier = function() {
     }
     
     // Calculate progress to next tier
-    const tiers = {
-        bronze: { next: 'silver', points: 200000 },
-        silver: { next: 'gold', points: 500000 },
-        gold: { next: 'platinum', points: 1000000 },
-        platinum: { next: null, points: 0 }
-    };
+    const tierOrder = ['bronze', 'silver', 'gold', 'diamond'];
+    const currentIndex = tierOrder.indexOf(this.tier);
     
-    if (tiers[this.tier].next) {
+    if (currentIndex < tierOrder.length - 1) {
+        const nextTier = tierOrder[currentIndex + 1];
+        const nextThreshold = TIER_THRESHOLDS[nextTier];
         this.tierProgress = {
-            nextTier: tiers[this.tier].next,
-            pointsNeeded: tiers[this.tier].points - this.totalEarned,
+            nextTier: nextTier,
+            pointsNeeded: nextThreshold - this.totalEarned,
             currentProgress: this.totalEarned
         };
+    } else {
+        // Already at highest tier
+        this.tierProgress = null;
     }
     
     return this.tier;
 };
 
-// Add points with history
+// Add points with history (applies tier multiplier)
 loyaltyPointSchema.methods.addPoints = async function(points, description, orderId = null) {
-    this.points += points;
-    this.totalEarned += points;
+    // Apply tier multiplier
+    const multiplier = this.getTierMultiplier();
+    const earnedPoints = Math.floor(points * multiplier);
+    
+    this.points += earnedPoints;
+    this.totalEarned += earnedPoints;
     this.history.push({
         type: 'earn',
-        points: points,
+        points: earnedPoints,
         description: description,
         order: orderId,
         createdAt: new Date()
     });
     this.updateTier();
     await this.save();
-    return this;
+    return { totalPoints: this.points, earnedPoints, multiplier };
 };
 
 // Redeem points with history
@@ -130,6 +154,19 @@ loyaltyPointSchema.methods.redeemPoints = async function(points, description, co
     return this;
 };
 
+// Static method to get tier config for frontend
+loyaltyPointSchema.statics.getTierConfig = function() {
+    return {
+        tiers: [
+            { id: 'bronze', name: 'Đồng', minPoints: TIER_THRESHOLDS.bronze, multiplier: 1 },
+            { id: 'silver', name: 'Bạc', minPoints: TIER_THRESHOLDS.silver, multiplier: 1.2 },
+            { id: 'gold', name: 'Vàng', minPoints: TIER_THRESHOLDS.gold, multiplier: 1.5 },
+            { id: 'diamond', name: 'Kim Cương', minPoints: TIER_THRESHOLDS.diamond, multiplier: 2 }
+        ],
+        thresholds: TIER_THRESHOLDS
+    };
+};
+
 // Virtual for id
 loyaltyPointSchema.virtual('id').get(function() {
     return this._id.toHexString();
@@ -139,3 +176,4 @@ loyaltyPointSchema.set('toJSON', { virtuals: true });
 loyaltyPointSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('LoyaltyPoint', loyaltyPointSchema);
+module.exports.TIER_THRESHOLDS = TIER_THRESHOLDS;

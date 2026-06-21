@@ -84,6 +84,11 @@ const getProductByIdApi = (productId) => {
     return axios.get(URL_API);
 }
 
+const incrementProductViewApi = (productId) => {
+    const URL_API = `/products/${productId}/view`;
+    return axios.post(URL_API);
+}
+
 const getProductsByCategoryApi = (slug, params = {}) => {
     const URL_API = `/products/category/${slug}`;
     return axios.get(URL_API, { params });
@@ -294,6 +299,48 @@ const createVendorPromotionApi = (data) => axios.post("/vendor/promotions", data
 const updateVendorPromotionApi = (id, data) => axios.put(`/vendor/promotions/${id}`, data);
 const deleteVendorPromotionApi = (id) => axios.delete(`/vendor/promotions/${id}`);
 
+// Payment APIs
+const createPayOSPaymentWithCartApi = (data) => {
+    const URL_API = "/payments/payos/create-with-cart";
+    return axios.post(URL_API, data);
+};
+
+const getPayOSPaymentStatusApi = (orderId) => {
+    const URL_API = `/payments/payos/status/${orderId}`;
+    return axios.get(URL_API);
+};
+
+const cancelPayOSPaymentApi = (orderId) => {
+    const URL_API = `/payments/payos/cancel/${orderId}`;
+    return axios.post(URL_API);
+};
+
+// Admin Platform APIs
+const getPlatformConfigApi = () => {
+    const URL_API = "/admin/platform/config";
+    return axios.get(URL_API);
+};
+
+const updatePlatformConfigApi = (key, value) => {
+    const URL_API = "/admin/platform/config";
+    return axios.put(URL_API, { key, value });
+};
+
+const getFinanceOverviewApi = () => {
+    const URL_API = "/admin/platform/finance-overview";
+    return axios.get(URL_API);
+};
+
+const runManualPayoutApi = (orderIds) => {
+    const URL_API = "/admin/platform/run-payout";
+    return axios.post(URL_API, { orderIds });
+};
+
+const getPlatformTransactionsApi = (params) => {
+    const URL_API = "/admin/platform/transactions";
+    return axios.get(URL_API, { params });
+};
+
 export {
     createUserApi,
     loginApi,
@@ -311,6 +358,7 @@ export {
     cancelOrderApi,
     getProductsApi,
     getProductByIdApi,
+    incrementProductViewApi,
     getProductsByCategoryApi,
     getBestSellersApi,
     getTrendingProductsApi,
@@ -371,5 +419,15 @@ export {
     getVendorPromotionsApi,
     createVendorPromotionApi,
     updateVendorPromotionApi,
-    deleteVendorPromotionApi
+    deleteVendorPromotionApi,
+    // Payment APIs
+    createPayOSPaymentWithCartApi,
+    getPayOSPaymentStatusApi,
+    cancelPayOSPaymentApi,
+    // Admin Platform APIs
+    getPlatformConfigApi,
+    updatePlatformConfigApi,
+    getFinanceOverviewApi,
+    runManualPayoutApi,
+    getPlatformTransactionsApi
 };

@@ -8,6 +8,9 @@
 .vendor-shell {
   font-family: 'Be Vietnam Pro', system-ui, sans-serif;
   color: #1C1108;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* Hide scrollbar on the dark sidebar */

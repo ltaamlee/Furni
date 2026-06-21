@@ -41,7 +41,16 @@ const getAllProducts = async (req, res) => {
     const query = { isActive: true };
     
     if (category) {
-      query.category = category;
+      // Check if it's a valid ObjectId, otherwise treat as slug
+      if (mongoose.isValidObjectId(category)) {
+        query.category = category;
+      } else {
+        // It's a slug, find the category first
+        const cat = await Category.findOne({ slug: category });
+        if (cat) {
+          query.category = cat._id;
+        }
+      }
     }
 
     if (req.query.shop) {
@@ -71,7 +80,7 @@ const getAllProducts = async (req, res) => {
     // Pagination
     const skip = (Number(page) - 1) * Number(limit);
     const products = await Product.find(query)
-      .populate('category', 'name')
+      .populate('category', 'name slug')
       .populate('shop', 'name slug logo')
       .sort({ [sort]: order === 'desc' ? -1 : 1 })
       .skip(skip)
@@ -108,7 +117,7 @@ const getProduct = async (req, res) => {
     const lookup = mongoose.isValidObjectId(id) ? { _id: id } : { slug: id };
 
     const product = await Product.findOne(lookup)
-      .populate('category', 'name')
+      .populate('category', 'name slug')
       .populate('shop', 'name slug logo banner description phone email address isActive');
 
     if (!product) {

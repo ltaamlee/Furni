@@ -1,6 +1,7 @@
 import { Navigate } from "react-router-dom";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import CustomerLayout from "./components/layout/CustomerLayout";
+import UserLayout from "./components/layout/UserLayout";
 import VendorLayout from "./components/vendor/VendorLayout";
 import { useContext } from "react";
 import { AuthContext } from "./components/context/authContext";
@@ -26,6 +27,9 @@ import LoyaltyPointsPage from "./components/common/LoyaltyPointsPage";
 import MyReviewsPage from "./pages/user/myReviews";
 import CouponList from "./components/common/CouponList";
 import RecentlyViewedPage from "./components/common/RecentlyViewedPage";
+import PayOSReturnPage from "./pages/user/payosReturn";
+import ChangePasswordPage from "./pages/user/changePassword";
+import AddressesPage from "./pages/user/addresses";
 
 // Vendor pages
 import VendorRegister from "./pages/vendor/Register";
@@ -58,14 +62,11 @@ function App() {
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/verify-password" element={<VerifyPasswordPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-<Route path="/profile" element={<ProfilePage />} />
-                    <Route path="/wishlist" element={<WishlistPage />} />
-                    <Route path="/loyalty" element={<LoyaltyPointsPage />} />
-                    <Route path="/my-reviews" element={<MyReviewsPage />} />
-                    <Route path="/coupons" element={<CouponList />} />
-                    <Route path="/recently-viewed" element={<RecentlyViewedPage />} />
 
-                    {/* Customer Layout - with Header & Footer */}
+                {/* Vendor – shop registration (standalone, no sidebar) */}
+                <Route path="/vendor/register" element={<VendorRegister />} />
+
+                {/* Customer Layout - with Header & Footer */}
                 <Route element={<CustomerLayout />}>
                     <Route path="/" element={<HomePage />} />
                     <Route path="/home" element={<HomePage />} />
@@ -74,15 +75,26 @@ function App() {
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/checkout" element={<CheckoutPage />} />
                     <Route path="/order-success/:id" element={<OrderSuccessPage />} />
-                    <Route path="/orders" element={<OrderHistoryPage />} />
-                    <Route path="/orders/:id" element={<OrderDetailPage />} />
+                    <Route path="/payment/payos/return" element={<PayOSReturnPage />} />
                     <Route path="/category/:slug" element={<ProductByCategoryPage />} />
-                    <Route path="/best-sellers" element={<BestSellersPage />} />
                     <Route path="/shop/:id" element={<ShopPage />} />
                 </Route>
 
-                {/* Vendor – shop registration (standalone, no sidebar) */}
-                <Route path="/vendor/register" element={<VendorRegister />} />
+                {/* User Layout - with Sidebar + Header & Footer */}
+                <Route element={<CustomerLayout />}>
+                    <Route element={<UserLayout />}>
+                        <Route path="/profile" element={<ProfilePage />} />
+                        <Route path="/orders" element={<OrderHistoryPage />} />
+                        <Route path="/orders/:id" element={<OrderDetailPage />} />
+                        <Route path="/wishlist" element={<WishlistPage />} />
+                        <Route path="/loyalty" element={<LoyaltyPointsPage />} />
+                        <Route path="/my-reviews" element={<MyReviewsPage />} />
+                        <Route path="/coupons" element={<CouponList />} />
+                        <Route path="/recently-viewed" element={<RecentlyViewedPage />} />
+                        <Route path="/change-password" element={<ChangePasswordPage />} />
+                        <Route path="/addresses" element={<AddressesPage />} />
+                    </Route>
+                </Route>
 
                 {/* Vendor – portal (sidebar + topbar layout) */}
                 <Route path="/vendor" element={<VendorLayout />}>

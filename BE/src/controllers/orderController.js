@@ -2,6 +2,7 @@ const Order = require('../models/order');
 const Cart = require('../models/cart');
 const Product = require('../models/product');
 const { ORDER_STATUS } = require('../models/order');
+const payoutService = require('../services/payoutService');
 
 // @desc    Create order from cart
 // @route   POST /api/orders
@@ -231,6 +232,17 @@ const cancelOrder = async (req, res) => {
 
         await order.save();
 
+        // Hoàn tiền cho vendor nếu đơn đã được chi trả
+        payoutService.reversePayoutForCancelledOrder(order._id)
+            .then(result => {
+                if (result.refunds && result.refunds.length > 0) {
+                    console.log(`[Payout] Đã hoàn tiền cho vendor khi hủy đơn ${order.orderNumber}`);
+                }
+            })
+            .catch(err => {
+                console.error(`[Payout] Lỗi hoàn tiền khi hủy đơn ${order._id}:`, err.message);
+            });
+
         res.status(200).json({
             success: true,
             message: 'Hủy đơn hàng thành công!',
@@ -332,6 +344,15 @@ const updateOrderStatus = async (req, res) => {
 
         if (status === ORDER_STATUS.DELIVERED) {
             order.deliveredAt = new Date();
+
+            // Trigger payout cho vendor (xử lý bất đồng bộ để không block response)
+            payoutService.payoutOrderToVendors(order._id)
+                .then(result => {
+                    console.log(`[Payout] Đã xử lý chi trả cho đơn ${order.orderNumber}:`, result.success ? 'Thành công' : 'Thất bại');
+                })
+                .catch(err => {
+                    console.error(`[Payout] Lỗi chi trả cho đơn ${order._id}:`, err.message);
+                });
         }
 
         await order.save();

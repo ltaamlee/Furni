@@ -64,54 +64,50 @@ const OrderSuccessPage = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 py-8">
+        <div className="min-h-screen bg-[#FAF7F4] py-10">
             <div className="max-w-2xl mx-auto px-4">
                 {/* Success Header */}
-                <div className="bg-white rounded-2xl shadow-sm p-8 text-center mb-6">
-                    <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <span className="text-4xl">✓</span>
+                <div className="bg-white rounded-2xl border border-[#EDE8E0] p-8 text-center mb-5">
+                    <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" className="w-10 h-10">
+                            <path d="M5 13l4 4L19 7" />
+                        </svg>
                     </div>
-                    <h1 className="text-2xl font-bold text-gray-800 mb-2">Đặt hàng thành công!</h1>
-                    <p className="text-gray-500">Cảm ơn bạn đã đặt hàng tại Sora</p>
-                    <div className="mt-4 p-4 bg-gray-50 rounded-xl">
-                        <p className="text-sm text-gray-500">Mã đơn hàng</p>
-                        <p className="text-xl font-bold text-green-600">{order?.orderNumber}</p>
+                    <h1 className="text-2xl font-extrabold text-[#1C1108] mb-2">Đặt hàng thành công!</h1>
+                    <p className="text-sm text-[#A8896A]">Cảm ơn bạn đã đặt hàng tại Furni</p>
+                    <div className="mt-5 p-4 bg-[#FAF7F4] rounded-xl">
+                        <p className="text-xs text-[#A8896A]">Mã đơn hàng</p>
+                        <p className="text-xl font-extrabold text-[#B86B05]">{order?.orderNumber}</p>
                     </div>
                 </div>
 
                 {/* Order Info */}
-                <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
+                <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-bold text-gray-800">Thông tin đơn hàng</h2>
-                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(order?.status)}`}>
+                        <h2 className="text-base font-bold text-[#1C1108]">Thông tin đơn hàng</h2>
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(order?.status)}`}>
                             {getStatusText(order?.status)}
                         </span>
                     </div>
 
-                    {/* Shipping Address */}
-                    <div className="border-b pb-4 mb-4">
-                        <h3 className="text-sm font-medium text-gray-500 mb-1">Địa chỉ giao hàng</h3>
-                        <p className="font-medium">{order?.shippingAddress?.fullName}</p>
-                        <p className="text-gray-600">{order?.shippingAddress?.phone}</p>
-                        <p className="text-gray-600">{order?.shippingAddress?.address}, {order?.shippingAddress?.city}</p>
+                    <div className="border-b border-[#EDE8E0] pb-4 mb-4">
+                        <h3 className="text-xs font-semibold text-[#A8896A] mb-1">Địa chỉ giao hàng</h3>
+                        <p className="font-semibold text-sm text-[#1C1108]">{order?.shippingAddress?.fullName}</p>
+                        <p className="text-sm text-[#6B5C4C]">{order?.shippingAddress?.phone}</p>
+                        <p className="text-sm text-[#6B5C4C]">{order?.shippingAddress?.address}, {order?.shippingAddress?.city}</p>
                     </div>
 
-                    {/* Products */}
                     <div>
-                        <h3 className="text-sm font-medium text-gray-500 mb-3">Sản phẩm đã đặt</h3>
+                        <h3 className="text-xs font-semibold text-[#A8896A] mb-3">Sản phẩm đã đặt</h3>
                         <div className="space-y-3">
                             {order?.products.map((item, idx) => (
                                 <div key={idx} className="flex gap-3 items-center">
-                                    <img
-                                        src={item.image || "/placeholder.png"}
-                                        alt={item.name}
-                                        className="w-16 h-16 object-cover rounded-lg"
-                                    />
-                                    <div className="flex-1">
-                                        <p className="font-medium text-gray-800">{item.name}</p>
-                                        <p className="text-sm text-gray-500">x{item.quantity}</p>
+                                    <img src={item.image || "/placeholder.png"} alt={item.name} className="w-14 h-14 object-cover rounded-lg" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-[#1C1108] line-clamp-1">{item.name}</p>
+                                        <p className="text-xs text-[#A8896A]">x{item.quantity}</p>
                                     </div>
-                                    <p className="font-bold text-green-600">{formatPrice(item.price * item.quantity)}</p>
+                                    <p className="font-bold text-sm text-[#1C1108]">{formatPrice(item.price * item.quantity)}</p>
                                 </div>
                             ))}
                         </div>
@@ -119,39 +115,41 @@ const OrderSuccessPage = () => {
                 </div>
 
                 {/* Payment Summary */}
-                <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">Thanh toán</h3>
+                <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
+                    <h3 className="text-base font-bold text-[#1C1108] mb-4">Thanh toán</h3>
                     <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Tạm tính</span>
-                            <span>{formatPrice(order?.subtotal)}</span>
+                            <span className="text-[#6B5C4C]">Tạm tính</span>
+                            <span className="text-[#1C1108] font-medium">{formatPrice(order?.subtotal)}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Phí vận chuyển</span>
-                            <span>{order?.shippingFee === 0 ? "Miễn phí" : formatPrice(order?.shippingFee)}</span>
+                            <span className="text-[#6B5C4C]">Phí vận chuyển</span>
+                            <span className="text-[#1C1108] font-medium">
+                                {order?.shippingFee === 0 ? <span className="text-green-600">Miễn phí</span> : formatPrice(order?.shippingFee)}
+                            </span>
                         </div>
-                        <div className="flex justify-between border-t pt-2">
-                            <span className="font-bold text-gray-800">Tổng cộng</span>
-                            <span className="font-bold text-xl text-green-600">{formatPrice(order?.totalPrice)}</span>
+                        <div className="flex justify-between border-t border-[#EDE8E0] pt-2">
+                            <span className="font-bold text-[#1C1108]">Tổng cộng</span>
+                            <span className="font-extrabold text-xl text-[#B86B05]">{formatPrice(order?.totalPrice)}</span>
                         </div>
-                        <div className="flex justify-between mt-2 pt-2 border-t">
-                            <span className="text-gray-600">Phương thức</span>
-                            <span className="font-medium">💵 {order?.paymentMethod}</span>
+                        <div className="flex justify-between pt-2 border-t border-[#EDE8E0]">
+                            <span className="text-[#6B5C4C]">Phương thức</span>
+                            <span className="font-semibold text-sm text-[#1C1108]">💵 {order?.paymentMethod}</span>
                         </div>
                     </div>
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-4">
+                <div className="flex gap-3">
                     <Link
                         to="/orders"
-                        className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-full font-semibold text-center hover:bg-gray-300 transition"
+                        className="flex-1 bg-[#EDE8E0] text-[#6B5C4C] py-3.5 rounded-xl font-semibold text-sm text-center hover:bg-[#D5C9BC] transition-colors active:scale-[0.98]"
                     >
                         📦 Xem đơn hàng
                     </Link>
                     <Link
                         to="/"
-                        className="flex-1 bg-green-600 text-white py-3 rounded-full font-semibold text-center hover:bg-green-700 transition"
+                        className="flex-1 bg-[#B86B05] text-white py-3.5 rounded-xl font-semibold text-sm text-center hover:bg-[#95520B] transition-colors active:scale-[0.98]"
                     >
                         🛍️ Tiếp tục mua sắm
                     </Link>

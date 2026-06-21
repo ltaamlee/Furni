@@ -1,3 +1,140 @@
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Be Vietnam Pro', system-ui, sans-serif;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-[#FAF7F4] text-[#1C1108];
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    @apply bg-[#B86B05]/20 text-[#1C1108];
+  }
+}
+
+@layer components {
+  /* Primary Button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-[#B86B05] text-white text-sm font-semibold rounded-lg transition-all duration-200 hover:bg-[#95520B] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Secondary Button */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-[#1C1108] text-sm font-semibold rounded-lg border border-[#D5C9BC] transition-all duration-200 hover:border-[#B86B05] hover:text-[#B86B05] active:scale-[0.98];
+  }
+
+  /* Ghost Button */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-transparent text-[#6B5C4C] text-sm font-medium rounded-lg transition-all duration-200 hover:bg-[#EDE8E0] active:scale-[0.98];
+  }
+
+  /* Card */
+  .card {
+    @apply bg-white rounded-xl border border-[#EDE8E0] shadow-sm overflow-hidden;
+  }
+
+  /* Input */
+  .input {
+    @apply w-full px-3.5 py-2.5 text-sm bg-white border border-[#D5C9BC] rounded-lg transition-colors duration-200 placeholder:text-[#A8896A] focus:outline-none focus:border-[#B86B05] focus:ring-2 focus:ring-[#B86B05]/10;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full;
+  }
+
+  .badge-primary {
+    @apply badge bg-[#B86B05]/10 text-[#B86B05];
+  }
+
+  .badge-success {
+    @apply badge bg-green-50 text-green-700;
+  }
+
+  .badge-warning {
+    @apply badge bg-amber-50 text-amber-700;
+  }
+
+  .badge-error {
+    @apply badge bg-red-50 text-red-700;
+  }
+
+  .badge-neutral {
+    @apply badge bg-[#EDE8E0] text-[#6B5C4C];
+  }
+
+  /* Section Title */
+  .section-title {
+    @apply text-xl sm:text-2xl font-bold text-[#1C1108];
+  }
+
+  .section-subtitle {
+    @apply text-sm text-[#6B5C4C] mt-1;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-[#EDE8E0];
+  }
+
+  /* Fade In Animation */
+  .fade-in {
+    animation: fadeInUp 0.3s ease-out;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@layer utilities {
+  /* Text Gradient */
+  .text-gradient {
+    @apply bg-gradient-to-r from-[#B86B05] to-[#95520B] bg-clip-text text-transparent;
+  }
+
+  /* Hide scrollbar */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Custom scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-[#D5C9BC] rounded-full;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-[#A8896A];
+  }
+}

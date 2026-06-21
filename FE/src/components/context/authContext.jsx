@@ -68,11 +68,24 @@ export const AuthWrapper = ({ children }) => {
                                 username: userData?.username || "",
                             }
                         });
+                    } else if (localStorage.getItem("capture_mode") === "true") {
+                        // Bypass auth for Figma capture mode
+                        setAuth({
+                            isAuthenticated: true,
+                            user: { id: "1", email: "demo@furni.com", fullName: "Demo User", phone: "0909123456", role: "customer", username: "demo" }
+                        });
                     } else {
                         logout();
                     }
                 } catch (error) {
-                    logout();
+                    if (localStorage.getItem("capture_mode") === "true") {
+                        setAuth({
+                            isAuthenticated: true,
+                            user: { id: "1", email: "demo@furni.com", fullName: "Demo User", phone: "0909123456", role: "customer", username: "demo" }
+                        });
+                    } else {
+                        logout();
+                    }
                 }
             }
             setAppLoading(false);

@@ -24,6 +24,8 @@ router.route('/profile')
 // Change password
 router.put('/change-password', authorize('customer'), changePassword);
 
+router.get('/me', authorize('customer', 'admin'), getProfile);
+
 // Admin only routes
 router.get('/', authorize('admin'), getUsers);
 router.route('/:id')
@@ -31,6 +33,5 @@ router.route('/:id')
   .put(authorize('admin'), updateUser)
   .delete(authorize('admin'), deleteUser);
   
-router.get('/me', authorize('customer', 'admin'), getProfile);
 
 module.exports = router;

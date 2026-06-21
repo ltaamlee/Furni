@@ -84,13 +84,18 @@ const orderSchema = new mongoose.Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['COD', 'VNPAY', 'MOMO', 'ZALOPAY'],
+        enum: ['COD', 'VNPAY', 'MOMO', 'ZALOPAY', 'PAYOS'],
         default: 'COD'
     },
     paymentStatus: {
         type: String,
         enum: ['pending', 'paid', 'failed', 'refunded'],
         default: 'pending'
+    },
+    // PayOS order code (for online payment tracking)
+    payosOrderCode: {
+        type: String,
+        default: null
     },
     status: {
         type: String,

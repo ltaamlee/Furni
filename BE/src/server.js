@@ -21,6 +21,9 @@ const shippingRoutes = require('./routes/shippingRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const loyaltyRoutes = require('./routes/loyaltyRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+const platformRoutes = require('./routes/platformRoutes');
+const walletRoutes = require('./routes/walletRoutes');
 const { errorHandler } = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -41,7 +44,7 @@ app.use(xss());
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 10000, // limit each IP to 10000 requests per windowMs
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
@@ -60,6 +63,9 @@ app.use('/api/shipping', shippingRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/loyalty', loyaltyRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/wallets', walletRoutes);
+app.use('/api/admin/platform', platformRoutes);
 // Health check
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Server is running' });

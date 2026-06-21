@@ -88,7 +88,8 @@ ShopSchema.methods.canSell = function () {
     return this.status === SHOP_STATUS.APPROVED && this.isActive !== false;
 };
 
-const Shop = mongoose.model('Shop', ShopSchema);
+const Shop = mongoose.models.Shop || mongoose.model('Shop', ShopSchema);
+
 Shop.STATUS = SHOP_STATUS;
 
 module.exports = Shop;

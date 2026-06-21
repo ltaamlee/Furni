@@ -7,11 +7,25 @@ const REVIEW_TYPE = {
     SHOP: 'shop'
 };
 
+// Trạng thái đánh giá
+const REVIEW_STATUS = {
+    PENDING: 'pending',     // Chờ duyệt
+    APPROVED: 'approved',    // Đã duyệt
+    REJECTED: 'rejected'    // Bị từ chối
+};
+
 const reviewSchema = new mongoose.Schema({
     type: {
         type: String,
         enum: Object.values(REVIEW_TYPE),
-        required: [true, 'Vui lòng chọn loại đánh giá!']
+        required: [true, 'Vui lòng chọn loại đánh giá!'],
+        default: REVIEW_TYPE.PRODUCT
+    },
+    // Trạng thái đánh giá (vendor/admin duyệt)
+    status: {
+        type: String,
+        enum: Object.values(REVIEW_STATUS),
+        default: REVIEW_STATUS.APPROVED  // Mặc định auto-approve để UX tốt hơn
     },
     // Người đánh giá
     user: {
@@ -104,6 +118,8 @@ const Review =
     mongoose.model('Review', reviewSchema);
 
 Review.TYPE = REVIEW_TYPE;
+Review.STATUS = REVIEW_STATUS;
 
 module.exports = Review;
 module.exports.TYPE = REVIEW_TYPE;
+module.exports.STATUS = REVIEW_STATUS;

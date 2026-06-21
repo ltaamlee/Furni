@@ -147,22 +147,22 @@ const OrderDetailPage = () => {
     ];
 
     return (
-        <div className="min-h-screen bg-gray-50 py-8">
+        <div className="min-h-screen bg-[#FAF7F4] py-8">
             <div className="max-w-4xl mx-auto px-4">
                 {/* Back Button */}
-                <Link to="/orders" className="inline-flex items-center gap-2 text-gray-600 hover:text-green-600 mb-6">
+                <Link to="/orders" className="inline-flex items-center gap-2 text-sm text-[#6B5C4C] hover:text-[#B86B05] mb-6 transition-colors">
                     ← Quay lại danh sách đơn hàng
                 </Link>
 
                 {/* Header */}
-                <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
+                <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
                     <div className="flex flex-wrap justify-between items-start gap-4">
                         <div>
-                            <p className="text-sm text-gray-500">Mã đơn hàng</p>
-                            <p className="text-2xl font-bold text-gray-800">{order.orderNumber}</p>
-                            <p className="text-sm text-gray-500 mt-1">Ngày đặt: {formatDate(order.createdAt)}</p>
+                            <p className="text-xs text-[#A8896A]">Mã đơn hàng</p>
+                            <p className="text-2xl font-extrabold text-[#1C1108]">{order.orderNumber}</p>
+                            <p className="text-xs text-[#A8896A] mt-1">Ngày đặt: {formatDate(order.createdAt)}</p>
                         </div>
-                        <span className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(order.status)}`}>
+                        <span className={`px-4 py-2 rounded-full text-xs font-semibold ${getStatusColor(order.status)}`}>
                             {getStatusText(order.status)}
                         </span>
                     </div>
@@ -170,25 +170,24 @@ const OrderDetailPage = () => {
 
                 {/* Order Timeline */}
                 {order.status !== "cancelled" && (
-                    <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-                        <h2 className="text-lg font-bold text-gray-800 mb-6">Theo dõi đơn hàng</h2>
+                    <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
+                        <h2 className="text-base font-bold text-[#1C1108] mb-6">Theo dõi đơn hàng</h2>
                         <div className="flex items-start justify-between">
                             {steps.map((step, idx) => {
                                 const stepStatus = getStepStatus(step.num, order.status);
                                 return (
-                                    <div key={step.num} className="flex flex-col items-center flex-1">
-                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold mb-2
-                                            ${stepStatus === "completed" ? "bg-green-600 text-white" :
-                                                stepStatus === "current" ? "bg-green-600 text-white animate-pulse" :
-                                                    "bg-gray-200 text-gray-500"}`}>
+                                    <div key={step.num} className="flex flex-col items-center flex-1 relative">
+                                        <div className={`w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold mb-2 ${
+                                            stepStatus === "completed" ? "bg-[#B86B05] text-white" :
+                                                stepStatus === "current" ? "bg-[#B86B05] text-white animate-pulse" :
+                                                    "bg-[#EDE8E0] text-[#A8896A]"}`}>
                                             {stepStatus === "completed" ? "✓" : step.num}
                                         </div>
-                                        <p className={`text-xs font-medium text-center ${stepStatus !== "pending" ? "text-gray-800" : "text-gray-400"}`}>
+                                        <p className={`text-xs font-medium text-center ${stepStatus !== "pending" ? "text-[#1C1108]" : "text-[#A8896A]"}`}>
                                             {step.label}
                                         </p>
                                         {idx < steps.length - 1 && (
-                                            <div className={`absolute h-1 w-full -z-10 ${stepStatus === "completed" ? "bg-green-600" : "bg-gray-200"}`}
-                                                style={{ display: "none" }}></div>
+                                            <div className="absolute top-[22px] left-1/2 w-full h-0.5 -z-10" style={{ display: "none" }} />
                                         )}
                                     </div>
                                 );
@@ -199,14 +198,12 @@ const OrderDetailPage = () => {
 
                 {/* Cancel Request Notice */}
                 {order.status === "cancel_requested" && (
-                    <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 mb-6">
+                    <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 mb-5">
                         <div className="flex items-center gap-3">
                             <span className="text-2xl">⏳</span>
                             <div>
-                                <p className="font-medium text-orange-800">Yêu cầu hủy đang chờ xử lý</p>
-                                <p className="text-sm text-orange-600">
-                                    Lý do: {order.cancelRequest?.reason || "Không có"}
-                                </p>
+                                <p className="font-semibold text-sm text-orange-800">Yêu cầu hủy đang chờ xử lý</p>
+                                <p className="text-xs text-orange-600 mt-0.5">Lý do: {order.cancelRequest?.reason || "Không có"}</p>
                             </div>
                         </div>
                     </div>
@@ -214,98 +211,96 @@ const OrderDetailPage = () => {
 
                 {/* Cancelled Notice */}
                 {order.status === "cancelled" && (
-                    <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6">
+                    <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-5">
                         <div className="flex items-center gap-3">
                             <span className="text-2xl">❌</span>
                             <div>
-                                <p className="font-medium text-red-800">Đơn hàng đã bị hủy</p>
-                                <p className="text-sm text-red-600">
-                                    Ngày hủy: {formatDate(order.cancelledAt)}
-                                </p>
+                                <p className="font-semibold text-sm text-red-800">Đơn hàng đã bị hủy</p>
+                                <p className="text-xs text-red-600 mt-0.5">Ngày hủy: {formatDate(order.cancelledAt)}</p>
                             </div>
                         </div>
                     </div>
                 )}
 
                 {/* Shipping Info */}
-                <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-                    <h2 className="text-lg font-bold text-gray-800 mb-4">Thông tin giao hàng</h2>
-                    <div className="grid md:grid-cols-2 gap-6">
+                <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
+                    <h2 className="text-base font-bold text-[#1C1108] mb-4">Thông tin giao hàng</h2>
+                    <div className="grid md:grid-cols-2 gap-5">
                         <div>
-                            <p className="text-sm text-gray-500 mb-1">Người nhận</p>
-                            <p className="font-medium">{order.shippingAddress?.fullName}</p>
-                            <p className="text-gray-600">{order.shippingAddress?.phone}</p>
+                            <p className="text-xs text-[#A8896A] mb-1">Người nhận</p>
+                            <p className="font-semibold text-sm text-[#1C1108]">{order.shippingAddress?.fullName}</p>
+                            <p className="text-sm text-[#6B5C4C]">{order.shippingAddress?.phone}</p>
                         </div>
                         <div>
-                            <p className="text-sm text-gray-500 mb-1">Địa chỉ giao hàng</p>
-                            <p className="text-gray-700">{order.shippingAddress?.address}</p>
-                            <p className="text-gray-600">{order.shippingAddress?.city}</p>
+                            <p className="text-xs text-[#A8896A] mb-1">Địa chỉ giao hàng</p>
+                            <p className="text-sm text-[#6B5C4C]">{order.shippingAddress?.address}</p>
+                            <p className="text-sm text-[#6B5C4C]">{order.shippingAddress?.city}</p>
                             {order.shippingAddress?.note && (
-                                <p className="text-sm text-gray-500 italic mt-1">Ghi chú: {order.shippingAddress.note}</p>
+                                <p className="text-xs text-[#A8896A] italic mt-1">Ghi chú: {order.shippingAddress.note}</p>
                             )}
                         </div>
                     </div>
                 </div>
 
                 {/* Products */}
-                <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-                    <h2 className="text-lg font-bold text-gray-800 mb-4">Sản phẩm đã đặt</h2>
+                <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
+                    <h2 className="text-base font-bold text-[#1C1108] mb-4">Sản phẩm đã đặt</h2>
                     <div className="space-y-4">
                         {order.products.map((item, idx) => (
-                            <div key={idx} className="flex gap-4 items-center border-b pb-4 last:border-0 last:pb-0">
+                            <div key={idx} className="flex gap-4 items-center border-b border-[#EDE8E0] pb-4 last:border-0 last:pb-0 last:mb-0">
                                 <img
                                     src={item.image || "/placeholder.png"}
                                     alt={item.name}
-                                    className="w-20 h-20 object-cover rounded-xl"
+                                    className="w-18 h-18 object-cover rounded-xl"
                                 />
-                                <div className="flex-1">
-                                    <p className="font-medium text-gray-800">{item.name}</p>
-                                    <p className="text-sm text-gray-500">Đơn giá: {formatPrice(item.price)}</p>
-                                    <p className="text-sm text-gray-500">Số lượng: {item.quantity}</p>
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-medium text-sm text-[#1C1108] line-clamp-1">{item.name}</p>
+                                    <p className="text-xs text-[#A8896A]">Đơn giá: {formatPrice(item.price)}</p>
+                                    <p className="text-xs text-[#A8896A]">Số lượng: {item.quantity}</p>
                                 </div>
-                                <p className="font-bold text-green-600">{formatPrice(item.price * item.quantity)}</p>
+                                <p className="font-bold text-sm text-[#1C1108]">{formatPrice(item.price * item.quantity)}</p>
                             </div>
                         ))}
                     </div>
                 </div>
 
                 {/* Payment Summary */}
-                <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-                    <h2 className="text-lg font-bold text-gray-800 mb-4">Thanh toán</h2>
+                <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
+                    <h2 className="text-base font-bold text-[#1C1108] mb-4">Thanh toán</h2>
                     <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Tạm tính</span>
-                            <span>{formatPrice(order.subtotal)}</span>
+                            <span className="text-[#6B5C4C]">Tạm tính</span>
+                            <span className="text-[#1C1108] font-medium">{formatPrice(order.subtotal)}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Phí vận chuyển</span>
-                            <span>{order.shippingFee === 0 ? "Miễn phí" : formatPrice(order.shippingFee)}</span>
+                            <span className="text-[#6B5C4C]">Phí vận chuyển</span>
+                            <span className="text-[#1C1108] font-medium">{order.shippingFee === 0 ? <span className="text-green-600">Miễn phí</span> : formatPrice(order.shippingFee)}</span>
                         </div>
-                        <div className="flex justify-between border-t pt-2">
-                            <span className="font-bold text-gray-800">Tổng cộng</span>
-                            <span className="font-bold text-xl text-green-600">{formatPrice(order.totalPrice)}</span>
+                        <div className="flex justify-between border-t border-[#EDE8E0] pt-2">
+                            <span className="font-bold text-[#1C1108]">Tổng cộng</span>
+                            <span className="font-extrabold text-xl text-[#B86B05]">{formatPrice(order.totalPrice)}</span>
                         </div>
-                        <div className="flex justify-between pt-2 border-t">
-                            <span className="text-gray-600">Phương thức</span>
-                            <span className="font-medium">💵 {order.paymentMethod}</span>
+                        <div className="flex justify-between pt-2 border-t border-[#EDE8E0]">
+                            <span className="text-[#6B5C4C]">Phương thức</span>
+                            <span className="font-semibold text-sm text-[#1C1108]">💵 {order.paymentMethod}</span>
                         </div>
                     </div>
                 </div>
 
                 {/* Status History */}
                 {order.statusHistory?.length > 0 && (
-                    <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-                        <h2 className="text-lg font-bold text-gray-800 mb-4">Lịch sử trạng thái</h2>
+                    <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
+                        <h2 className="text-base font-bold text-[#1C1108] mb-4">Lịch sử trạng thái</h2>
                         <div className="space-y-3">
                             {order.statusHistory.map((h, idx) => (
                                 <div key={idx} className="flex gap-3">
-                                    <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-sm">
-                                        {getStatusIcon(h.status)}
+                                    <div className="w-8 h-8 bg-[#FAF7F4] rounded-full flex items-center justify-center shrink-0">
+                                        <span className="text-sm">{getStatusIcon(h.status)}</span>
                                     </div>
                                     <div>
-                                        <p className="font-medium text-gray-800">{getStatusText(h.status)}</p>
-                                        <p className="text-sm text-gray-500">{formatDate(h.timestamp)}</p>
-                                        {h.note && <p className="text-sm text-gray-600 italic">{h.note}</p>}
+                                        <p className="font-semibold text-sm text-[#1C1108]">{getStatusText(h.status)}</p>
+                                        <p className="text-xs text-[#A8896A]">{formatDate(h.timestamp)}</p>
+                                        {h.note && <p className="text-xs text-[#6B5C4C] italic mt-0.5">{h.note}</p>}
                                     </div>
                                 </div>
                             ))}
@@ -314,19 +309,19 @@ const OrderDetailPage = () => {
                 )}
 
                 {/* Actions */}
-                <div className="flex flex-wrap gap-4">
+                <div className="flex flex-wrap gap-3">
                     {(canCancel() || canRequestCancel()) && (
                         <button
                             onClick={handleCancel}
                             disabled={cancelling}
-                            className="px-6 py-3 border border-red-500 text-red-500 rounded-full font-medium hover:bg-red-50 transition disabled:opacity-50"
+                            className="px-5 py-2.5 border border-[#BF4343] text-[#BF4343] rounded-xl font-semibold text-sm hover:bg-red-50 transition-colors disabled:opacity-50"
                         >
                             {cancelling ? "Đang xử lý..." : (canCancel() ? "Hủy đơn hàng" : "Yêu cầu hủy đơn")}
                         </button>
                     )}
                     <Link
                         to="/orders"
-                        className="px-6 py-3 bg-gray-200 text-gray-700 rounded-full font-medium hover:bg-gray-300 transition"
+                        className="px-5 py-2.5 bg-[#EDE8E0] text-[#6B5C4C] rounded-xl font-semibold text-sm hover:bg-[#D5C9BC] transition-colors"
                     >
                         ← Quay lại
                     </Link>

@@ -104,70 +104,57 @@ const ProductByCategoryPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 py-8">
+        <div className="min-h-screen bg-[#FAF7F4] py-8">
             <div className="max-w-7xl mx-auto px-4">
                 {/* Breadcrumb */}
-                <div className="mb-6">
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                        <Link to="/" className="hover:text-green-600">Trang chủ</Link>
-                        <span>/</span>
-                        <span className="text-gray-700">{category?.name || "Danh mục"}</span>
-                    </div>
+                <div className="flex items-center gap-2 text-sm text-[#A8896A] mb-6">
+                    <Link to="/" className="hover:text-[#B86B05] transition-colors">Trang chủ</Link>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5"><path d="M9 5l7 7-7 7" /></svg>
+                    <span className="text-[#1C1108]">{category?.name || "Danh mục"}</span>
                 </div>
 
                 {/* Header */}
                 <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-800">
-                            {category?.name || "Sản phẩm"}
-                        </h1>
-                        <p className="text-gray-500 text-sm mt-1">
-                            Có {total} sản phẩm
-                        </p>
+                        <h1 className="text-xl md:text-2xl font-bold text-[#1C1108]">{category?.name || "Sản phẩm"}</h1>
+                        <p className="text-sm text-[#A8896A] mt-1">Có {total.toLocaleString('vi-VN')} sản phẩm</p>
                     </div>
-
-                    {/* Sort */}
-                    <div className="flex items-center gap-3">
-                        <span className="text-sm text-gray-600">Sắp xếp:</span>
-                        <select
-                            value={sort}
-                            onChange={(e) => handleSortChange(e.target.value)}
-                            className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 bg-white"
-                        >
-                            <option value="createdAt">Mới nhất</option>
-                            <option value="price">Giá thấp đến cao</option>
-                            <option value="-price">Giá cao đến thấp</option>
-                            <option value="-sold">Bán chạy nhất</option>
-                            <option value="-averageRating">Đánh giá cao</option>
-                        </select>
-                    </div>
+                    <select
+                        value={sort}
+                        onChange={(e) => handleSortChange(e.target.value)}
+                        className="px-4 py-2.5 border border-[#D5C9BC] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] bg-white text-sm"
+                    >
+                        <option value="createdAt">Mới nhất</option>
+                        <option value="price">Giá thấp đến cao</option>
+                        <option value="-price">Giá cao đến thấp</option>
+                        <option value="-sold">Bán chạy nhất</option>
+                        <option value="-averageRating">Đánh giá cao</option>
+                    </select>
                 </div>
 
                 {/* Products Grid */}
                 {loading ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
                         {[...Array(8)].map((_, i) => (
-                            <div key={i} className="bg-white rounded-2xl overflow-hidden animate-pulse">
-                                <div className="aspect-square bg-gray-200"></div>
+                            <div key={i} className="bg-white rounded-xl border border-[#EDE8E0] overflow-hidden animate-pulse">
+                                <div className="aspect-square bg-[#EDE8E0]"></div>
                                 <div className="p-4 space-y-2">
-                                    <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                                    <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                                    <div className="h-6 bg-gray-200 rounded w-1/3"></div>
+                                    <div className="h-4 bg-[#EDE8E0] rounded w-3/4"></div>
+                                    <div className="h-4 bg-[#EDE8E0] rounded w-1/2"></div>
+                                    <div className="h-6 bg-[#EDE8E0] rounded w-1/3"></div>
                                 </div>
                             </div>
                         ))}
                     </div>
                 ) : products.length === 0 ? (
-                    <div className="bg-white rounded-2xl p-12 text-center">
-                        <div className="text-6xl mb-4">📦</div>
-                        <h2 className="text-xl font-semibold text-gray-700 mb-2">
-                            Không có sản phẩm nào
-                        </h2>
-                        <p className="text-gray-500">Danh mục này hiện chưa có sản phẩm</p>
+                    <div className="bg-white rounded-2xl border border-[#EDE8E0] p-16 text-center">
+                        <div className="text-6xl mb-4 select-none">📦</div>
+                        <h2 className="text-xl font-bold text-[#1C1108] mb-2">Không có sản phẩm nào</h2>
+                        <p className="text-sm text-[#A8896A]">Danh mục này hiện chưa có sản phẩm</p>
                     </div>
                 ) : (
                     <>
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
                             {products.map((product) => (
                                 <ProductCard
                                     key={product._id}
@@ -177,15 +164,14 @@ const ProductByCategoryPage = () => {
                             ))}
                         </div>
 
-                        {/* Load More Trigger */}
-                        <div ref={loadMoreRef} className="mt-8 text-center">
+                        <div ref={loadMoreRef} className="mt-10 text-center">
                             {loadingMore && (
                                 <div className="flex justify-center">
-                                    <div className="w-10 h-10 border-4 border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
+                                    <div className="w-10 h-10 border-3 border-[#D5C9BC] border-t-[#B86B05] rounded-full animate-spin"></div>
                                 </div>
                             )}
                             {!hasMore && products.length > 0 && (
-                                <p className="text-gray-500">Đã hiển thị tất cả sản phẩm</p>
+                                <p className="text-sm text-[#A8896A] py-4">Đã hiển thị tất cả sản phẩm</p>
                             )}
                         </div>
                     </>
