@@ -133,7 +133,7 @@ const changePassword = async (req, res) => {
 };
 
 // @desc    Get all users (Admin only)
-// @route   GET /api/user
+// @route   GET /api/admin/users
 // @access  Private/Admin
 const getUsers = async (req, res) => {
   try {
@@ -141,13 +141,34 @@ const getUsers = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const users = await User.find({})
+    const { search, role, status } = req.query;
+    let query = {};
+    if (search) {
+      query.$or = [
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (role && role !== 'Tất cả Vai trò') {
+      query.role = role.toLowerCase(); 
+    }
+
+    if (status && status !== 'Tất cả Trạng thái') {
+      if (status === 'Hoạt động') {
+        query.isBlocked = false;
+      } else if (status === 'Bị khóa') {
+        query.isBlocked = true;
+      }
+    }
+
+    const users = await User.find(query)
       .select('-password -otp')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
-    const total = await User.countDocuments();
+    const total = await User.countDocuments(query);
 
     res.status(200).json({
       success: true,
@@ -272,7 +293,42 @@ const deleteUser = async (req, res) => {
     });
   }
 };
+// @desc    Toggle block/unblock user (Admin only)
+// @route   PUT /api/admin/users/:id/toggle-block
+// @access  Private/Admin
+const toggleBlockUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
 
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy người dùng'
+      });
+    }
+
+    if (user._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bạn không thể tự khóa tài khoản quản trị của chính mình!'
+      });
+    }
+
+    user.isBlocked = !user.isBlocked;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Đã ${user.isBlocked ? 'khóa' : 'mở khóa'} tài khoản thành công`,
+      data: { isBlocked: user.isBlocked }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Đã xảy ra lỗi khi thay đổi trạng thái tài khoản'
+    });
+  }
+};
 module.exports = {
   getProfile,
   updateProfile,
@@ -280,5 +336,6 @@ module.exports = {
   getUsers,
   getUser,
   updateUser,
-  deleteUser
+  deleteUser,
+  toggleBlockUser
 };

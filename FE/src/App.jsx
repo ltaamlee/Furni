@@ -27,6 +27,17 @@ import MyReviewsPage from "./pages/user/myReviews";
 import CouponList from "./components/common/CouponList";
 import RecentlyViewedPage from "./components/common/RecentlyViewedPage";
 
+//admin
+import AdminLayout from "./components/layout/admin";
+import AdminCustomersPage from "./pages/admin/Customers";
+import AdminCategoriesPage from "./pages/admin/Categories";
+import AdminShops from "./pages/admin/Shops";
+import AdminShopDetail from "./pages/admin/ShopDetail";
+import AdminPromotions from './pages/admin/Promotions';
+import AdminCommission from './pages/admin/Commission';
+import AdminNotifications from "./pages/admin/Notifications";
+import AdminRevenue from "./pages/admin/Revenue";
+
 // Vendor pages
 import VendorRegister from "./pages/vendor/Register";
 import VendorDashboard from "./pages/vendor/Dashboard";
@@ -96,6 +107,20 @@ function App() {
                     <Route path="reviews" element={<VendorReviews />} />
                     <Route path="notifications" element={<VendorNotifications />} />
                     <Route path="settings" element={<VendorSettings />} />
+                </Route>
+
+                <Route path="/admin" element={<AdminLayout />}>
+                    <Route index element={<Navigate to="/admin/revenue" replace />} />
+                    
+                    {/* Các route con tự động nhận layout bên trên */}
+                    <Route path="revenue" element={<AdminRevenue />} />
+                    <Route path="customers" element={<AdminCustomersPage />} />
+                    <Route path="shops" element={<AdminShops />} />
+                    <Route path="shops/:id" element={<AdminShopDetail />} />
+                    <Route path="categories" element={<AdminCategoriesPage />} />
+                    <Route path="promotions" element={<AdminPromotions />} />
+                    <Route path="commissions" element={<AdminCommission />} />
+                    <Route path="notifications" element={<AdminNotifications />} />
                 </Route>
 
                 {/* 404 */}

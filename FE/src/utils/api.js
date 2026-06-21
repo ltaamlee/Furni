@@ -238,6 +238,14 @@ const trackShipmentApi = (trackingNumber) => {
 // Public shop (storefront)
 const getShopApi = (idOrSlug) => axios.get(`/shops/${idOrSlug}`);
 const getShopProductsApi = (id, params = {}) => axios.get(`/shops/${id}/products`, { params });
+const registerShopApi = (data) => axios.post("/shops/register", data);
+const getMyShopRegistrationApi = () => axios.get("/shops/my-registration");
+const resubmitShopApi = (data) => axios.put("/shops/resubmit", data);
+const uploadShopImagesApi = (files) => {
+    const fd = new FormData();
+    [...files].forEach((f) => fd.append("images", f));
+    return axios.post("/shops/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+};
 
 // Admin — duyệt cửa hàng
 const getAdminShopsApi = (params = {}) => axios.get("/admin/shops", { params });
@@ -293,7 +301,35 @@ const getVendorPromotionsApi = (params = {}) => axios.get("/vendor/promotions", 
 const createVendorPromotionApi = (data) => axios.post("/vendor/promotions", data);
 const updateVendorPromotionApi = (id, data) => axios.put(`/vendor/promotions/${id}`, data);
 const deleteVendorPromotionApi = (id) => axios.delete(`/vendor/promotions/${id}`);
-
+// Admin — Thông báo
+const getAdminUnreadNotifCountApi = () => axios.get("/admin/notifications/unread-count");
+const getAdminNotificationsApi = (params) => axios.get("/admin/notifications", { params });
+const markAdminNotificationReadApi = (id) => axios.put("/admin/notifications/read", { id });
+const markAllAdminNotificationsReadApi = () => axios.put("/admin/notifications/read");
+const deleteAdminNotificationApi = (id) => axios.delete(`/admin/notifications/${id}`);
+// Admin — quản lý user 
+const getAdminUsersApi = (params = {}) => axios.get("/admin/users", { params });
+const updateAdminUserApi = (id, data) => axios.put(`/admin/users/${id}`, data);
+const toggleBlockUserApi = (id) => axios.put(`/admin/users/${id}/toggle-block`); 
+// Admin — quản lý danh mục 
+const getAdminCategoriesApi = (params = {}) => axios.get("/categories", { params });
+const createAdminCategoryApi = (data) => axios.post("/categories", data);
+const updateAdminCategoryApi = (id, data) => axios.put(`/categories/${id}`, data);
+const deleteAdminCategoryApi = (id) => axios.delete(`/categories/${id}`);
+// Admin — quản lý cửa hàng
+const getAdminShopDetailApi = (id) => axios.get(`/admin/shops/${id}`);
+const getAdminShopProductsApi = (id, params = {}) => axios.get(`/admin/shops/${id}/products`, { params });
+const toggleProductVisibilityAdminApi = (productId, data = {}) => axios.put(`/admin/products/${productId}/toggle-visibility`, data);
+// Admin — Quản lý khuyến mãi toàn sàn
+const getAdminPromotionsSiteApi = (params = {}) => axios.get("/admin/promotions", { params });
+const createAdminPromotionSiteApi = (data) => axios.post("/admin/promotions", data);
+const updateAdminPromotionSiteApi = (id, data) => axios.put(`/admin/promotions/${id}`, data);
+const deleteAdminPromotionSiteApi = (id) => axios.delete(`/admin/promotions/${id}`);
+// Admin — Quản lý chiết khấu 
+const getAdminCommissionsApi = (params = {}) => axios.get("/admin/commissions", { params });
+const updateShopCommissionApi = (id, data) => axios.put(`/admin/commissions/${id}/rate`, data);
+// Admin — Báo cáo doanh thu
+const getAdminRevenueApi = (params) => axios.get("/admin/revenue", { params });
 export {
     createUserApi,
     loginApi,
@@ -342,6 +378,10 @@ export {
     trackShipmentApi,
     getShopApi,
     getShopProductsApi,
+    registerShopApi,
+    uploadShopImagesApi,
+    getMyShopRegistrationApi,
+    resubmitShopApi,
     getAdminShopsApi,
     updateShopStatusApi,
     getMyShopApi,
@@ -371,5 +411,27 @@ export {
     getVendorPromotionsApi,
     createVendorPromotionApi,
     updateVendorPromotionApi,
-    deleteVendorPromotionApi
+    deleteVendorPromotionApi,
+    getAdminUsersApi,
+    updateAdminUserApi,
+    toggleBlockUserApi,
+    getAdminCategoriesApi,
+    createAdminCategoryApi,
+    updateAdminCategoryApi,
+    deleteAdminCategoryApi,
+    getAdminShopDetailApi,
+    getAdminShopProductsApi,
+    toggleProductVisibilityAdminApi,
+    getAdminPromotionsSiteApi,
+    createAdminPromotionSiteApi,
+    updateAdminPromotionSiteApi,
+    deleteAdminPromotionSiteApi,
+    getAdminCommissionsApi,
+    updateShopCommissionApi,
+    getAdminUnreadNotifCountApi,
+    getAdminNotificationsApi,
+    markAdminNotificationReadApi,
+    markAllAdminNotificationsReadApi,
+    deleteAdminNotificationApi,
+    getAdminRevenueApi,
 };

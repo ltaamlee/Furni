@@ -157,6 +157,12 @@ const login = async (req, res) => {
       });
     }
 
+    if (user.isBlocked) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Tài khoản của bạn đã bị khóa bởi quản trị viên. Vui lòng liên hệ 1900 8080 để được hỗ trợ.' 
+      });
+    }
     // Check if account is locked
     if (user.isLocked) {
       return res.status(423).json({

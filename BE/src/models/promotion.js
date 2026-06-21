@@ -35,7 +35,7 @@ const promotionSchema = new mongoose.Schema({
     shop: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Shop',
-        required: [true, 'Khuyến mãi phải thuộc về một shop!']
+        default: null
     },
     name: {
         type: String,
@@ -147,7 +147,7 @@ promotionSchema.methods.isCurrentlyActive = function () {
 promotionSchema.set('toJSON', { virtuals: true });
 promotionSchema.set('toObject', { virtuals: true });
 
-const Promotion = mongoose.model('Promotion', promotionSchema);
+const Promotion = mongoose.models.Promotion || mongoose.model('Promotion', promotionSchema);
 Promotion.TYPE = PROMO_TYPE;
 Promotion.DISCOUNT_TYPE = DISCOUNT_TYPE;
 Promotion.APPLIES_TO = APPLIES_TO;
