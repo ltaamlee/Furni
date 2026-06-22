@@ -21,6 +21,12 @@ const createCategory = async (req, res) => {
         const category = await Category.create({ name, description, parentCategory });
         res.status(201).json({ success: true, data: category });
     } catch (error) {
+        if (error.code === 11000 || (error.message && error.message.includes('E11000'))) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Tên danh mục này đã tồn tại, vui lòng chọn tên khác!' 
+            });
+        }
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -56,6 +62,12 @@ const updateCategory = async (req, res) => {
         }
         res.status(200).json({ success: true, data: category });
     } catch (error) {
+        if (error.code === 11000 || (error.message && error.message.includes('E11000'))) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Tên danh mục này đã tồn tại, vui lòng chọn tên khác!' 
+            });
+        }
         res.status(500).json({ success: false, message: 'Đã xảy ra lỗi khi cập nhật danh mục' });
     }   
 };

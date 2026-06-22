@@ -25,7 +25,7 @@ const couponSchema = new mongoose.Schema({
     shop: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Shop',
-        required: [true, 'Mã giảm giá phải thuộc về một shop!']
+        default: null
     },
     description: {
         type: String,
@@ -111,7 +111,8 @@ couponSchema.methods.isUsable = function () {
 couponSchema.set('toJSON', { virtuals: true });
 couponSchema.set('toObject', { virtuals: true });
 
-const Coupon = mongoose.model('Coupon', couponSchema);
+// Kiểm tra xem model đã được khởi tạo chưa, nếu chưa thì mới tạo mới
+const Coupon = mongoose.models.Coupon || mongoose.model('Coupon', couponSchema);
 Coupon.DISCOUNT_TYPE = DISCOUNT_TYPE;
 
 module.exports = Coupon;

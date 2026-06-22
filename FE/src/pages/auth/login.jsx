@@ -122,7 +122,16 @@ const LoginPage = () => {
         });
 
         setAlert({ type: 'success', message: 'Đăng nhập thành công! Đang chuyển hướng...' });
-        setTimeout(() => navigate('/'), 800);
+        const userRole = data.data.user?.role;
+
+        setTimeout(() => {
+          if (userRole === 'admin') {
+            navigate('/admin'); 
+          } 
+          else {
+            navigate('/'); 
+          }
+        }, 800);
       } else {
         setAlert({ type: 'error', message: data.message || 'Đăng nhập thất bại!' });
       }

@@ -80,6 +80,12 @@ const ShopSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true
+    },
+    commissionRate: {
+        type: Number,
+        default: 2, // Mặc định thu 2% phí sàn
+        min: 0,
+        max: 100
     }
 }, { timestamps: true });
 

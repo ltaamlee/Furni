@@ -1,230 +1,189 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { getAdminUnreadNotifCountApi } from "../../utils/api";
 
-const AdminLayout = ({ title, pageTitle, activePage, children }) => {
+const AdminLayout = () => {
+    const { pathname } = useLocation();
+
+    // STATE LƯU SỐ THÔNG BÁO CHƯA ĐỌC
+    const [unreadCount, setUnreadCount] = useState(0);
+
+    // GỌI API LẤY SỐ LƯỢNG KHI VỪA VÀO TRANG QUẢN TRỊ HOẶC CHUYỂN TRANG
+    useEffect(() => {
+        const fetchUnreadCount = async () => {
+            try {
+                const res = await getAdminUnreadNotifCountApi();
+                if (res && res.success) {
+                    setUnreadCount(res.data.count);
+                }
+            } catch (error) {
+                console.error("Lỗi tải số lượng thông báo Admin:", error);
+            }
+        };
+        fetchUnreadCount();
+    }, [pathname]);
+
+    // Tự động hiển thị Tiêu đề trên Header dựa vào đường dẫn URL hiện tại
+    const getPageTitle = () => {
+        if (pathname.startsWith("/admin/shops/") && pathname !== "/admin/shops") {
+            return "Chi Tiết Cửa Hàng";
+        }
+        switch (pathname) {
+            case "/admin/revenue": return "Báo Cáo Doanh Thu";
+            case "/admin/customers": return "Quản Lý User";
+            case "/admin/shops": return "Quản Lý Cửa Hàng";
+            case "/admin/categories": return "Quản Lý Danh Mục";
+            case "/admin/promotions": return "Quản Lý Khuyến Mãi";
+            case "/admin/commissions": return "Quản Lý Chiết Khấu";
+            case "/admin/notifications": return "Thông Báo Hệ Thống";
+            default: return "Admin Control";
+        }
+    };
+
+    // Danh sách Sidebar - ĐÃ ĐẢO VỊ TRÍ THEO ĐÚNG YÊU CẦU CỦA BẠN
     const sidebarItems = [
         {
-            section: "Tổng quan",
-            items: [
-                {
-                    key: "dashboard",
-                    label: "Tổng quan",
-                    href: "/admin",
-                    icon: (
-                        <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                        </svg>
-                    ),
-                },
-            ],
+            path: "/admin/revenue", // ĐƯA LÊN SỐ 1
+            label: "Doanh Thu",
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+            )
         },
         {
-            section: "Người dùng",
-            items: [
-                {
-                    key: "shops",
-                    label: "cửa hàng",
-                    href: "/admin/shops",
-                    icon: (
-                        <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                    ),
-                },
-                {
-                    key: "customers",
-                    label: "Khách hàng",
-                    href: "/admin/customers",
-                    icon: (
-                        <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                        </svg>
-                    ),
-                },
-            ],
+            path: "/admin/customers",
+            label: "Quản Lý User",
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+            )
         },
         {
-            section: "Sản phẩm",
-            items: [
-                {
-                    key: "categories",
-                    label: "Danh mục",
-                    href: "/admin/categories",
-                    icon: (
-                        <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                        </svg>
-                    ),
-                },
-                {
-                    key: "products",
-                    label: "Sản phẩm",
-                    href: "/admin/products",
-                    icon: (
-                        <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                        </svg>
-                    ),
-                },
-            ],
+            path: "/admin/shops",
+            label: "Quản Lý Cửa Hàng",
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+            )
         },
         {
-            section: "Đơn hàng",
-            items: [
-                {
-                    key: "orders",
-                    label: "Đơn hàng",
-                    href: "/admin/orders",
-                    icon: (
-                        <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                        </svg>
-                    ),
-                },
-                {
-                    key: "shipping",
-                    label: "Vận chuyển",
-                    href: "/admin/shipping",
-                    icon: (
-                        <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2" />
-                        </svg>
-                    ),
-                },
-            ],
+            path: "/admin/categories",
+            label: "Quản Lý Danh Mục",
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+            )
         },
         {
-            section: "Cài đặt",
-            items: [
-                {
-                    key: "config",
-                    label: "Cấu hình website",
-                    href: "/admin/config",
-                    icon: (
-                        <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                    ),
-                },
-                {
-                    key: "profile",
-                    label: "Hồ sơ cá nhân",
-                    href: "/admin/profile",
-                    icon: (
-                        <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
-                    ),
-                },
-            ],
+            path: "/admin/promotions",
+            label: "Quản Lý Khuyến Mãi",
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5a2 2 0 10-2 2h2zm0 8h.01M8 16h.01M16 16h.01M9 11h.01M15 11h.01" />
+                </svg>
+            )
         },
+        {
+            path: "/admin/commissions",
+            label: "Quản Lý Chiết Khấu",
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 11h.01M15 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+            )
+        },
+        {
+            path: "/admin/notifications", // ĐƯA XUỐNG CUỐI CÙNG
+            label: "Thông báo",
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+            )
+        }
     ];
 
     return (
-        <div className="flex min-h-screen bg-[#FFFBF7]">
-            {/* Sidebar */}
-            <aside className="w-64 bg-white border-r border-[#eaddd7] fixed lg:static inset-y-0 left-0 z-50">
-                {/* Logo */}
-                <div className="h-16 flex items-center justify-center border-b border-[#eaddd7] bg-linear-to-r from-[#977669] to-[#a67c52]">
-                    <a href="/admin" className="flex items-center space-x-2">
-                        <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                            <svg className="w-6 h-6 text-[#977669]" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                            </svg>
-                        </div>
-
-                        <span className="text-xl font-bold text-white">
-                            SORA
-                        </span>
-                    </a>
+        <div className="min-h-screen flex bg-[#f7f4f1] font-sans w-full">
+            {/* --- ASIDE SIDEBAR --- */}
+            <aside className="w-[260px] bg-[#2a160b] text-white flex flex-col fixed h-screen left-0 top-0 z-[100] border-none select-none">
+                {/* Sidebar Brand */}
+                <div className="p-[25px_20px] text-center border-b border-white/10">
+                    <h2 className="m-0 text-[24px] text-[#f8e5c8] tracking-[1px] font-serif font-bold">Sora</h2>
+                    <p className="m-0 mt-[5px] text-[11px] uppercase text-[#aaaaaa] tracking-[1.5px] font-semibold">Admin Control</p>
                 </div>
-
-                {/* Menu */}
-                <nav className="px-4 py-6 space-y-4 overflow-y-auto">
-                    {sidebarItems.map((section, idx) => (
-                        <div key={idx}>
-                            <p className="px-4 pb-2 text-xs font-semibold uppercase tracking-wider text-[#bfa094]">
-                                {section.section}
-                            </p>
-
-                            <div className="space-y-1">
-                                {section.items.map((item) => (
-                                    <a
-                                        key={item.key}
-                                        href={item.href}
-                                        className={`flex items-center px-4 py-3 rounded-xl transition-all duration-200 font-medium ${
-                                            activePage === item.key
-                                                ? "bg-linear-to-r from-[#a67c52] to-[#977669] text-white shadow-lg"
-                                                : "text-[#43302b] hover:bg-[#f5efe6]"
-                                        }`}
-                                    >
+                
+                {/* Sidebar Menu Navigation */}
+                <ul className="list-none p-0 m-0 py-[15px] flex-1 overflow-y-auto space-y-[5px]">
+                    {sidebarItems.map((item, idx) => (
+                        <li key={idx}>
+                            <NavLink
+                                to={item.path}
+                                className={({ isActive }) =>
+                                    `flex items-center justify-between px-[25px] py-[12px] text-[14px] font-medium transition-all duration-300 no-underline ${
+                                        isActive
+                                            ? "bg-[#853D12] text-white border-l-4 border-[#f8e5c8]"
+                                            : "text-[#d4c5b9] hover:bg-[#3d2111] hover:text-white"
+                                    }`
+                                }
+                            >
+                                <div className="flex items-center">
+                                    <span className="text-[20px] mr-[12px] w-[24px] text-center flex items-center justify-center">
                                         {item.icon}
-                                        {item.label}
-                                    </a>
-                                ))}
-                            </div>
-                        </div>
+                                    </span>
+                                    {item.label}
+                                </div>
+
+                                {/* HIỂN THỊ CỤC BADGE ĐỎ CHỈ Ở TAB THÔNG BÁO */}
+                                {item.path === "/admin/notifications" && unreadCount > 0 && (
+                                    <span className="bg-[#d93025] text-white text-[11px] font-bold h-[20px] min-w-[20px] px-[6px] flex items-center justify-center rounded-[10px] shadow-sm">
+                                        {unreadCount > 99 ? '99+' : unreadCount}
+                                    </span>
+                                )}
+                            </NavLink>
+                        </li>
                     ))}
-                </nav>
+                </ul>
 
-                {/* User */}
-                <div className="p-4 border-t border-[#eaddd7]">
-                    <div className="flex items-center">
-                        <div className="w-10 h-10 rounded-full bg-linear-to-br from-[#bfa094] to-[#a67c52] flex items-center justify-center text-white font-semibold">
-                            A
-                        </div>
-
-                        <div className="ml-3">
-                            <p className="text-sm font-medium text-[#43302b]">
-                                Admin
-                            </p>
-
-                            <p className="text-xs text-[#977669]">
-                                admin@ntfurniture.com
-                            </p>
-                        </div>
-                    </div>
-
-                    <a
-                        href="/logout"
-                        className="mt-3 flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                {/* Sidebar Footer Logout */}
+                <div className="py-[15px] border-t border-white/10">
+                    <a 
+                        href="/logout" 
+                        className="flex items-center px-[25px] py-[12px] text-[#d4c5b9] hover:bg-[#3d2111] hover:text-[#fca5a5] text-[14px] font-medium transition-all no-underline"
                     >
-                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                        </svg>
+                        <span className="text-[20px] mr-[12px] w-[24px] text-center flex items-center justify-center">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>
+                        </span>
                         Đăng xuất
                     </a>
                 </div>
             </aside>
 
-            {/* Main */}
-            <main className="flex-1 min-h-screen">
-                {/* Header */}
-                <header className="h-16 bg-white border-b border-[#eaddd7] flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30">
-                    <h1 className="text-xl font-semibold text-[#43302b]">
-                        {pageTitle}
-                    </h1>
-
-                    <div className="relative hidden md:block">
-                        <input
-                            type="text"
-                            placeholder="Tìm kiếm..."
-                            className="w-64 pl-10 pr-4 py-2 border border-[#eaddd7] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#a67c52]"
+            {/* --- MAIN CONTENT CONTAINER --- */}
+            <main className="flex-1 ml-[260px] flex flex-col min-h-screen">
+                {/* Topbar Header */}
+                <header className="bg-white h-[70px] px-[30px] flex items-center justify-between shadow-[0_2px_10px_rgba(0,0,0,0.05)] z-10 sticky top-0">
+                    <h1 className="m-0 text-[20px] font-semibold text-[#853D12]">{getPageTitle()}</h1>
+                    <div className="flex items-center gap-[10px] text-[14px] font-medium text-[#333333]">
+                        <span>Xin chào, <b className="font-semibold text-[#333333]">Admin</b></span>
+                        <img 
+                            src="https://ui-avatars.com/api/?name=Admin&background=853D12&color=fff" 
+                            alt="Admin Avatar"
+                            className="w-[35px] h-[35px] rounded-full object-cover border-2 border-[#e2d8d0]"
                         />
-
-                        <svg
-                            className="w-5 h-5 text-[#bfa094] absolute left-3 top-2.5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
                     </div>
                 </header>
 
-                {/* Content */}
-                <div className="p-4 lg:p-8">{children}</div>
+                {/* Content Render Area inside Content-Wrapper */}
+                <div className="p-[30px] flex-1 w-full box-border">
+                    <Outlet />
+                </div>
             </main>
         </div>
     );
