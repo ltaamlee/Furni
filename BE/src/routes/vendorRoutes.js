@@ -37,6 +37,14 @@ const {
 
 const { uploadImagesMiddleware, uploadImages } = require('../controllers/uploadController');
 
+const {
+    getMyBlogs,
+    getMyBlog,
+    createBlog,
+    updateBlog,
+    deleteBlog
+} = require('../controllers/blogController');
+
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { validateProduct, validateProductUpdate } = require('../middleware/validationMiddleware');
 
@@ -75,6 +83,13 @@ router.get('/products', getMyProducts);
 router.post('/products', validateProduct, createProduct);
 router.put('/products/:id', validateProductUpdate, updateProduct);
 router.delete('/products/:id', deleteProduct);
+
+// Blog (bài viết của shop)
+router.get('/blogs', getMyBlogs);
+router.post('/blogs', createBlog);
+router.get('/blogs/:id', getMyBlog);
+router.put('/blogs/:id', updateBlog);
+router.delete('/blogs/:id', deleteBlog);
 
 // Đơn hàng (đơn có sản phẩm của shop)
 router.get('/orders', getMyOrders);

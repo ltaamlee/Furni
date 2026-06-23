@@ -272,6 +272,17 @@ const addVendorBankAccountApi = (data) => axios.post("/vendor/wallet/bank-accoun
 const getVendorReviewsApi = (params = {}) => axios.get("/vendor/reviews", { params });
 const replyVendorReviewApi = (id, content) => axios.put(`/vendor/reviews/${id}/reply`, { content });
 
+// Vendor blog
+const getVendorBlogsApi = (params = {}) => axios.get("/vendor/blogs", { params });
+const getVendorBlogApi = (id) => axios.get(`/vendor/blogs/${id}`);
+const createVendorBlogApi = (data) => axios.post("/vendor/blogs", data);
+const updateVendorBlogApi = (id, data) => axios.put(`/vendor/blogs/${id}`, data);
+const deleteVendorBlogApi = (id) => axios.delete(`/vendor/blogs/${id}`);
+
+// Public blog
+const getPublicBlogsApi = (params = {}) => axios.get("/blogs", { params });
+const getPublicBlogApi = (idOrSlug) => axios.get(`/blogs/${idOrSlug}`);
+
 // Vendor notifications
 const getVendorNotificationsApi = (params = {}) => axios.get("/vendor/notifications", { params });
 const markNotificationReadApi = (id) => axios.put(`/vendor/notifications/${id}/read`);
@@ -444,6 +455,13 @@ export {
     addVendorBankAccountApi,
     getVendorReviewsApi,
     replyVendorReviewApi,
+    getVendorBlogsApi,
+    getVendorBlogApi,
+    createVendorBlogApi,
+    updateVendorBlogApi,
+    deleteVendorBlogApi,
+    getPublicBlogsApi,
+    getPublicBlogApi,
     getVendorNotificationsApi,
     markNotificationReadApi,
     markAllNotificationsReadApi,

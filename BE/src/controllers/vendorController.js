@@ -59,7 +59,7 @@ const revenueSeries = async (shopId, days) => {
     return { labels, data };
 };
 
-// Top sản phẩm bán chạy của shop (theo doanh thu) trong khoảng thời gian
+// Top sản phẩm bán chạy của shop theo số lượng; doanh thu dùng để phá hòa.
 const topProductsOfShop = async (shopId, since = null, limit = 5) => {
     const match = { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED } };
     if (since) match.createdAt = { $gte: since };
@@ -68,7 +68,7 @@ const topProductsOfShop = async (shopId, since = null, limit = 5) => {
         { $unwind: '$products' },
         { $match: { 'products.shop': shopId } },
         { $group: { _id: '$products.product', name: { $first: '$products.name' }, sold: { $sum: '$products.quantity' }, revenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } },
-        { $sort: { revenue: -1 } },
+        { $sort: { sold: -1, revenue: -1 } },
         { $limit: limit }
     ]);
     // Lấy tên danh mục
@@ -164,6 +164,8 @@ const getDashboardSummary = async (req, res) => {
         const base = { shop: shop._id };
         const orderBase = { 'products.shop': shop._id };
         const todayStart = startOfDay(new Date());
+
+        await Promotion.syncLifecycleStatuses(base);
 
         const [
             totalProducts, activeProducts, lowStock, runningPromotions, totalOrders, pendingOrders,
@@ -288,6 +290,7 @@ const getMyPromotions = async (req, res) => {
 
         const { status, page = 1, limit = 20, sort = '-createdAt' } = req.query;
         const query = { shop: shop._id };
+        await Promotion.syncLifecycleStatuses(query);
         if (status && status !== 'all') query.status = status;
 
         const skip = (Number(page) - 1) * Number(limit);

@@ -30,6 +30,7 @@ import RecentlyViewedPage from "./components/common/RecentlyViewedPage";
 import PayOSReturnPage from "./pages/user/payosReturn";
 import ChangePasswordPage from "./pages/user/changePassword";
 import AddressesPage from "./pages/user/addresses";
+import BlogPage from "./pages/user/Blog";
 
 //admin
 import AdminLayout from "./components/layout/admin";
@@ -53,6 +54,7 @@ import VendorWallet from "./pages/vendor/Wallet";
 import VendorReports from "./pages/vendor/Reports";
 import VendorReviews from "./pages/vendor/Reviews";
 import VendorNotifications from "./pages/vendor/Notifications";
+import VendorBlog from "./pages/vendor/Blog";
 
 function App() {
     const { appLoading } = useContext(AuthContext);
@@ -81,6 +83,8 @@ function App() {
                 <Route element={<CustomerLayout />}>
                     <Route path="/" element={<HomePage />} />
                     <Route path="/home" element={<HomePage />} />
+                    <Route path="/blog" element={<BlogPage />} />
+                    <Route path="/blog/:idOrSlug" element={<BlogPage />} />
                     <Route path="/products" element={<ProductsPage />} />
                     <Route path="/product/:slug" element={<ProductDetailPage />} />
                     <Route path="/cart" element={<CartPage />} />
@@ -116,6 +120,7 @@ function App() {
                     <Route path="promotions" element={<VendorPromotions />} />
                     <Route path="wallet" element={<VendorWallet />} />
                     <Route path="reports" element={<VendorReports />} />
+                    <Route path="blog" element={<VendorBlog />} />
                     <Route path="reviews" element={<VendorReviews />} />
                     <Route path="notifications" element={<VendorNotifications />} />
                     <Route path="settings" element={<VendorSettings />} />

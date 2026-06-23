@@ -63,7 +63,7 @@ const Dashboard = () => {
                 {stats.lowStock > 0 && (
                     <AlertStrip tone="warn" icon={<IconAlertTriangle size={15} className="shrink-0" />}>
                         <strong>{stats.lowStock} sản phẩm</strong> sắp hết tồn kho (dưới 5 sản phẩm) —{" "}
-                        <Link to="/vendor/products" className="font-bold underline">Xem ngay</Link>
+                        <Link to="/vendor/products?status=out_of_stock" className="font-bold underline">Xem ngay</Link>
                     </AlertStrip>
                 )}
                 {stats.pendingOrders > 0 && (

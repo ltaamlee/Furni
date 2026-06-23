@@ -1,8 +1,30 @@
 const Order = require('../models/order');
 const Cart = require('../models/cart');
 const Product = require('../models/product');
+const Shop = require('../models/shop');
+const Notification = require('../models/notification');
 const { ORDER_STATUS } = require('../models/order');
 const payoutService = require('../services/payoutService');
+
+// Gửi thông báo "đơn mới" tới vendor của từng shop có trong đơn
+const notifyVendorsNewOrder = async (order) => {
+    try {
+        const shopIds = [...new Set((order.products || []).map((p) => p.shop && p.shop.toString()).filter(Boolean))];
+        if (shopIds.length === 0) return;
+        const shops = await Shop.find({ _id: { $in: shopIds } }).select('owner name');
+        await Notification.create(shops.filter((s) => s.owner).map((s) => ({
+            user: s.owner,
+            type: 'order',
+            title: 'Đơn hàng mới cần xác nhận',
+            body: `Đơn ${order.orderNumber} vừa được đặt · ${order.totalPrice.toLocaleString('vi-VN')}₫`,
+            relatedId: order._id,
+            relatedModel: 'Order',
+            link: '/vendor/orders'
+        })));
+    } catch (e) {
+        console.error('notifyVendorsNewOrder error:', e.message);
+    }
+};
 
 // @desc    Create order from cart
 // @route   POST /api/orders
@@ -85,6 +107,7 @@ const createOrder = async (req, res) => {
         await Cart.findByIdAndDelete(cart._id);
 
         await order.save();
+        await notifyVendorsNewOrder(order);
 
         res.status(201).json({
             success: true,

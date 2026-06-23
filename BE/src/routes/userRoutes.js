@@ -24,7 +24,8 @@ router.route('/profile')
 // Change password
 router.put('/change-password', authorize('customer'), changePassword);
 
-router.get('/me', authorize('customer', 'admin'), getProfile);
+// Current user — phải đặt TRƯỚC '/:id' để không bị shadow; mở cho mọi role đã đăng nhập
+router.get('/me', authorize('customer', 'admin', 'vendor'), getProfile);
 
 // Admin only routes
 router.get('/', authorize('admin'), getUsers);
@@ -32,6 +33,5 @@ router.route('/:id')
   .get(authorize('admin'), getUser)
   .put(authorize('admin'), updateUser)
   .delete(authorize('admin'), deleteUser);
-  
 
 module.exports = router;

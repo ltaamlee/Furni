@@ -32,10 +32,12 @@ const PROMO_STATUS = {
 };
 
 const promotionSchema = new mongoose.Schema({
+    // Shop sở hữu khuyến mãi. null = khuyến mãi toàn sàn (admin tạo).
     shop: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Shop',
-        default: null
+        default: null,
+        index: true
     },
     name: {
         type: String,
@@ -133,6 +135,11 @@ promotionSchema.virtual('hasUsageLeft').get(function () {
     return this.maxUsage === 0 || this.usedCount < this.maxUsage;
 });
 
+// Khuyến mãi toàn sàn (không gắn shop cụ thể)
+promotionSchema.virtual('isPlatformWide').get(function () {
+    return !this.shop;
+});
+
 // Đang trong thời gian hiệu lực và còn lượt dùng
 promotionSchema.methods.isCurrentlyActive = function () {
     const now = Date.now();
@@ -141,6 +148,47 @@ promotionSchema.methods.isCurrentlyActive = function () {
         new Date(this.startDate).getTime() <= now &&
         new Date(this.endDate).getTime() >= now &&
         (this.maxUsage === 0 || this.usedCount < this.maxUsage)
+    );
+};
+
+// Keep lifecycle statuses aligned with the promotion's actual time window.
+// Draft and paused are intentional manual states, so they are never changed here.
+promotionSchema.pre('validate', function () {
+    if (![PROMO_STATUS.SCHEDULED, PROMO_STATUS.RUNNING, PROMO_STATUS.ENDED].includes(this.status)) return;
+
+    const now = Date.now();
+    const startsAt = new Date(this.startDate).getTime();
+    const endsAt = new Date(this.endDate).getTime();
+    if (endsAt <= now || (this.maxUsage > 0 && this.usedCount >= this.maxUsage)) {
+        this.status = PROMO_STATUS.ENDED;
+    } else if (startsAt > now) {
+        this.status = PROMO_STATUS.SCHEDULED;
+    } else {
+        this.status = PROMO_STATUS.RUNNING;
+    }
+});
+
+promotionSchema.statics.syncLifecycleStatuses = async function (filter = {}) {
+    const now = new Date();
+    const lifecycleStatuses = [PROMO_STATUS.SCHEDULED, PROMO_STATUS.RUNNING, PROMO_STATUS.ENDED];
+    const scoped = (extra) => ({ ...filter, status: { $in: lifecycleStatuses }, ...extra });
+    const hasUsageLeft = {
+        $expr: { $or: [{ $eq: ['$maxUsage', 0] }, { $lt: ['$usedCount', '$maxUsage'] }] }
+    };
+
+    await this.updateMany(scoped({
+        $or: [
+            { endDate: { $lte: now } },
+            { $expr: { $and: [{ $gt: ['$maxUsage', 0] }, { $gte: ['$usedCount', '$maxUsage'] }] } }
+        ]
+    }), { $set: { status: PROMO_STATUS.ENDED } });
+    await this.updateMany(
+        scoped({ startDate: { $gt: now }, endDate: { $gt: now }, ...hasUsageLeft }),
+        { $set: { status: PROMO_STATUS.SCHEDULED } }
+    );
+    await this.updateMany(
+        scoped({ startDate: { $lte: now }, endDate: { $gt: now }, ...hasUsageLeft }),
+        { $set: { status: PROMO_STATUS.RUNNING } }
     );
 };
 

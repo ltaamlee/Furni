@@ -1,8 +1,8 @@
 /* ============================================================
    Seed dữ liệu DUY NHẤT cho dự án Furni (cập nhật theo model mới).
-   Tạo: users (admin/vendor/customer) -> categories -> shop -> ví
-        -> products (gán shop, ảnh tham khảo từ src/seedProducts.js)
-        -> promotions (đủ flash / coupon / combo / freeship).
+   Tạo: users (admin/2 vendor/customer) -> categories -> 2 shop -> ví
+        -> products -> promotions -> orders -> transactions -> reviews
+        -> cart -> notifications -> blogs.
 
    Dùng Model.create() (KHÔNG dùng insertMany) để các hook chạy:
      - User: hash mật khẩu
@@ -26,6 +26,7 @@ const Cart = require('../src/models/cart');
 const Transaction = require('../src/models/transaction');
 const Review = require('../src/models/review');
 const Notification = require('../src/models/notification');
+const Blog = require('../src/models/blog');
 
 const now = new Date();
 const daysFromNow = (n) => new Date(now.getTime() + n * 86400000);
@@ -34,6 +35,7 @@ const daysFromNow = (n) => new Date(now.getTime() + n * 86400000);
 const USERS = [
     { fullName: 'System Admin', email: 'admin@gmail.com', phone: '0912345678', username: 'admin01', password: 'Admin123', role: 'admin', isVerified: true },
     { fullName: 'System Vendor', email: 'vendor@gmail.com', phone: '0987654321', username: 'vendor01', password: 'Vendor123', role: 'vendor', isVerified: true },
+    { fullName: 'Trần Minh Decor', email: 'vendor2@gmail.com', phone: '0978123456', username: 'vendor02', password: 'Vendor123', role: 'vendor', isVerified: true },
     { fullName: 'Nguyễn Văn Khách', email: 'customer@gmail.com', phone: '0909123457', username: 'customer01', password: 'Customer123', role: 'customer', isVerified: true }
 ];
 
@@ -59,6 +61,27 @@ const SHOP = {
     logo: 'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?w=240',
     banner: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=1200'
 };
+
+const SECOND_SHOP = {
+    name: 'Mộc An Living',
+    description: 'Nội thất tối giản cho căn hộ hiện đại, ưu tiên vật liệu bền vững và thiết kế linh hoạt.',
+    phone: '0978123456',
+    email: 'mocanliving@gmail.com',
+    address: '86 Nguyễn Thị Minh Khai, Quận 3, TP. Hồ Chí Minh',
+    logo: 'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=240',
+    banner: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=1200'
+};
+
+// Bộ sản phẩm riêng của shop thứ hai để dữ liệu tìm kiếm/thống kê phản ánh đúng multi-vendor.
+const SECOND_PRODUCTS = [
+    { name: 'Sofa Vải Bouclé MÂY', _cat: 'Sofa', description: 'Sofa bouclé bo cong 3 chỗ, khung gỗ dầu và đệm mút chống xẹp.', dimensions: { width: 210, depth: 92, height: 78 }, brand: 'Mộc An', color: 'Kem', material: 'Vải Bouclé + Gỗ Dầu', style: 'Organic Modern', weight: 48, deliveryType: 'with_installation', price: 16900000, originalPrice: 18900000, quantity: 9, sold: 16, views: 388, images: ['https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=600'], variants: [{ name: 'Kem', price: 16900000, stock: 5, sku: 'MA-SF-MAY-KEM' }, { name: 'Xám nhạt', price: 17200000, stock: 4, sku: 'MA-SF-MAY-XAM' }] },
+    { name: 'Bàn Ăn Mở Rộng HẠT DẺ', _cat: 'Bàn Ăn', description: 'Bàn ăn có thể mở rộng từ 140 cm lên 190 cm, phù hợp căn hộ và gia đình đông người.', dimensions: { width: 140, depth: 80, height: 75 }, brand: 'Mộc An', color: 'Nâu sáng', material: 'Gỗ Tần Bì', style: 'Japandi', weight: 38, requiresAssembly: true, price: 11900000, quantity: 14, sold: 21, views: 296, images: ['https://images.unsplash.com/photo-1617806118233-18e1de247200?w=600'] },
+    { name: 'Ghế Thư Giãn Mây Đan AN NHIÊN', _cat: 'Ghế', description: 'Ghế thư giãn khung gỗ tần bì, lưng mây đan thủ công và đệm tháo giặt.', dimensions: { width: 68, depth: 76, height: 82 }, brand: 'Mộc An', color: 'Tự nhiên', material: 'Gỗ Tần Bì + Mây', style: 'Japandi', weight: 11, price: 4650000, quantity: 22, sold: 37, views: 512, images: ['https://images.unsplash.com/photo-1503602642458-232111445657?w=600'] },
+    { name: 'Bàn Làm Việc Nâng Hạ FLEXI', _cat: 'Bàn Làm Việc', description: 'Bàn làm việc nâng hạ điện, ghi nhớ hai mức chiều cao và có khay đi dây.', dimensions: { width: 140, depth: 70, height: 120 }, brand: 'Mộc An', color: 'Gỗ sáng + Trắng', material: 'Gỗ Công Nghiệp + Thép', style: 'Hiện đại', weight: 32, requiresAssembly: true, price: 8900000, quantity: 7, sold: 29, views: 641, images: ['https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=600'] },
+    { name: 'Tủ Giày Cánh Mây BÌNH MINH', _cat: 'Tủ Kệ', description: 'Tủ giày cánh mây thoáng khí, ba tầng và một ngăn phụ kiện.', dimensions: { width: 100, depth: 35, height: 115 }, brand: 'Mộc An', color: 'Nâu mật ong', material: 'Gỗ Cao Su + Mây', style: 'Tropical', weight: 27, price: 6200000, quantity: 0, sold: 12, views: 184, images: ['https://images.unsplash.com/photo-1558997519-83ea9252edf8?w=600'] },
+    { name: 'Gương Đứng Khung Gỗ VẦNG TRĂNG', _cat: 'Gương', description: 'Gương đứng toàn thân khung gỗ bo tròn, có chân chống gập gọn.', dimensions: { width: 65, depth: 5, height: 175 }, brand: 'Mộc An', color: 'Nâu sáng', material: 'Gỗ Sồi + Kính', style: 'Organic Modern', weight: 15, price: 4900000, quantity: 11, sold: 18, views: 273, status: 'hidden', images: ['https://images.unsplash.com/photo-1618220179428-22790b461013?w=600'] },
+    { name: 'Kệ Module LẮP GHÉP', _cat: 'Kệ Trang Trí', description: 'Kệ module ba khối có thể tùy biến bố cục theo không gian.', dimensions: { width: 120, depth: 30, height: 120 }, brand: 'Mộc An', color: 'Trắng ngà', material: 'Gỗ Công Nghiệp', style: 'Tối giản', weight: 21, requiresAssembly: true, price: 3900000, quantity: 16, sold: 8, views: 97, status: 'draft', images: ['https://images.unsplash.com/photo-1532372320572-cda25653a26d?w=600'] }
+];
 
 // ── Sản phẩm (ảnh + thông số tham khảo từ seedProducts.js) ───
 // _cat: tên danh mục để map sang ObjectId khi seed.
@@ -121,14 +144,16 @@ const seed = async () => {
             Cart.deleteMany({}),
             Transaction.deleteMany({}),
             Review.deleteMany({}),
-            Notification.deleteMany({})
+            Notification.deleteMany({}),
+            Blog.deleteMany({})
         ]);
         console.log('Cleared: users, categories, shops, wallets, products, promotions, orders, carts, transactions, reviews, notifications');
 
         // 2) Users (create -> hash mật khẩu)
         const users = await User.create(USERS);
-        const vendor = users.find((u) => u.role === 'vendor');
-        console.log(`Created ${users.length} users (admin/vendor/customer)`);
+        const vendor = users.find((u) => u.email === 'vendor@gmail.com');
+        const secondVendor = users.find((u) => u.email === 'vendor2@gmail.com');
+        console.log(`Created ${users.length} users (admin/2 vendors/customer)`);
 
         // 3) Categories (create -> sinh slug)
         const cats = await Category.create(CATEGORIES);
@@ -145,7 +170,15 @@ const seed = async () => {
             pendingBalance: 8640000,
             bankAccounts: [{ bankName: 'Vietcombank', accountNumber: '0123456789', accountHolder: 'NGUYEN VAN VENDOR', branch: 'TP.HCM', isDefault: true }]
         });
-        console.log(`Created shop "${shop.name}" + wallet`);
+        const secondShop = await Shop.create({ ...SECOND_SHOP, slug: SECOND_SHOP.name, owner: secondVendor._id, status: 'approved', commissionRate: 3 });
+        const secondWallet = await Wallet.create({
+            shop: secondShop._id,
+            owner: secondVendor._id,
+            balance: 18750000,
+            pendingBalance: 12430000,
+            bankAccounts: [{ bankName: 'Techcombank', accountNumber: '19039876543210', accountHolder: 'TRAN MINH DECOR', branch: 'TP.HCM', isDefault: true }]
+        });
+        console.log(`Created 2 shops ("${shop.name}", "${secondShop.name}") + wallets`);
 
         // 5) Products (create -> sinh slug + đồng bộ status theo tồn kho)
         const productDocs = PRODUCTS.map(({ _cat, ...p }) => {
@@ -157,12 +190,20 @@ const seed = async () => {
             return doc;
         });
         const products = await Product.create(productDocs);
+        const secondProductDocs = SECOND_PRODUCTS.map(({ _cat, ...p }) => {
+            const doc = { ...p, category: catId[_cat], shop: secondShop._id };
+            if (doc.variants?.length) doc.quantity = doc.variants.reduce((sum, variant) => sum + (variant.stock || 0), 0);
+            return doc;
+        });
+        const secondProducts = await Product.create(secondProductDocs);
         const byName = {};
         products.forEach((p) => { byName[p.name] = p; });
+        const secondByName = {};
+        secondProducts.forEach((p) => { secondByName[p.name] = p; });
         const oos = products.filter((p) => p.status === 'out_of_stock').length;
         const hidden = products.filter((p) => p.status === 'hidden').length;
         const draft = products.filter((p) => p.status === 'draft').length;
-        console.log(`Created ${products.length} products (hết hàng: ${oos}, ẩn: ${hidden}, nháp: ${draft})`);
+        console.log(`Created ${products.length + secondProducts.length} products (${secondProducts.length} thuộc ${secondShop.name}; shop chính hết hàng: ${oos}, ẩn: ${hidden}, nháp: ${draft})`);
 
         // 6) Promotions — đủ 4 loại + 3 phạm vi áp dụng
         const flashProducts = ['Sofa Gỗ Sồi 3 Chỗ CLASSIC', 'Sofa Giường Đa Năng MILANO'].map((n) => byName[n]?._id).filter(Boolean);
@@ -175,7 +216,11 @@ const seed = async () => {
             { name: 'Freeship Danh Mục Sofa', description: 'Miễn phí vận chuyển cho danh mục Sofa, đơn từ 1.000.000₫.', type: 'freeship', discountType: 'freeship', value: 0, minOrderValue: 1000000, appliesTo: 'category', categories: [catId['Sofa']], startDate: daysFromNow(-2), endDate: daysFromNow(7), maxUsage: 0, usedCount: 0, status: 'running' }
         ];
         const promos = await Promotion.create(PROMOS.map((p) => ({ ...p, shop: shop._id })));
-        console.log(`Created ${promos.length} promotions (flash / coupon / combo / freeship)`);
+        const secondPromos = await Promotion.create([
+            { shop: secondShop._id, name: 'Mộc An Chào Bạn', description: 'Ưu đãi 12% cho sản phẩm của Mộc An Living.', type: 'coupon', discountType: 'percent', value: 12, maxDiscount: 1200000, minOrderValue: 4000000, appliesTo: 'all', startDate: daysFromNow(-3), endDate: daysFromNow(14), maxUsage: 200, usedCount: 47, status: 'running' },
+            { shop: secondShop._id, name: 'Flash Sale Góc Làm Việc', description: 'Giảm trực tiếp bàn nâng hạ FLEXI trong tuần này.', type: 'flash_sale', discountType: 'fixed', value: 700000, appliesTo: 'product', products: [secondByName['Bàn Làm Việc Nâng Hạ FLEXI']._id], startDate: daysFromNow(-1), endDate: daysFromNow(6), maxUsage: 30, usedCount: 9, status: 'running' }
+        ]);
+        console.log(`Created ${promos.length + secondPromos.length} promotions for 2 shops`);
 
         // 7) Đơn hàng mẫu của khách (gắn shop cho từng dòng - Hướng B)
         const customer = users.find((u) => u.role === 'customer');
@@ -183,30 +228,85 @@ const seed = async () => {
             const p = byName[name];
             return { product: p._id, shop: shop._id, shopName: shop.name, quantity: qty, price: p.price, name: p.name, image: p.images?.[0] || null };
         };
-        const buildOrder = (items, status, paymentMethod) => {
+        const buildOrder = (items, status, paymentMethod, ageInDays, paymentStatus = 'pending') => {
             const subtotal = items.reduce((s, it) => s + it.price * it.quantity, 0);
             const shippingFee = subtotal >= 500000 ? 0 : 30000;
+            const placedAt = daysFromNow(-ageInDays);
             return {
                 user: customer._id,
                 products: items,
                 shippingAddress: { fullName: customer.fullName, phone: customer.phone, address: '123 Lê Lợi, Quận 1, TP. Hồ Chí Minh', city: 'TP. Hồ Chí Minh', note: '' },
-                paymentMethod,
+                paymentMethod, paymentStatus,
                 subtotal,
                 shippingFee,
                 totalPrice: subtotal + shippingFee,
                 totalQuantity: items.reduce((s, it) => s + it.quantity, 0),
                 status,
-                orderedAt: daysFromNow(-1)
+                orderedAt: placedAt,
+                createdAt: placedAt,
+                updatedAt: placedAt,
+                estimatedDelivery: new Date(placedAt.getTime() + 4 * 86400000)
             };
         };
         const ORDERS = [
-            buildOrder([lineItem('Sofa Gỗ Sồi 3 Chỗ CLASSIC', 1)], 'pending', 'VNPAY'),
-            buildOrder([lineItem('Bàn Ăn Tròn Gỗ Keo 4 Chỗ', 1), lineItem('Ghế Ăn Gỗ Sồi Nordic', 2)], 'preparing', 'COD'),
-            buildOrder([lineItem('Tủ TV Gỗ Sồi Minimalist', 1)], 'delivered', 'MOMO')
+            buildOrder([lineItem('Sofa Gỗ Sồi 3 Chỗ CLASSIC', 1)], 'pending', 'VNPAY', 0, 'paid'),
+            buildOrder([lineItem('Bàn Ăn Tròn Gỗ Keo 4 Chỗ', 1), lineItem('Ghế Ăn Gỗ Sồi Nordic', 2)], 'preparing', 'COD', 1),
+            buildOrder([lineItem('Tủ TV Gỗ Sồi Minimalist', 1)], 'delivered', 'MOMO', 2, 'paid'),
+            buildOrder([lineItem('Sofa Giường Đa Năng MILANO', 1)], 'cancelled', 'VNPAY', 3, 'refunded'),
+            buildOrder([lineItem('Giường Ngủ Gỗ Sồi NATURE Size 1m6', 1)], 'delivered', 'COD', 4, 'paid'),
+            buildOrder([lineItem('Ghế Văn Phòng Gỗ Ergonomic', 2)], 'shipping', 'COD', 6),
+            buildOrder([lineItem('Tủ Giày Gỗ 4 Tầng', 1), lineItem('Ghế Bar Gỗ Óc Chó Cao Cấp', 2)], 'delivered', 'ZALOPAY', 9, 'paid'),
+            buildOrder([lineItem('Bàn Ăn Gỗ Sồi 6 Chỗ ELEGANT', 1)], 'delivered', 'VNPAY', 13, 'paid'),
+            buildOrder([lineItem('Kệ Sách Gỗ Sồi 5 Tầng', 2)], 'delivered', 'COD', 18, 'paid'),
+            buildOrder([lineItem('Sofa Gỗ Sồi 3 Chỗ CLASSIC', 1), lineItem('Ghế Ăn Gỗ Sồi Nordic', 4)], 'cancelled', 'MOMO', 22, 'refunded'),
+            buildOrder([lineItem('Giường Ngủ Gỗ Óc Chó Size 1m8', 1)], 'delivered', 'VNPAY', 27, 'paid'),
+            buildOrder([lineItem('Bàn Ăn Tròn Gỗ Keo 4 Chỗ', 1)], 'delivered', 'COD', 34, 'paid'),
+            buildOrder([lineItem('Tủ TV Gỗ Sồi Minimalist', 2)], 'delivered', 'MOMO', 42, 'paid'),
+            buildOrder([lineItem('Ghế Ăn Gỗ Sồi Nordic', 6)], 'delivered', 'COD', 56, 'paid'),
+            buildOrder([lineItem('Sofa Giường Đa Năng MILANO', 1), lineItem('Tủ Giày Gỗ 4 Tầng', 1)], 'delivered', 'ZALOPAY', 71, 'paid'),
+            buildOrder([lineItem('Bàn Ăn Gỗ Sồi 6 Chỗ ELEGANT', 1), lineItem('Ghế Ăn Gỗ Sồi Nordic', 4)], 'delivered', 'VNPAY', 86, 'paid')
         ];
         // Tạo tuần tự để pre-save sinh orderNumber không trùng
-        for (const o of ORDERS) await Order.create(o);
-        console.log(`Created ${ORDERS.length} sample orders (pending / preparing / delivered)`);
+        const createdOrders = [];
+        for (const o of ORDERS) createdOrders.push(await Order.create(o));
+
+        const secondLineItem = (name, qty) => {
+            const p = secondByName[name];
+            return { product: p._id, shop: secondShop._id, shopName: secondShop.name, quantity: qty, price: p.price, name: p.name, image: p.images?.[0] || null };
+        };
+        const buildSecondOrder = (items, status, paymentMethod, ageInDays, paymentStatus = 'pending') => {
+            const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+            const shippingFee = subtotal >= 5000000 ? 0 : 35000;
+            const placedAt = daysFromNow(-ageInDays);
+            return {
+                user: customer._id,
+                products: items,
+                shippingAddress: { fullName: customer.fullName, phone: customer.phone, address: '42 Võ Văn Tần, Quận 3, TP. Hồ Chí Minh', city: 'TP. Hồ Chí Minh', note: 'Gọi trước khi giao' },
+                paymentMethod, paymentStatus, subtotal, shippingFee, totalPrice: subtotal + shippingFee,
+                totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0), status,
+                orderedAt: placedAt,
+                createdAt: placedAt,
+                updatedAt: placedAt,
+                estimatedDelivery: new Date(placedAt.getTime() + 4 * 86400000)
+            };
+        };
+        const SECOND_ORDERS = [
+            buildSecondOrder([secondLineItem('Sofa Vải Bouclé MÂY', 1)], 'confirmed', 'VNPAY', 1, 'paid'),
+            buildSecondOrder([secondLineItem('Ghế Thư Giãn Mây Đan AN NHIÊN', 2)], 'shipping', 'COD', 3),
+            buildSecondOrder([secondLineItem('Bàn Ăn Mở Rộng HẠT DẺ', 1), secondLineItem('Ghế Thư Giãn Mây Đan AN NHIÊN', 1)], 'delivered', 'MOMO', 12, 'paid'),
+            buildSecondOrder([secondLineItem('Bàn Làm Việc Nâng Hạ FLEXI', 1)], 'cancelled', 'ZALOPAY', 7, 'refunded'),
+            buildSecondOrder([secondLineItem('Gương Đứng Khung Gỗ VẦNG TRĂNG', 1)], 'delivered', 'COD', 0, 'paid'),
+            buildSecondOrder([secondLineItem('Sofa Vải Bouclé MÂY', 1), secondLineItem('Ghế Thư Giãn Mây Đan AN NHIÊN', 1)], 'delivered', 'VNPAY', 5, 'paid'),
+            buildSecondOrder([secondLineItem('Bàn Làm Việc Nâng Hạ FLEXI', 1)], 'delivered', 'MOMO', 18, 'paid'),
+            buildSecondOrder([secondLineItem('Bàn Ăn Mở Rộng HẠT DẺ', 1)], 'delivered', 'COD', 29, 'paid'),
+            buildSecondOrder([secondLineItem('Ghế Thư Giãn Mây Đan AN NHIÊN', 2)], 'cancelled', 'VNPAY', 38, 'refunded'),
+            buildSecondOrder([secondLineItem('Sofa Vải Bouclé MÂY', 1)], 'delivered', 'ZALOPAY', 52, 'paid'),
+            buildSecondOrder([secondLineItem('Bàn Ăn Mở Rộng HẠT DẺ', 1), secondLineItem('Ghế Thư Giãn Mây Đan AN NHIÊN', 2)], 'delivered', 'MOMO', 74, 'paid'),
+            buildSecondOrder([secondLineItem('Bàn Làm Việc Nâng Hạ FLEXI', 1), secondLineItem('Gương Đứng Khung Gỗ VẦNG TRĂNG', 1)], 'delivered', 'VNPAY', 89, 'paid')
+        ];
+        const secondOrders = [];
+        for (const o of SECOND_ORDERS) secondOrders.push(await Order.create(o));
+        console.log(`Created ${createdOrders.length + secondOrders.length} sample orders across 2 shops and the last 90 days`);
 
         // 8) Giao dịch ví (doanh thu / phí sàn / rút tiền)
         const TX = [
@@ -217,7 +317,14 @@ const seed = async () => {
             { type: 'debit', category: 'withdraw', amount: 30000000, status: 'pending', description: 'Rút tiền về Vietcombank ****6789', balanceAfter: 45320000, createdAt: daysFromNow(-1) }
         ];
         await Transaction.create(TX.map((t) => ({ ...t, wallet: wallet._id, shop: shop._id })));
-        console.log(`Created ${TX.length} wallet transactions`);
+        const SECOND_TX = [
+            { type: 'credit', category: 'order_income', amount: 16550000, status: 'success', description: 'Doanh thu đơn bàn ăn HẠT DẺ + ghế AN NHIÊN', order: secondOrders[2]._id, balanceAfter: 19246500, createdAt: daysFromNow(-10) },
+            { type: 'debit', category: 'platform_fee', amount: 496500, status: 'success', description: 'Phí sàn 3% đơn bàn ăn HẠT DẺ + ghế AN NHIÊN', order: secondOrders[2]._id, balanceAfter: 18750000, createdAt: daysFromNow(-10) },
+            { type: 'debit', category: 'refund', amount: 8900000, status: 'success', description: 'Hoàn tiền đơn bàn FLEXI đã hủy', order: secondOrders[3]._id, balanceAfter: 9493000, createdAt: daysFromNow(-6) },
+            { type: 'debit', category: 'withdraw', amount: 5000000, status: 'pending', description: 'Yêu cầu rút tiền về Techcombank ****3210', balanceAfter: 18750000, createdAt: daysFromNow(0) }
+        ];
+        await Transaction.create(SECOND_TX.map((t) => ({ ...t, wallet: secondWallet._id, shop: secondShop._id })));
+        console.log(`Created ${TX.length + SECOND_TX.length} wallet transactions for 2 shops`);
 
         // 9) Đánh giá sản phẩm của shop (vài cái đã phản hồi, 1 cái 1 sao chưa phản hồi)
         const review = (productName, rating, content, reply) => {
@@ -235,7 +342,23 @@ const seed = async () => {
             review('Ghế Ăn Gỗ Sồi Nordic', 1, 'Ghế bị lỗi mộng, lung lay. Mong shop hỗ trợ đổi trả.', null)
         ];
         await Review.create(REVIEWS);
-        console.log(`Created ${REVIEWS.length} reviews`);
+        const SECOND_REVIEWS = [
+            { type: 'product', user: customer._id, targetId: secondByName['Bàn Ăn Mở Rộng HẠT DẺ']._id, product: secondByName['Bàn Ăn Mở Rộng HẠT DẺ']._id, shop: secondShop._id, order: secondOrders[2]._id, rating: 5, content: 'Bàn chắc chắn, cơ chế mở rộng rất mượt và màu gỗ đúng ảnh.', images: ['https://images.unsplash.com/photo-1617806118233-18e1de247200?w=600'], vendorReply: { content: 'Mộc An cảm ơn anh/chị đã tin tưởng. Chúc gia đình có nhiều bữa cơm ấm cúng!', repliedAt: daysFromNow(-8) } },
+            { type: 'product', user: customer._id, targetId: secondByName['Ghế Thư Giãn Mây Đan AN NHIÊN']._id, product: secondByName['Ghế Thư Giãn Mây Đan AN NHIÊN']._id, shop: secondShop._id, order: secondOrders[1]._id, rating: 4, content: 'Ghế đẹp và ngồi thoải mái, phần đóng gói có thể chắc chắn hơn.', vendorReply: { content: '', repliedAt: null } },
+            { type: 'shop', user: customer._id, targetId: secondShop._id, shop: secondShop._id, order: secondOrders[2]._id, rating: 5, content: 'Shop tư vấn kích thước rất kỹ, đội lắp đặt lịch sự.', vendorReply: { content: 'Cảm ơn anh/chị đã chia sẻ trải nghiệm với Mộc An!', repliedAt: daysFromNow(-7) } }
+        ];
+        await Review.create(SECOND_REVIEWS);
+        console.log(`Created ${REVIEWS.length + SECOND_REVIEWS.length} product/shop reviews for 2 shops`);
+
+        // Giỏ hàng có sản phẩm từ hai vendor để kiểm thử luồng checkout multi-vendor.
+        await Cart.create({
+            user: customer._id,
+            products: [
+                { product: byName['Gương Trang Trí Gỗ Tròn']._id, quantity: 1, price: byName['Gương Trang Trí Gỗ Tròn'].price, name: byName['Gương Trang Trí Gỗ Tròn'].name, image: byName['Gương Trang Trí Gỗ Tròn'].images?.[0] || null },
+                { product: secondByName['Sofa Vải Bouclé MÂY']._id, quantity: 1, price: secondByName['Sofa Vải Bouclé MÂY'].price, name: secondByName['Sofa Vải Bouclé MÂY'].name, image: secondByName['Sofa Vải Bouclé MÂY'].images?.[0] || null }
+            ]
+        });
+        console.log('Created a mixed-vendor cart');
 
         // 10) Thông báo cho vendor
         const NOTIFS = [
@@ -246,12 +369,37 @@ const seed = async () => {
             { type: 'system', title: 'Cập nhật chính sách phí sàn', body: 'Phí sàn điều chỉnh từ 2% xuống 1.8% từ 01/07/2026.', isRead: true, link: '', createdAt: daysFromNow(-2) }
         ];
         await Notification.create(NOTIFS.map((n) => ({ ...n, user: vendor._id })));
-        console.log(`Created ${NOTIFS.length} notifications`);
+        const SECOND_NOTIFS = [
+            { type: 'order', title: 'Đơn hàng đã thanh toán', body: 'Đơn sofa MÂY đã thanh toán qua VNPAY và đang chờ xử lý.', relatedId: secondOrders[0]._id, relatedModel: 'Order', isRead: false, link: '/vendor/orders', createdAt: daysFromNow(-1) },
+            { type: 'review', title: 'Bạn có đánh giá mới', body: 'Ghế AN NHIÊN vừa nhận đánh giá 4 sao chưa được phản hồi.', isRead: false, link: '/vendor/reviews', createdAt: daysFromNow(0) },
+            { type: 'stock', title: 'Sản phẩm đã hết hàng', body: 'Tủ Giày Cánh Mây BÌNH MINH hiện có tồn kho bằng 0.', relatedId: secondByName['Tủ Giày Cánh Mây BÌNH MINH']._id, relatedModel: 'Product', isRead: false, link: '/vendor/products', createdAt: daysFromNow(-2) },
+            { type: 'wallet', title: 'Yêu cầu rút tiền đang xử lý', body: 'Yêu cầu rút 5.000.000₫ về Techcombank đang chờ duyệt.', isRead: true, link: '/vendor/wallet', createdAt: daysFromNow(0) }
+        ];
+        await Notification.create(SECOND_NOTIFS.map((n) => ({ ...n, user: secondVendor._id })));
+        console.log(`Created ${NOTIFS.length + SECOND_NOTIFS.length} notifications for 2 vendors`);
+
+        // 11) Bài viết blog của shop
+        const BLOGS = [
+            { title: '5 cách phối sofa Nordic cho phòng khách nhỏ', category: 'inspiration', status: 'published', excerpt: 'Không gian nhỏ vẫn có thể sang trọng và ấm cúng nếu bạn biết chọn đúng kiểu sofa và cách bố trí.', content: 'Với những căn hộ diện tích khiêm tốn, việc chọn đúng kiểu sofa là yếu tố quyết định...', coverImage: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=800', tags: ['sofa nordic', 'phòng khách', 'không gian nhỏ'], views: 2840, likes: 312, commentsCount: 48, isPinned: true, publishedAt: daysFromNow(-2) },
+            { title: 'Chọn bàn ăn gỗ sồi hợp phong thủy gia đình', category: 'styling', status: 'published', excerpt: 'Bàn ăn không chỉ là nơi sum họp mà còn ảnh hưởng tới vận khí gia đình.', content: 'Cùng tìm hiểu cách chọn chất liệu, hình dáng và kích thước bàn ăn phù hợp...', coverImage: 'https://images.unsplash.com/photo-1617806118233-18e1de247200?w=800', tags: ['bàn ăn', 'gỗ sồi', 'phong thủy'], views: 1967, likes: 208, commentsCount: 33, publishedAt: daysFromNow(-6) },
+            { title: 'Cách bảo quản đồ gỗ tự nhiên bền đẹp 10 năm', category: 'guide', status: 'published', excerpt: 'Gỗ tự nhiên cần được chăm sóc đúng cách để giữ màu và độ bền.', content: 'Hướng dẫn chi tiết từ vệ sinh tới đánh bóng đồ gỗ tự nhiên...', coverImage: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=800', tags: ['bảo quản', 'gỗ tự nhiên', 'mẹo'], views: 4103, likes: 521, commentsCount: 67, publishedAt: daysFromNow(-12) },
+            { title: 'Nội thất xanh 2026: vật liệu tái chế lên ngôi', category: 'trend', status: 'scheduled', excerpt: 'Người tiêu dùng ngày càng quan tâm tới tính bền vững.', content: 'Điểm qua những vật liệu thân thiện môi trường đang dẫn đầu xu hướng...', coverImage: null, tags: ['xu hướng', 'bền vững'], scheduledAt: daysFromNow(5) },
+            { title: 'Hành trình 15 năm của Furni Official Store', category: 'brand_story', status: 'draft', excerpt: 'Từ một xưởng mộc nhỏ tới thương hiệu nội thất được yêu thích.', content: 'Câu chuyện về đam mê với gỗ và sự tử tế...', coverImage: null, tags: ['thương hiệu', 'câu chuyện'] }
+        ];
+        await Blog.create(BLOGS.map((b) => ({ ...b, shop: shop._id, author: vendor._id })));
+        const SECOND_BLOGS = [
+            { title: 'Japandi: khi tối giản gặp sự ấm áp', category: 'inspiration', status: 'published', excerpt: 'Cách phối gỗ sáng, màu trung tính và đường nét gọn gàng cho căn hộ.', content: 'Japandi kết hợp sự tinh giản của Nhật Bản với cảm giác ấm cúng từ Bắc Âu...', coverImage: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=800', tags: ['japandi', 'căn hộ', 'gỗ sáng'], products: [secondByName['Bàn Ăn Mở Rộng HẠT DẺ']._id, secondByName['Ghế Thư Giãn Mây Đan AN NHIÊN']._id], views: 1260, likes: 148, commentsCount: 19, publishedAt: daysFromNow(-5) },
+            { title: 'Đo góc làm việc đúng chuẩn trước khi mua bàn', category: 'guide', status: 'published', excerpt: 'Năm phép đo nhỏ giúp bạn tránh một chiếc bàn quá lớn hoặc quá thấp.', content: 'Trước tiên hãy đo chiều rộng mảng tường, khoảng lùi ghế và vị trí ổ điện...', coverImage: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=800', tags: ['bàn làm việc', 'đo kích thước', 'ergonomic'], products: [secondByName['Bàn Làm Việc Nâng Hạ FLEXI']._id], views: 843, likes: 91, commentsCount: 12, publishedAt: daysFromNow(-3) },
+            { title: 'Vì sao Mộc An chọn mây đan thủ công?', category: 'brand_story', status: 'draft', excerpt: 'Câu chuyện về vật liệu địa phương và những người thợ đứng sau sản phẩm.', content: 'Mỗi tấm mây đan cần nhiều giờ hoàn thiện bằng tay...', tags: ['mây đan', 'thủ công', 'thương hiệu'], products: [secondByName['Ghế Thư Giãn Mây Đan AN NHIÊN']._id] }
+        ];
+        await Blog.create(SECOND_BLOGS.map((b) => ({ ...b, shop: secondShop._id, author: secondVendor._id })));
+        console.log(`Created ${BLOGS.length + SECOND_BLOGS.length} blog posts for 2 shops`);
 
         console.log('\n==================== DONE ====================');
         console.log('Tài khoản:');
         console.log('  Admin    : admin@gmail.com    / Admin123');
         console.log('  Vendor   : vendor@gmail.com   / Vendor123');
+        console.log('  Vendor 2 : vendor2@gmail.com  / Vendor123  (Mộc An Living)');
         console.log('  Customer : customer@gmail.com / Customer123');
         console.log('=============================================');
 

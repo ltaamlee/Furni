@@ -16,8 +16,9 @@ const {
   updateShopStatus, 
   getAdminShopDetail, 
   getAdminShopProducts, 
-  toggleProductVisibilityAdmin 
+  toggleProductVisibilityAdmin,
 } = require('../controllers/shopController');
+
 
 const { 
   createCategory, 
@@ -80,6 +81,12 @@ router.route('/promotions')
   .get(getAdminPromotions)
   .post(createAdminPromotion);
   
+
+// Khuyến mãi toàn sàn (Admin only)
+router.route('/promotions')
+  .get(getAdminPromotions)
+  .post(createAdminPromotion);
+
 router.route('/promotions/:id')
   .put(updateAdminPromotion)
   .delete(deleteAdminPromotion);
@@ -99,3 +106,4 @@ router.delete('/notifications/:id', deleteAdminNotification);
 router.get('/revenue', getRevenueStats);
 
 module.exports = router;
+

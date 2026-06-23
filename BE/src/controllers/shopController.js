@@ -4,6 +4,8 @@ const Product = require('../models/product');
 const User = require('../models/user');
 const Category = require('../models/category');
 const Notification = require('../models/notification');
+const { attachPricing } = require('../utils/pricing');
+
 // @desc    Lấy thông tin công khai của 1 shop (theo id hoặc slug)
 // @route   GET /api/shops/:idOrSlug
 // @access  Public
@@ -64,9 +66,10 @@ const getShopProducts = async (req, res) => {
 
         const skip = (Number(page) - 1) * Number(limit);
         const [products, total] = await Promise.all([
-            Product.find(query).populate('category', 'name').sort(sort).skip(skip).limit(Number(limit)),
+            Product.find(query).populate('category', 'name').sort(sort).skip(skip).limit(Number(limit)).lean(),
             Product.countDocuments(query)
         ]);
+        await attachPricing(products);
 
         res.status(200).json({
             success: true,
