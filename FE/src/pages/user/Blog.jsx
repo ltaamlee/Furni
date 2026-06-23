@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { getPublicBlogsApi, getPublicBlogApi } from "../../utils/api";
+import { getPublicBlogsApi, getPublicBlogApi, likeBlogApi, checkLikeBlogApi, getBlogCommentsApi, createBlogCommentApi, deleteBlogCommentApi, getBlogRepliesApi } from "../../utils/api";
+import { useToast } from "../../components/context/ToastContext";
 
 const CATEGORIES = [
     { key: "", label: "Tất cả" },
@@ -27,16 +28,376 @@ const GRADIENTS = [
     "linear-gradient(135deg,#9cb0b8,#566a72)",
 ];
 
+const getToken = () => localStorage.getItem("access_token");
+
 const num = (n) => Number(n || 0).toLocaleString("vi-VN");
 const fmtDate = (d) => {
     if (!d) return "";
     return new Date(d).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 };
+const fmtDateTime = (d) => {
+    if (!d) return "";
+    const date = new Date(d);
+    return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+};
+
+/* ─── Comment Components ───────────────────────────────────── */
+const ReplyItem = ({ reply, currentUserId, onDelete, onReply }) => (
+    <div className="flex gap-3 pl-6 border-l-2 border-[#EDE8E0]">
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#A8896A] to-[#8B7355] flex items-center justify-center text-white text-xs font-bold shrink-0">
+            {(reply.author?.fullName || "U").charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-semibold text-[#1C1108]">{reply.author?.fullName || "Người dùng"}</span>
+                <span className="text-xs text-[#A8896A]">{fmtDate(reply.createdAt)}</span>
+                {reply.author?._id === currentUserId && (
+                    <button onClick={() => onDelete(reply._id)} className="text-xs text-red-500 hover:underline ml-auto">Xóa</button>
+                )}
+            </div>
+            <p className="text-sm text-[#6B5C4C] leading-relaxed">{reply.content}</p>
+        </div>
+    </div>
+);
+
+const CommentItem = ({ comment, currentUserId, onDelete, onReply, onLoadReplies, replies, repliesLoading }) => {
+    const [showReplies, setShowReplies] = useState(false);
+    const [showReplyForm, setShowReplyForm] = useState(false);
+    const [replyContent, setReplyContent] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleSubmitReply = async () => {
+        if (!replyContent.trim()) return;
+        setSubmitting(true);
+        await onReply(comment._id, replyContent);
+        setReplyContent("");
+        setShowReplyForm(false);
+        setSubmitting(false);
+    };
+
+    return (
+        <div className="py-4 border-b border-[#EDE8E0] last:border-0">
+            <div className="flex gap-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#B86B05] to-[#95520B] flex items-center justify-center text-white text-sm font-bold shrink-0">
+                    {(comment.author?.fullName || "U").charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-sm font-semibold text-[#1C1108]">{comment.author?.fullName || "Người dùng"}</span>
+                        <span className="text-xs text-[#A8896A]">{fmtDate(comment.createdAt)}</span>
+                        {comment.author?._id === currentUserId && (
+                            <button onClick={() => onDelete(comment._id)} className="text-xs text-red-500 hover:underline ml-auto">Xóa</button>
+                        )}
+                    </div>
+                    <p className="text-sm text-[#6B5C4C] leading-relaxed mb-2">{comment.content}</p>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={() => setShowReplyForm(!showReplyForm)}
+                            className="text-xs text-[#A8896A] hover:text-[#B86B05] transition-colors flex items-center gap-1"
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                                <path d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                            </svg>
+                            Trả lời
+                        </button>
+                        {(comment.replyCount > 0 || replies.length > 0) && (
+                            <button
+                                onClick={() => {
+                                    setShowReplies(!showReplies);
+                                    if (!showReplies && replies.length === 0) onLoadReplies(comment._id);
+                                }}
+                                className="text-xs text-[#A8896A] hover:text-[#B86B05] transition-colors"
+                            >
+                                {showReplies ? "Ẩn" : `Xem ${comment.replyCount || replies.length} trả lời`}
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Reply form */}
+                    {showReplyForm && (
+                        <div className="mt-3 flex gap-2">
+                            <input
+                                type="text"
+                                value={replyContent}
+                                onChange={(e) => setReplyContent(e.target.value)}
+                                placeholder="Viết trả lời..."
+                                className="flex-1 px-3 py-2 text-sm border border-[#D5C9BC] rounded-lg bg-[#FAF7F4] focus:outline-none focus:border-[#B86B05] transition-colors"
+                                onKeyDown={(e) => e.key === "Enter" && handleSubmitReply()}
+                            />
+                            <button
+                                onClick={handleSubmitReply}
+                                disabled={submitting || !replyContent.trim()}
+                                className="px-4 py-2 bg-[#B86B05] text-white text-sm font-medium rounded-lg hover:bg-[#95520B] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Gửi
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Replies */}
+                    {showReplies && (
+                        <div className="mt-4 space-y-3">
+                            {repliesLoading ? (
+                                <div className="text-sm text-[#A8896A] py-2">Đang tải...</div>
+                            ) : (
+                                replies.map((reply) => (
+                                    <ReplyItem
+                                        key={reply._id}
+                                        reply={reply}
+                                        currentUserId={currentUserId}
+                                        onDelete={onDelete}
+                                        onReply={onReply}
+                                    />
+                                ))
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/* ─── Comments Section ─────────────────────────────────────── */
+const CommentsSection = ({ blogId, allowComments }) => {
+    const { showToast } = useToast();
+    const [comments, setComments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
+    const [newComment, setNewComment] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+    const [repliesMap, setRepliesMap] = useState({});
+    const [repliesLoading, setRepliesLoading] = useState({});
+
+    const currentUserId = JSON.parse(localStorage.getItem("user") || "{}")?._id;
+
+    const fetchComments = useCallback(async () => {
+        try {
+            setLoading(true);
+            const res = await getBlogCommentsApi(blogId, { page: 1, limit: 20 });
+            if (res.success) {
+                setComments(res.data.comments || []);
+                setPagination(res.data.pagination || { page: 1, pages: 1, total: 0 });
+            }
+        } catch {
+            setComments([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [blogId]);
+
+    useEffect(() => {
+        fetchComments();
+    }, [fetchComments]);
+
+    const handleSubmitComment = async () => {
+        if (!newComment.trim()) return;
+        if (!getToken()) {
+            showToast("Vui lòng đăng nhập để bình luận", "error");
+            return;
+        }
+        try {
+            setSubmitting(true);
+            const res = await createBlogCommentApi(blogId, newComment);
+            if (res.success) {
+                setComments([res.data.comment, ...comments]);
+                setNewComment("");
+                setPagination(p => ({ ...p, total: p.total + 1 }));
+                showToast("Đã gửi bình luận", "success");
+            } else {
+                showToast(res.message || "Gửi bình luận thất bại", "error");
+            }
+        } catch {
+            showToast("Có lỗi xảy ra", "error");
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleDeleteComment = async (commentId) => {
+        if (!window.confirm("Xóa bình luận này?")) return;
+        try {
+            const res = await deleteBlogCommentApi(blogId, commentId);
+            if (res.success) {
+                setComments(comments.filter(c => c._id !== commentId));
+                setPagination(p => ({ ...p, total: Math.max(0, p.total - 1) }));
+                showToast("Đã xóa bình luận", "success");
+            }
+        } catch {
+            showToast("Có lỗi xảy ra", "error");
+        }
+    };
+
+    const handleReply = async (parentId, content) => {
+        if (!getToken()) {
+            showToast("Vui lòng đăng nhập để trả lời", "error");
+            return;
+        }
+        try {
+            const res = await createBlogCommentApi(blogId, content, parentId);
+            if (res.success) {
+                setRepliesMap(prev => ({
+                    ...prev,
+                    [parentId]: [...(prev[parentId] || []), res.data.comment]
+                }));
+                setComments(comments.map(c =>
+                    c._id === parentId ? { ...c, replyCount: (c.replyCount || 0) + 1 } : c
+                ));
+                showToast("Đã gửi trả lời", "success");
+            }
+        } catch {
+            showToast("Có lỗi xảy ra", "error");
+        }
+    };
+
+    const loadReplies = async (commentId) => {
+        setRepliesLoading(prev => ({ ...prev, [commentId]: true }));
+        try {
+            const res = await getBlogRepliesApi(blogId, commentId);
+            if (res.success) {
+                setRepliesMap(prev => ({ ...prev, [commentId]: res.data.replies || [] }));
+            }
+        } catch {
+            // ignore
+        } finally {
+            setRepliesLoading(prev => ({ ...prev, [commentId]: false }));
+        }
+    };
+
+    if (!allowComments) return null;
+
+    return (
+        <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mt-8">
+            <h3 className="text-lg font-bold text-[#1C1108] mb-4 flex items-center gap-2">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                Bình luận ({pagination.total})
+            </h3>
+
+            {/* Comment form */}
+            <div className="flex gap-3 mb-6">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#B86B05] to-[#95520B] flex items-center justify-center text-white text-sm font-bold shrink-0">
+                    {currentUserId ? (JSON.parse(localStorage.getItem("user")?.fullName || "U").charAt(0) || "U").toUpperCase() : "U"}
+                </div>
+                <div className="flex-1">
+                    <textarea
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        placeholder={getToken() ? "Viết bình luận của bạn..." : "Đăng nhập để bình luận"}
+                        disabled={!getToken()}
+                        className="w-full px-4 py-3 border border-[#D5C9BC] rounded-xl bg-[#FAF7F4] focus:outline-none focus:border-[#B86B05] transition-colors resize-none text-sm placeholder:text-[#A8896A] disabled:cursor-not-allowed disabled:opacity-60"
+                        rows={3}
+                    />
+                    <div className="flex justify-end mt-2">
+                        <button
+                            onClick={handleSubmitComment}
+                            disabled={submitting || !newComment.trim() || !getToken()}
+                            className="px-5 py-2 bg-[#B86B05] text-white text-sm font-medium rounded-xl hover:bg-[#95520B] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                            {submitting ? (
+                                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                                </svg>
+                            )}
+                            Gửi bình luận
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Comments list */}
+            {loading ? (
+                <div className="space-y-4">
+                    {[1, 2, 3].map(i => (
+                        <div key={i} className="flex gap-3 animate-pulse">
+                            <div className="w-10 h-10 rounded-full bg-[#F0EBE3]" />
+                            <div className="flex-1 space-y-2">
+                                <div className="h-4 bg-[#F0EBE3] rounded w-32" />
+                                <div className="h-3 bg-[#F0EBE3] rounded w-full" />
+                                <div className="h-3 bg-[#F0EBE3] rounded w-2/3" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : comments.length === 0 ? (
+                <div className="text-center py-8 text-[#A8896A] text-sm">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-12 h-12 mx-auto mb-3 opacity-40">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    </svg>
+                    Chưa có bình luận nào. Hãy là người đầu tiên bình luận!
+                </div>
+            ) : (
+                <div>
+                    {comments.map(comment => (
+                        <CommentItem
+                            key={comment._id}
+                            comment={comment}
+                            currentUserId={currentUserId}
+                            onDelete={handleDeleteComment}
+                            onReply={handleReply}
+                            onLoadReplies={loadReplies}
+                            replies={repliesMap[comment._id] || []}
+                            repliesLoading={repliesLoading[comment._id] || false}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 /* ─── Blog Detail View ─────────────────────────────────────── */
 const BlogDetail = ({ blog }) => {
     const navigate = useNavigate();
+    const { showToast } = useToast();
     const gradient = GRADIENTS[0];
+
+    const [liked, setLiked] = useState(false);
+    const [likes, setLikes] = useState(blog.likes || 0);
+    const [likeLoading, setLikeLoading] = useState(false);
+
+    useEffect(() => {
+        if (getToken()) {
+            checkLikeStatus();
+        }
+    }, [blog._id]);
+
+    const checkLikeStatus = async () => {
+        try {
+            const res = await checkLikeBlogApi(blog._id);
+            if (res.success) {
+                setLiked(res.data.liked);
+                setLikes(res.data.likes);
+            }
+        } catch {
+            // ignore
+        }
+    };
+
+    const handleLike = async () => {
+        if (!getToken()) {
+            showToast("Vui lòng đăng nhập để thích bài viết", "error");
+            return;
+        }
+        if (!blog.allowLikes) return;
+        try {
+            setLikeLoading(true);
+            const res = await likeBlogApi(blog._id);
+            if (res.success) {
+                setLiked(res.data.liked);
+                setLikes(res.data.likes);
+            }
+        } catch {
+            showToast("Có lỗi xảy ra", "error");
+        } finally {
+            setLikeLoading(false);
+        }
+    };
 
     return (
         <div className="min-h-screen bg-[#FAF7F4]">
@@ -76,7 +437,7 @@ const BlogDetail = ({ blog }) => {
                             {blog.title}
                         </h1>
 
-                        {/* Author + date + stats */}
+                        {/* Author + date + stats + like */}
                         <div className="flex flex-wrap items-center gap-4 pb-6 mb-6 border-b border-[#EDE8E0]">
                             <div className="flex items-center gap-2.5">
                                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#B86B05] to-[#95520B] flex items-center justify-center text-white text-sm font-bold">
@@ -105,13 +466,35 @@ const BlogDetail = ({ blog }) => {
                                 </span>
                                 <span className="flex items-center gap-1">
                                     <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
-                                    {num(blog.likes)} thích
+                                    {num(likes)} thích
                                 </span>
                                 <span className="flex items-center gap-1">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
                                     {num(blog.commentsCount)} bình luận
                                 </span>
                             </div>
+
+                            {/* Like button */}
+                            {blog.allowLikes && (
+                                <button
+                                    onClick={handleLike}
+                                    disabled={likeLoading}
+                                    className={`ml-auto flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-all ${
+                                        liked
+                                            ? "bg-red-50 text-red-500 border border-red-200 hover:bg-red-100"
+                                            : "bg-[#FAF7F4] text-[#6B5C4C] border border-[#EDE8E0] hover:bg-[#F0EBE3]"
+                                    } disabled:opacity-50`}
+                                >
+                                    {likeLoading ? (
+                                        <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <svg viewBox="0 0 24 24" fill={liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                        </svg>
+                                    )}
+                                    {liked ? "Đã thích" : "Thích bài viết"}
+                                </button>
+                            )}
                         </div>
 
                         {/* Excerpt */}
@@ -183,6 +566,9 @@ const BlogDetail = ({ blog }) => {
                         </div>
                     </div>
                 </article>
+
+                {/* Comments section */}
+                <CommentsSection blogId={blog._id} allowComments={blog.allowComments} />
             </div>
         </div>
     );

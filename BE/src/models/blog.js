@@ -107,7 +107,12 @@ const blogSchema = new mongoose.Schema({
     isPinned: {
         type: Boolean,
         default: false
-    }
+    },
+    likedBy: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: []
+    }]
 }, { timestamps: true });
 
 blogSchema.index({ shop: 1, status: 1, createdAt: -1 });

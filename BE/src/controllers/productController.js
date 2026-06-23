@@ -120,8 +120,11 @@ const getProduct = async (req, res) => {
     const { id } = req.params;
     const lookup = mongoose.isValidObjectId(id) ? { _id: id } : { slug: id };
 
-    const product = await Product.findOne(lookup)
-
+    const product = await Product.findOneAndUpdate(
+      lookup,
+      { $inc: { views: 1 } },
+      { new: true }
+    )
       .populate('category', 'name slug')
       .populate('shop', 'name slug logo banner description phone email address isActive')
       .lean();

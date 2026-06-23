@@ -282,6 +282,14 @@ const deleteVendorBlogApi = (id) => axios.delete(`/vendor/blogs/${id}`);
 // Public blog
 const getPublicBlogsApi = (params = {}) => axios.get("/blogs", { params });
 const getPublicBlogApi = (idOrSlug) => axios.get(`/blogs/${idOrSlug}`);
+const likeBlogApi = (blogId) => axios.post(`/blogs/${blogId}/like`);
+const checkLikeBlogApi = (blogId) => axios.get(`/blogs/${blogId}/like`);
+const getBlogCommentsApi = (blogId, params = {}) => axios.get(`/blogs/${blogId}/comments`, { params });
+const createBlogCommentApi = (blogId, content, parentComment = null) =>
+    axios.post(`/blogs/${blogId}/comments`, { content, parentComment });
+const deleteBlogCommentApi = (blogId, commentId) => axios.delete(`/blogs/${blogId}/comments/${commentId}`);
+const getBlogRepliesApi = (blogId, commentId, params = {}) =>
+    axios.get(`/blogs/${blogId}/comments/${commentId}/replies`, { params });
 
 // Vendor notifications
 const getVendorNotificationsApi = (params = {}) => axios.get("/vendor/notifications", { params });
@@ -462,6 +470,12 @@ export {
     deleteVendorBlogApi,
     getPublicBlogsApi,
     getPublicBlogApi,
+    likeBlogApi,
+    checkLikeBlogApi,
+    getBlogCommentsApi,
+    createBlogCommentApi,
+    deleteBlogCommentApi,
+    getBlogRepliesApi,
     getVendorNotificationsApi,
     markNotificationReadApi,
     markAllNotificationsReadApi,
