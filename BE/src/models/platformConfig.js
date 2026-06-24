@@ -36,7 +36,8 @@ const CONFIG_KEYS = {
     PAYOUT_DELAY_DAYS: 'payout_delay_days',            // Số ngày chờ sau khi giao hàng
     PAYOUT_AUTO_ENABLED: 'payout_auto_enabled',        // Bật/tắt chi trả tự động
     PAYOS_WEBHOOK_ENABLED: 'payos_webhook_enabled',     // Bật webhook PayOS
-    PAYMENT_HOLD_HOURS: 'payment_hold_hours'           // Số giờ giữ tiền trước khi chuyển
+    PAYMENT_HOLD_HOURS: 'payment_hold_hours',           // Số giờ giữ tiền trước khi chuyển
+    PRODUCTS_PER_PAGE: 'products_per_page'              // Số sản phẩm mỗi trang
 };
 
 // Default values
@@ -47,7 +48,8 @@ const DEFAULT_CONFIG = {
     [CONFIG_KEYS.PAYOUT_DELAY_DAYS]: 0,                  // Chuyển ngay khi giao
     [CONFIG_KEYS.PAYOUT_AUTO_ENABLED]: true,             // Bật chi trả tự động
     [CONFIG_KEYS.PAYOS_WEBHOOK_ENABLED]: true,          // Bật webhook
-    [CONFIG_KEYS.PAYMENT_HOLD_HOURS]: 0                 // Không giữ tiền
+    [CONFIG_KEYS.PAYMENT_HOLD_HOURS]: 0,                 // Không giữ tiền
+    [CONFIG_KEYS.PRODUCTS_PER_PAGE]: 12                 // 12 sản phẩm mỗi trang
 };
 
 // Get config value
@@ -89,7 +91,8 @@ function getConfigDescription(key) {
         [CONFIG_KEYS.PAYOUT_DELAY_DAYS]: 'Số ngày chờ sau khi giao hàng thành công trước khi chi trả cho vendor',
         [CONFIG_KEYS.PAYOUT_AUTO_ENABLED]: 'Bật/tắt chi trả tự động cho vendor (true/false)',
         [CONFIG_KEYS.PAYOS_WEBHOOK_ENABLED]: 'Bật xử lý webhook PayOS (true/false)',
-        [CONFIG_KEYS.PAYMENT_HOLD_HOURS]: 'Số giờ giữ tiền trước khi chuyển cho vendor (0 = chuyển ngay)'
+        [CONFIG_KEYS.PAYMENT_HOLD_HOURS]: 'Số giờ giữ tiền trước khi chuyển cho vendor (0 = chuyển ngay)',
+        [CONFIG_KEYS.PRODUCTS_PER_PAGE]: 'Số sản phẩm hiển thị mỗi trang (FE)'
     };
     return descriptions[key] || '';
 }

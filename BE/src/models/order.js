@@ -16,6 +16,35 @@ const orderSchema = new mongoose.Schema({
         ref: 'User',
         required: [true, 'Vui lòng đăng nhập để đặt hàng!']
     },
+    // ID của đơn "gốc" - dùng để nhóm các đơn từ cùng 1 giỏ hàng (multi-vendor)
+    parentOrderId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Order',
+        default: null,
+        index: true
+    },
+    // Các đơn con có cùng parentOrderId thuộc về 1 giỏ hàng
+    isChildOrder: {
+        type: Boolean,
+        default: false
+    },
+    // Danh sách các đơn con (chỉ có ở đơn gốc)
+    subOrders: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Order'
+    }],
+    // Shop chủ của đơn hàng (đơn con chỉ thuộc 1 shop)
+    shop: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Shop',
+        default: null,
+        index: true
+    },
+    // Shop name snapshot
+    shopName: {
+        type: String,
+        default: ''
+    },
     orderNumber: {
         type: String,
         unique: true
@@ -35,6 +64,16 @@ const orderSchema = new mongoose.Schema({
         },
         // Snapshot tên shop tại thời điểm đặt (đơn cũ không vỡ khi shop đổi tên/đóng cửa)
         shopName: {
+            type: String,
+            default: ''
+        },
+        // Mã viết tắt của shop (ví dụ: FURNI01) - dùng để phân loại đơn
+        shopCode: {
+            type: String,
+            default: ''
+        },
+        // Mã đơn riêng của shop cho dòng sản phẩm này
+        shopOrderCode: {
             type: String,
             default: ''
         },
@@ -74,6 +113,31 @@ const orderSchema = new mongoose.Schema({
             trim: true
         },
         city: {
+            type: String,
+            default: ''
+        },
+        // Administrative division codes (from open-api.vn)
+        provinceCode: {
+            type: Number,
+            default: null
+        },
+        provinceName: {
+            type: String,
+            default: ''
+        },
+        districtCode: {
+            type: Number,
+            default: null
+        },
+        districtName: {
+            type: String,
+            default: ''
+        },
+        wardCode: {
+            type: Number,
+            default: null
+        },
+        wardName: {
             type: String,
             default: ''
         },
@@ -180,6 +244,7 @@ const orderSchema = new mongoose.Schema({
 
 // Truy vấn đơn theo shop (vendor) + lọc trạng thái nhanh
 orderSchema.index({ 'products.shop': 1, status: 1, createdAt: -1 });
+orderSchema.index({ 'products.shopOrderCode': 1 });
 
 // Tạo mã đơn hàng tự động
 orderSchema.pre('save', async function(next) {
@@ -188,6 +253,31 @@ orderSchema.pre('save', async function(next) {
         const timestamp = Date.now().toString(36).toUpperCase();
         const random = Math.random().toString(36).substring(2, 6).toUpperCase();
         this.orderNumber = `ORD-${timestamp}-${random}`;
+    }
+
+    // Tạo mã đơn riêng cho từng shop trong đơn (multi-vendor)
+    if (this.isNew) {
+        const shopOrderCounts = {};
+        
+        for (const item of this.products) {
+            const shopId = item.shop?.toString() || 'default';
+            
+            // Đếm số đơn của shop này trong đơn hàng hiện tại
+            if (!shopOrderCounts[shopId]) {
+                shopOrderCounts[shopId] = await mongoose.model('Order').countDocuments({
+                    'products.shop': item.shop
+                });
+            }
+            
+            // Tạo mã đơn riêng cho shop
+            // Format: {shopCode}-{timestamp}-{sequence}
+            const shopCode = item.shopCode || 'SHOP';
+            const timestamp = Date.now().toString(36).toUpperCase().slice(-6);
+            const sequence = String(shopOrderCounts[shopId] + 1).padStart(4, '0');
+            
+            item.shopOrderCode = `${shopCode}-${timestamp}-${sequence}`;
+            shopOrderCounts[shopId]++;
+        }
     }
 
     // Thêm vào lịch sử trạng thái nếu có thay đổi

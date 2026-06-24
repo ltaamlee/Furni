@@ -159,7 +159,55 @@ const payoutOrderToVendors = async (orderId) => {
             throw new Error('Đơn hàng chưa giao thành công');
         }
 
-        // Lấy danh sách shop unique trong đơn
+        // Kiểm tra nếu là đơn con (đơn từ hệ thống tách đơn multi-vendor)
+        // Đơn con đã có thông tin shop và subtotal riêng
+        if (order.isChildOrder && order.shop) {
+            const shop = order.shop;
+            const shopSubtotal = order.subtotal;
+            const shopQuantity = order.totalQuantity;
+
+            // Tính phí sàn
+            const { platformFee, netAmount } = await calculatePlatformFee(shopSubtotal);
+
+            // Lấy hoặc tạo ví
+            const wallet = await getOrCreateWallet(shop);
+
+            // Cộng tiền vào ví
+            const transaction = await creditToWallet(
+                wallet,
+                netAmount,
+                `Doanh thu từ đơn hàng ${order.orderNumber} (${shopQuantity} sản phẩm)`
+            );
+
+            // Ghi nhận phí sàn
+            await recordPlatformFee(
+                platformFee,
+                orderId,
+                `Phí sàn từ ${shop.name || shop._id} - Đơn ${order.orderNumber}`
+            );
+
+            // Cập nhật transaction với order
+            transaction.order = orderId;
+            transaction.save({ session });
+
+            console.log(`[Payout] Đã chi trả ${netAmount.toLocaleString('vi-VN')}đ cho ${shop.name} (phí: ${platformFee.toLocaleString('vi-VN')}đ)`);
+
+            // Ghi nhận đã chi trả
+            await markOrderPaidOut(orderId, session);
+            await session.commitTransaction();
+
+            return {
+                success: true,
+                orderId,
+                shopId: shop._id,
+                shopSubtotal,
+                platformFee,
+                netAmount,
+                transactionId: transaction._id
+            };
+        }
+
+        // Lấy danh sách shop unique trong đơn (cho đơn cũ chưa tách)
         const shopIds = [...new Set(
             order.products
                 .filter(p => p.shop && p.shop._id)

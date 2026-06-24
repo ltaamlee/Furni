@@ -45,7 +45,7 @@ const createOrder = async (req, res) => {
         // Kiểm tra tồn kho + thu thập thông tin shop của từng sản phẩm
         const productMap = {};
         for (const item of cart.products) {
-            const product = await Product.findById(item.product).populate('shop', 'name');
+            const product = await Product.findById(item.product).populate('shop', 'name code');
             if (!product) {
                 return res.status(400).json({
                     success: false,
@@ -61,58 +61,126 @@ const createOrder = async (req, res) => {
             productMap[item.product.toString()] = product;
         }
 
-        // Tính phí ship (miễn phí nếu > 500k)
-        const shippingFee = cart.totalPrice >= 500000 ? 0 : 30000;
-        const totalPrice = cart.totalPrice + shippingFee;
-
-        // Tạo đơn hàng (gắn shop cho từng dòng sản phẩm - multi-vendor)
-        const order = new Order({
-            user: req.user._id,
-            products: cart.products.map(item => {
-                const product = productMap[item.product.toString()];
-                return {
-                    product: item.product,
-                    shop: product.shop?._id || product.shop || null,
-                    shopName: product.shop?.name || '',
-                    quantity: item.quantity,
-                    price: item.price,
-                    name: item.name,
-                    image: item.image
+        // Nhóm sản phẩm theo shop (multi-vendor: tách đơn)
+        const shopGroups = {};
+        for (const item of cart.products) {
+            const product = productMap[item.product.toString()];
+            const shopId = product.shop?._id?.toString() || 'no-shop';
+            
+            if (!shopGroups[shopId]) {
+                shopGroups[shopId] = {
+                    shop: product.shop?._id || null,
+                    shopName: product.shop?.name || 'Cửa hàng',
+                    shopCode: product.shop?.code || '',
+                    items: [],
+                    subtotal: 0,
+                    totalQuantity: 0
                 };
-            }),
+            }
+            
+            const discountedPrice = item.price;
+            shopGroups[shopId].items.push({
+                product: item.product,
+                shop: product.shop?._id || null,
+                shopName: product.shop?.name || '',
+                shopCode: product.shop?.code || '',
+                quantity: item.quantity,
+                price: item.price,
+                name: item.name,
+                image: item.image
+            });
+            shopGroups[shopId].subtotal += discountedPrice * item.quantity;
+            shopGroups[shopId].totalQuantity += item.quantity;
+        }
+
+        const shopKeys = Object.keys(shopGroups);
+        const isMultiVendor = shopKeys.length > 1;
+
+        // Tạo parent order (đơn gốc - không chứa sản phẩm, chỉ để tracking)
+        const parentOrder = new Order({
+            user: req.user._id,
             shippingAddress: {
                 ...shippingAddress,
                 note: note || ''
             },
             paymentMethod,
             subtotal: cart.totalPrice,
-            shippingFee,
-            totalPrice,
+            shippingFee: 0,
+            totalPrice: cart.totalPrice,
             totalQuantity: cart.totalQuantity,
             orderedAt: new Date(),
-            estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) // 3 ngày
+            isChildOrder: false
         });
+        await parentOrder.save();
 
-        // Trừ tồn kho và tăng sold
-        for (const item of cart.products) {
-            await Product.findByIdAndUpdate(item.product, {
-                $inc: { 
-                    quantity: -item.quantity,
-                    sold: item.quantity
-                }
+        // Tạo đơn hàng cho từng shop
+        const childOrders = [];
+        for (const shopId of shopKeys) {
+            const group = shopGroups[shopId];
+            
+            // Tính phí ship riêng cho mỗi shop (miễn phí nếu subtotal > 500k)
+            const shippingFee = group.subtotal >= 500000 ? 0 : 30000;
+            const groupTotal = group.subtotal + shippingFee;
+
+            const childOrder = new Order({
+                user: req.user._id,
+                parentOrderId: parentOrder._id,
+                isChildOrder: true,
+                shop: group.shop,
+                shopName: group.shopName,
+                products: group.items,
+                shippingAddress: {
+                    ...shippingAddress,
+                    note: note || ''
+                },
+                paymentMethod,
+                subtotal: group.subtotal,
+                shippingFee,
+                totalPrice: groupTotal,
+                totalQuantity: group.totalQuantity,
+                orderedAt: new Date(),
+                estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
             });
+
+            // Trừ tồn kho cho sản phẩm của shop này
+            for (const item of group.items) {
+                await Product.findByIdAndUpdate(item.product, {
+                    $inc: { 
+                        quantity: -item.quantity,
+                        sold: item.quantity
+                    }
+                });
+            }
+
+            await childOrder.save();
+            childOrders.push(childOrder);
         }
+
+        // Cập nhật parent order với thông tin các đơn con
+        parentOrder.subOrders = childOrders.map(o => o._id);
+        parentOrder.totalPrice = childOrders.reduce((sum, o) => sum + o.totalPrice, 0);
+        parentOrder.shippingFee = childOrders.reduce((sum, o) => sum + o.shippingFee, 0);
+        await parentOrder.save();
 
         // Xóa giỏ hàng sau khi đặt thành công
         await Cart.findByIdAndDelete(cart._id);
 
-        await order.save();
-        await notifyVendorsNewOrder(order);
+        // Gửi thông báo cho vendors
+        for (const order of childOrders) {
+            await notifyVendorsNewOrder(order);
+        }
 
+        // Trả về đơn gốc và các đơn con
         res.status(201).json({
             success: true,
-            message: 'Đặt hàng thành công!',
-            data: order
+            message: isMultiVendor 
+                ? `Đặt hàng thành công! Đơn hàng được chia thành ${childOrders.length} đơn theo cửa hàng.` 
+                : 'Đặt hàng thành công!',
+            data: {
+                parentOrder,
+                childOrders,
+                isSplit: isMultiVendor
+            }
         });
     } catch (error) {
         res.status(500).json({
@@ -130,13 +198,15 @@ const getUserOrders = async (req, res) => {
     try {
         const { status, page = 1, limit = 10 } = req.query;
 
-        const query = { user: req.user._id };
+        // Chỉ lấy đơn gốc (không lấy đơn con)
+        const query = { user: req.user._id, isChildOrder: { $ne: true } };
         if (status) {
             query.status = status;
         }
 
         const skip = (Number(page) - 1) * Number(limit);
         const orders = await Order.find(query)
+            .populate('subOrders')
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(Number(limit));
@@ -172,7 +242,7 @@ const getOrderById = async (req, res) => {
         const order = await Order.findOne({ 
             _id: req.params.id, 
             user: req.user._id 
-        }).populate('products.product');
+        }).populate('products.product').populate('subOrders');
 
         if (!order) {
             return res.status(404).json({

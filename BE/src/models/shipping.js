@@ -170,9 +170,10 @@ shippingOrderSchema.pre('save', async function(next) {
 });
 
 // Calculate shipping fee
-shippingOrderSchema.statics.calculateFee = async function(providerCode, city, orderTotal) {
-    const providers = await this.model('ShippingProvider').find({ code: providerCode, isActive: true });
-    const provider = providers[0];
+// provinceCode: number from open-api.vn (e.g. 79 = TP Ho Chi Minh)
+// Also accepts old city string for backward compat
+shippingOrderSchema.statics.calculateFee = async function(providerCode, provinceCodeOrCity, orderTotal) {
+    const provider = await this.model('ShippingProvider').findOne({ code: providerCode, isActive: true });
 
     if (!provider) {
         return { success: false, message: 'Đơn vị vận chuyển không hợp lệ' };
@@ -180,16 +181,48 @@ shippingOrderSchema.statics.calculateFee = async function(providerCode, city, or
 
     let fee = provider.baseFee;
 
-    // City surcharges (mock)
-    const cityFees = {
-        'TP. Hồ Chí Minh': 0,
-        'Hà Nội': 15000,
-        'Đà Nẵng': 25000,
-        'Cần Thơ': 30000,
-        'Hải Phòng': 35000
+    // Province code surcharges (2025 latest, based on open-api.vn codes)
+    const provinceFees = {
+        1:    0,     // Thành phố Hà Nội
+        48:   0,     // Thành phố Hồ Chí Minh
+        31:   15000, // Thành phố Hải Phòng
+        92:   15000, // Thành phố Đà Nẵng
+        72:   20000, // Thành phố Cần Thơ
+        2:    15000, // Thành phố Hà Nội (alternative)
+        // Other major cities
+        26:   20000, // Thành phố Hải Dương
+        16:   20000, // Tỉnh Bắc Ninh
+        15:   20000, // Tỉnh Vĩnh Phúc
+        80:   20000, // Tỉnh Bình Dương
+        75:   25000, // Tỉnh Đồng Nai
+        82:   25000, // Tỉnh Bà Rịa - Vũng Tàu
+        52:   25000, // Thành phố Cần Thơ
+        74:   25000, // Thành phố Hồ Chí Minh
+        60:   25000, // Thành phố Bạc Liêu
+        45:   25000, // Thành phố Quảng Ninh
+        // Default for all other provinces
     };
 
-    fee += cityFees[city] || 40000;
+    // Support both number (province_code) and string (city name) for backward compat
+    if (typeof provinceCodeOrCity === 'number') {
+        fee += provinceFees[provinceCodeOrCity] ?? 30000;
+    } else if (typeof provinceCodeOrCity === 'string') {
+        const legacyCityFees = {
+            'TP. Hồ Chí Minh': 0,
+            'Thành phố Hồ Chí Minh': 0,
+            'TP Hồ Chí Minh': 0,
+            'Hà Nội': 15000,
+            'Thành phố Hà Nội': 15000,
+            'Đà Nẵng': 25000,
+            'Thành phố Đà Nẵng': 25000,
+            'Cần Thơ': 30000,
+            'Thành phố Cần Thơ': 30000,
+            'Hải Phòng': 35000,
+        };
+        fee += legacyCityFees[provinceCodeOrCity] ?? 40000;
+    } else {
+        fee += 40000;
+    }
 
     // Free shipping if order total >= threshold
     if (orderTotal >= provider.freeThreshold) {

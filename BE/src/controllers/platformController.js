@@ -79,6 +79,15 @@ const updatePlatformConfig = async (req, res) => {
             }
         }
 
+        if (key === CONFIG_KEYS.PRODUCTS_PER_PAGE) {
+            if (value < 1 || value > 100) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Số sản phẩm mỗi trang phải từ 1 đến 100'
+                });
+            }
+        }
+
         const config = await PlatformConfig.setValue(key, value, req.user._id);
 
         res.status(200).json({

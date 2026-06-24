@@ -25,6 +25,7 @@ const wishlistRoutes = require('./routes/wishlistRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const platformRoutes = require('./routes/platformRoutes');
 const walletRoutes = require('./routes/walletRoutes');
+const locationRoutes = require('./routes/locationRoutes');
 const { errorHandler } = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -68,6 +69,7 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/wallets', walletRoutes);
 app.use('/api/admin/platform', platformRoutes);
+app.use('/api/locations', locationRoutes);
 // Health check
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Server is running' });

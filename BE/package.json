@@ -21,6 +21,7 @@
   "license": "ISC",
   "dependencies": {
     "@payos/node": "^2.0.5",
+    "axios": "^1.18.1",
     "bcryptjs": "^2.4.3",
     "chart.js": "^4.5.1",
     "cloudinary": "^2.10.0",
@@ -38,6 +39,7 @@
     "nodemailer": "^6.9.7",
     "slugify": "^1.6.9",
     "validator": "^13.15.35",
+    "vn-provinces": "^1.0.4",
     "xss-clean": "^0.1.4"
   },
   "devDependencies": {

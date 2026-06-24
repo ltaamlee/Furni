@@ -187,6 +187,7 @@ const login = async (req, res) => {
     if (!user.isVerified) {
       return res.status(403).json({
         success: false,
+        needsVerification: true,
         message: 'Tài khoản chưa được xác thực. Vui lòng kiểm tra email để xác thực tài khoản.'
       });
     }

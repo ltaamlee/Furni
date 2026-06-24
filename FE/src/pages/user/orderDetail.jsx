@@ -247,18 +247,34 @@ const OrderDetailPage = () => {
                     <h2 className="text-base font-bold text-[#1C1108] mb-4">Sản phẩm đã đặt</h2>
                     <div className="space-y-4">
                         {order.products.map((item, idx) => (
-                            <div key={idx} className="flex gap-4 items-center border-b border-[#EDE8E0] pb-4 last:border-0 last:pb-0 last:mb-0">
-                                <img
-                                    src={item.image || "/placeholder.png"}
-                                    alt={item.name}
-                                    className="w-18 h-18 object-cover rounded-xl"
-                                />
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-medium text-sm text-[#1C1108] line-clamp-1">{item.name}</p>
-                                    <p className="text-xs text-[#A8896A]">Đơn giá: {formatPrice(item.price)}</p>
-                                    <p className="text-xs text-[#A8896A]">Số lượng: {item.quantity}</p>
+                            <div key={idx} className="border-b border-[#EDE8E0] pb-4 last:border-0 last:pb-0 last:mb-0">
+                                {/* Shop info */}
+                                {item.shopCode && (
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="text-xs text-[#A8896A]">Shop:</span>
+                                        <span className="px-2 py-0.5 bg-[#FAF7F4] rounded text-xs font-mono font-semibold text-[#6B5C4C]">
+                                            {item.shopCode}
+                                        </span>
+                                        {item.shopOrderCode && (
+                                            <span className="text-xs text-[#A8896A]">
+                                                • Mã đơn: <span className="font-mono text-[#B86B05]">{item.shopOrderCode}</span>
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="flex gap-4 items-center">
+                                    <img
+                                        src={item.image || "/placeholder.png"}
+                                        alt={item.name}
+                                        className="w-18 h-18 object-cover rounded-xl"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-medium text-sm text-[#1C1108] line-clamp-1">{item.name}</p>
+                                        <p className="text-xs text-[#A8896A]">Đơn giá: {formatPrice(item.price)}</p>
+                                        <p className="text-xs text-[#A8896A]">Số lượng: {item.quantity}</p>
+                                    </div>
+                                    <p className="font-bold text-sm text-[#1C1108]">{formatPrice(item.price * item.quantity)}</p>
                                 </div>
-                                <p className="font-bold text-sm text-[#1C1108]">{formatPrice(item.price * item.quantity)}</p>
                             </div>
                         ))}
                     </div>

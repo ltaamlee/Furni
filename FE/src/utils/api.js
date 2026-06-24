@@ -26,6 +26,17 @@ const updatePasswordApi = (currentPassword, newPassword) => {
     return axios.put(URL_API, { currentPassword, newPassword });
 }
 
+// Address APIs
+const getDefaultAddressApi = () => {
+    const URL_API = "/user/addresses/default";
+    return axios.get(URL_API);
+}
+
+const getAddressesApi = () => {
+    const URL_API = "/user/addresses";
+    return axios.get(URL_API);
+}
+
 // Cart APIs
 const getCartApi = () => {
     const URL_API = "/cart";
@@ -230,6 +241,27 @@ const calculateShippingFeesApi = (params) => {
     return axios.get(URL_API, { params });
 }
 
+// Location APIs (Vietnam administrative divisions)
+const getProvincesApi = () => {
+    const URL_API = "/locations/provinces";
+    return axios.get(URL_API);
+}
+
+const getDistrictsApi = (provinceCode) => {
+    const URL_API = `/locations/districts/${provinceCode}`;
+    return axios.get(URL_API);
+}
+
+const getWardsApi = (districtCode) => {
+    const URL_API = `/locations/wards/${districtCode}`;
+    return axios.get(URL_API);
+}
+
+const getWardsByProvinceApi = (provinceCode) => {
+    const URL_API = `/locations/wards/province/${provinceCode}`;
+    return axios.get(URL_API);
+}
+
 const getShippingByOrderApi = (orderId) => {
     const URL_API = `/shipping/orders/${orderId}`;
     return axios.get(URL_API);
@@ -342,6 +374,37 @@ const cancelPayOSPaymentApi = (orderId) => {
     return axios.post(URL_API);
 };
 
+// User Wallet APIs
+const getUserWalletApi = () => {
+    const URL_API = "/wallets/my";
+    return axios.get(URL_API);
+};
+
+const getUserTransactionHistoryApi = (params = {}) => {
+    const URL_API = "/wallets/transactions";
+    return axios.get(URL_API, { params });
+};
+
+const addUserWalletAccountApi = (data) => {
+    const URL_API = "/wallets";
+    return axios.post(URL_API, data);
+};
+
+const updateUserWalletAccountApi = (accountId, data) => {
+    const URL_API = `/wallets/${accountId}`;
+    return axios.put(URL_API, data);
+};
+
+const deleteUserWalletAccountApi = (accountId) => {
+    const URL_API = `/wallets/${accountId}`;
+    return axios.delete(URL_API);
+};
+
+const setDefaultWalletAccountApi = (accountId) => {
+    const URL_API = `/wallets/${accountId}/default`;
+    return axios.put(URL_API);
+};
+
 // Admin Platform APIs
 const getPlatformConfigApi = () => {
     const URL_API = "/admin/platform/config";
@@ -404,6 +467,8 @@ export {
     getUserApi,
     updateUserApi,
     updatePasswordApi,
+    getDefaultAddressApi,
+    getAddressesApi,
     getCartApi,
     addToCartApi,
     updateCartItemApi,
@@ -445,6 +510,10 @@ export {
     calculateShippingFeesApi,
     getShippingByOrderApi,
     trackShipmentApi,
+    getProvincesApi,
+    getDistrictsApi,
+    getWardsApi,
+    getWardsByProvinceApi,
     getShopApi,
     getShopProductsApi,
     registerShopApi,
@@ -498,6 +567,13 @@ export {
     createPayOSPaymentWithCartApi,
     getPayOSPaymentStatusApi,
     cancelPayOSPaymentApi,
+    // User Wallet APIs
+    getUserWalletApi,
+    getUserTransactionHistoryApi,
+    addUserWalletAccountApi,
+    updateUserWalletAccountApi,
+    deleteUserWalletAccountApi,
+    setDefaultWalletAccountApi,
     // Admin Platform APIs
     getPlatformConfigApi,
     updatePlatformConfigApi,

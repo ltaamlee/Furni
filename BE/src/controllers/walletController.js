@@ -1,4 +1,5 @@
 const Wallet = require('../models/wallet');
+const Order = require('../models/order');
 
 /**
  * Lấy danh sách ví của user hiện tại
@@ -27,6 +28,71 @@ const getMyWallets = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Lỗi server khi lấy danh sách ví!'
+        });
+    }
+};
+
+/**
+ * Lấy lịch sử giao dịch thanh toán của user
+ * GET /api/wallets/transactions
+ */
+const getTransactionHistory = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { page = 1, limit = 10, type } = req.query;
+        
+        // Build query
+        const query = { user: userId };
+        
+        // Lọc theo loại thanh toán
+        if (type === 'payos') {
+            query.paymentMethod = 'PAYOS';
+        } else if (type === 'cod') {
+            query.paymentMethod = 'COD';
+        }
+        
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        
+        const [orders, total] = await Promise.all([
+            Order.find(query)
+                .sort({ orderedAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .select('orderNumber paymentMethod paymentStatus totalPrice orderedAt products'),
+            Order.countDocuments(query)
+        ]);
+        
+        // Transform orders to transaction-like format
+        const transactions = orders.map(order => ({
+            _id: order._id,
+            type: order.paymentMethod === 'PAYOS' ? 'payos' : 'cod',
+            category: 'purchase',
+            amount: order.totalPrice,
+            status: order.paymentStatus,
+            description: `Thanh toán đơn hàng ${order.orderNumber}`,
+            orderNumber: order.orderNumber,
+            productCount: order.products?.length || 0,
+            createdAt: order.orderedAt,
+            orderId: order._id
+        }));
+        
+        res.json({
+            success: true,
+            data: {
+                transactions,
+                pagination: {
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    total,
+                    totalPages: Math.ceil(total / parseInt(limit))
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error getting transaction history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi server khi lấy lịch sử giao dịch!'
         });
     }
 };
@@ -262,6 +328,7 @@ const setDefaultAccount = async (req, res) => {
 
 module.exports = {
     getMyWallets,
+    getTransactionHistory,
     addAccount,
     updateAccount,
     deleteAccount,

@@ -24,6 +24,13 @@ const ShopSchema = new mongoose.Schema({
         index: true,
         set: (v) => slugify(v, { lower: true })
     },
+    // Mã cửa hàng - viết tắt 4 ký tự để dùng trong mã đơn hàng
+    code: {
+        type: String,
+        uppercase: true,
+        trim: true,
+        default: null
+    },
     description: {
         type: String,
         maxlength: [500, 'Mô tả cửa hàng không được vượt quá 500 ký tự!'],
@@ -88,6 +95,34 @@ const ShopSchema = new mongoose.Schema({
         max: 100
     }
 }, { timestamps: true });
+
+// Tự động tạo mã cửa hàng trước khi lưu
+ShopSchema.pre('save', async function(next) {
+    if (this.isNew && !this.code) {
+        // Tạo mã 4 ký tự từ tên cửa hàng (viết tắt)
+        let baseCode = '';
+        
+        // Lấy chữ cái đầu của mỗi từ trong tên
+        const words = this.name.split(' ').filter(w => w.length > 0);
+        if (words.length >= 2) {
+            baseCode = words.slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
+        } else if (words.length === 1) {
+            baseCode = words[0].substring(0, 4).toUpperCase();
+        }
+        
+        // Thêm 2 ký tự ngẫu nhiên để tránh trùng lặp
+        const random = Math.random().toString(36).substring(2, 4).toUpperCase();
+        this.code = `${baseCode}${random}`;
+        
+        // Kiểm tra xem mã đã tồn tại chưa
+        const existing = await mongoose.model('Shop').findOne({ code: this.code });
+        if (existing) {
+            // Nếu trùng, thêm thêm ký tự
+            this.code = `${baseCode}${random}${Math.random().toString(36).substring(2, 3).toUpperCase()}`;
+        }
+    }
+    next();
+});
 
 // Shop có đang được phép bán không (đã duyệt + đang mở)
 ShopSchema.methods.canSell = function () {

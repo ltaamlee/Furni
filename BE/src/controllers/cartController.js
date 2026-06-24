@@ -35,17 +35,19 @@ const getCart = async (req, res) => {
             let shopInfo = {
                 _id: item.shop || product?.shop,
                 name: item.shopName || 'Cửa hàng',
-                avatar: item.shopAvatar || null
+                avatar: item.shopAvatar || null,
+                isActive: true
             };
 
             if (product?.shop) {
                 try {
-                    const shop = await Shop.findById(product.shop).select('name avatar');
+                    const shop = await Shop.findById(product.shop).select('name avatar status');
                     if (shop) {
                         shopInfo = {
                             _id: shop._id,
                             name: shop.name,
-                            avatar: shop.avatar
+                            avatar: shop.avatar,
+                            isActive: shop.status === 'approved' && product?.isActive !== false
                         };
                     }
                 } catch (e) {
@@ -64,6 +66,7 @@ const getCart = async (req, res) => {
                 shop: shopInfo._id,
                 shopName: shopInfo.name,
                 shopAvatar: shopInfo.avatar,
+                shopIsActive: shopInfo.isActive,
                 addedAt: item.addedAt || cart.createdAt
             };
         }));
@@ -100,7 +103,7 @@ const addToCart = async (req, res) => {
     try {
         const { productId, quantity = 1 } = req.body;
 
-        const product = await Product.findById(productId).populate('shop', 'name avatar');
+        const product = await Product.findById(productId).populate('shop', 'name avatar status');
         if (!product) {
             return res.status(404).json({
                 success: false,
@@ -112,6 +115,14 @@ const addToCart = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: 'Sản phẩm đã ngừng kinh doanh'
+            });
+        }
+
+        // Check if shop is active
+        if (product.shop && product.shop.status !== 'approved') {
+            return res.status(400).json({
+                success: false,
+                message: 'Cửa hàng đã ngừng hoạt động'
             });
         }
 

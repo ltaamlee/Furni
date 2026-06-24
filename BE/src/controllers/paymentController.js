@@ -173,7 +173,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
         // Kiểm tra tồn kho
         const productMap = {};
         for (const item of cart.products) {
-            const product = await Product.findById(item.product).populate('shop', 'name');
+            const product = await Product.findById(item.product).populate('shop', 'name code');
             if (!product) {
                 return res.status(400).json({
                     success: false,
@@ -201,6 +201,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     product: item.product,
                     shop: product.shop?._id || product.shop || null,
                     shopName: product.shop?.name || '',
+                    shopCode: product.shop?.code || '',
                     quantity: item.quantity,
                     price: item.price,
                     name: item.name,

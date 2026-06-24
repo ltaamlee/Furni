@@ -3,6 +3,7 @@ const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const {
     getMyWallets,
+    getTransactionHistory,
     addAccount,
     updateAccount,
     deleteAccount,
@@ -14,6 +15,9 @@ router.use(protect);
 
 // GET /api/wallets/my - Lấy danh sách ví của user
 router.get('/my', getMyWallets);
+
+// GET /api/wallets/transactions - Lấy lịch sử giao dịch
+router.get('/transactions', getTransactionHistory);
 
 // POST /api/wallets - Thêm tài khoản mới
 router.post('/', addAccount);

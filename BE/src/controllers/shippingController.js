@@ -62,12 +62,13 @@ const calculateFee = async (req, res) => {
 // @access  Public
 const calculateAllFees = async (req, res) => {
     try {
-        const { city, orderTotal } = req.query;
+        const { provinceCode, city, orderTotal } = req.query;
 
-        if (!city) {
+        const province = provinceCode || city;
+        if (!province) {
             return res.status(400).json({
                 success: false,
-                message: 'Vui lòng cung cấp thành phố'
+                message: 'Vui lòng cung cấp tỉnh/thành phố'
             });
         }
 
@@ -75,8 +76,12 @@ const calculateAllFees = async (req, res) => {
         const fees = [];
 
         for (const provider of providers) {
-            const result = await ShippingOrder.calculateFee(provider.code, city, Number(orderTotal) || 0);
-            if (result.success) {
+            const result = await ShippingOrder.calculateFee(
+                provider.code,
+                Number(provinceCode) || province,
+                Number(orderTotal) || 0
+            );
+            if (result.success && result.data) {
                 fees.push(result.data);
             }
         }

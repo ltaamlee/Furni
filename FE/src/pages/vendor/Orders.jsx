@@ -125,15 +125,22 @@ const OrderDetail = ({ open, onClose, order, onAction, busy }) => {
             <SectionHdr>Sản phẩm của cửa hàng bạn trong đơn</SectionHdr>
             <div className="border border-[#EDE8E0] rounded-[10px] overflow-hidden mb-4">
                 {(order.products || []).map((it, i) => (
-                    <div key={i} className="flex items-center gap-3 px-3.5 py-2.5 border-b border-[#EDE8E0] last:border-b-0">
-                        <div className="w-[50px] h-[50px] rounded-lg bg-[#FAF7F4] border border-[#EDE8E0] shrink-0 overflow-hidden">
-                            {it.image && <img src={it.image} alt="" className="w-full h-full object-cover" />}
+                    <div key={i} className="px-3.5 py-2.5 border-b border-[#EDE8E0] last:border-b-0">
+                        <div className="flex items-center gap-3">
+                            <div className="w-[50px] h-[50px] rounded-lg bg-[#FAF7F4] border border-[#EDE8E0] shrink-0 overflow-hidden">
+                                {it.image && <img src={it.image} alt="" className="w-full h-full object-cover" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-[13px] font-semibold truncate">{it.name}</div>
+                                <div className="text-[11.5px] text-[#9E8E7E]">SL: ×{it.quantity}</div>
+                            </div>
+                            <div className="font-bold whitespace-nowrap">{formatVND(it.price * it.quantity)}</div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                            <div className="text-[13px] font-semibold truncate">{it.name}</div>
-                            <div className="text-[11.5px] text-[#9E8E7E]">SL: ×{it.quantity}</div>
-                        </div>
-                        <div className="font-bold whitespace-nowrap">{formatVND(it.price * it.quantity)}</div>
+                        {it.shopOrderCode && (
+                            <div className="mt-1.5 text-[11px] text-[#9E8E7E]">
+                                Mã đơn shop: <span className="font-mono font-semibold text-[#B86B05]">{it.shopOrderCode}</span>
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
@@ -262,10 +269,15 @@ const Orders = () => {
                             const first = o.products?.[0];
                             const more = (o.products?.length || 0) - 1;
                             const next = NEXT_ACTION[o.status];
+                            // Get shop order code from first product
+                            const shopOrderCode = first?.shopOrderCode || o.shopOrderCode;
                             return (
                                 <tr key={o._id} className="border-b border-[#EDE8E0] last:border-0 hover:bg-[#FDFAF7]">
                                     <td className="px-3.5 py-3">
                                         <button onClick={() => openDetail(o)} className="font-bold text-[#B86B05] text-[13px] hover:underline">#{o.orderNumber}</button>
+                                        {shopOrderCode && (
+                                            <div className="text-[11px] text-[#9E8E7E] font-mono mt-0.5">Shop: {shopOrderCode}</div>
+                                        )}
                                     </td>
                                     <td className="px-3.5 py-3">
                                         <div className="font-semibold text-[13px]">{o.shippingAddress?.fullName || o.user?.fullName || "—"}</div>

@@ -133,10 +133,34 @@ const LoginPage = () => {
           }
         }, 800);
       } else {
-        setAlert({ type: 'error', message: data.message || 'Đăng nhập thất bại!' });
+        // Kiểm tra nếu tài khoản chưa xác thực
+        if (data.needsVerification) {
+          // Lấy email từ form để chuyển đến trang xác thực
+          setAlert({ 
+            type: 'error', 
+            message: data.message || 'Tài khoản chưa được xác thực. Vui lòng kiểm tra email để xác thực tài khoản.' 
+          });
+          setTimeout(() => {
+            navigate('/verify-password', { state: { email: form.usernameOrEmail, type: 'login' } });
+          }, 1500);
+        } else {
+          setAlert({ type: 'error', message: data.message || 'Đăng nhập thất bại!' });
+        }
       }
     } catch (error) {
-      setAlert({ type: 'error', message: error.response?.data?.message || 'Có lỗi xảy ra. Vui lòng thử lại!' });
+      const errorData = error.response?.data;
+      // Kiểm tra nếu tài khoản chưa xác thực (từ catch error)
+      if (errorData?.needsVerification) {
+        setAlert({ 
+          type: 'error', 
+          message: errorData.message || 'Tài khoản chưa được xác thực. Vui lòng kiểm tra email để xác thực tài khoản.' 
+        });
+        setTimeout(() => {
+          navigate('/verify-password', { state: { email: form.usernameOrEmail, type: 'login' } });
+        }, 1500);
+      } else {
+        setAlert({ type: 'error', message: errorData?.message || 'Có lỗi xảy ra. Vui lòng thử lại!' });
+      }
     } finally {
       setLoading(false);
     }

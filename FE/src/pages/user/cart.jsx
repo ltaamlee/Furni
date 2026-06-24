@@ -413,24 +413,27 @@ const CartPage = () => {
                                                 const discountedPrice = hasDiscount 
                                                     ? Math.round(item.price * (1 - item.discount / 100)) 
                                                     : item.price;
+                                                const isUnavailable = item.shopIsActive === false;
                                                 
                                                 return (
-                                                    <div key={productId} className={`p-4 flex gap-4 transition-colors ${isSelected ? 'bg-white' : 'bg-white/50'}`}>
-                                                        {/* Checkbox */}
-                                                        <label className="flex items-center cursor-pointer shrink-0">
+                                                    <div key={productId} className={`p-4 flex gap-4 transition-colors ${isSelected ? 'bg-white' : 'bg-white/50'} ${isUnavailable ? 'opacity-60' : ''}`}>
+                                                        {/* Checkbox - disabled if unavailable */}
+                                                        <label className={`flex items-center cursor-pointer shrink-0 ${isUnavailable ? 'cursor-not-allowed' : ''}`}>
                                                             <div className="relative">
                                                                 <input
                                                                     type="checkbox"
                                                                     checked={isSelected}
-                                                                    onChange={() => handleToggleItem(productId)}
+                                                                    onChange={() => !isUnavailable && handleToggleItem(productId)}
+                                                                    disabled={isUnavailable}
                                                                     className="sr-only"
                                                                 />
                                                                 <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                                                                    isUnavailable ? 'bg-gray-200 border-gray-300' :
                                                                     isSelected 
                                                                         ? 'bg-[#B86B05] border-[#B86B05]' 
                                                                         : 'border-[#D5C9BC] bg-white'
                                                                 }`}>
-                                                                    {isSelected && (
+                                                                    {isSelected && !isUnavailable && (
                                                                         <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-3 h-3">
                                                                             <path d="M5 13l4 4L19 7" />
                                                                         </svg>
@@ -444,12 +447,17 @@ const CartPage = () => {
                                                             <img
                                                                 src={item.image || "/placeholder.png"}
                                                                 alt={item.name}
-                                                                className="w-24 h-24 object-cover rounded-xl cursor-pointer hover:opacity-80 transition-opacity"
-                                                                onClick={() => navigate(`/product/${productId}`)}
+                                                                className={`w-24 h-24 object-cover rounded-xl cursor-pointer hover:opacity-80 transition-opacity ${isUnavailable ? 'grayscale' : ''}`}
+                                                                onClick={() => !isUnavailable && navigate(`/product/${productId}`)}
                                                             />
                                                             {hasDiscount && (
                                                                 <div className="absolute -top-2 -right-2 bg-[#BF4343] text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
                                                                     -{item.discount}%
+                                                                </div>
+                                                            )}
+                                                            {isUnavailable && (
+                                                                <div className="absolute inset-0 bg-black/30 rounded-xl flex items-center justify-center">
+                                                                    <span className="text-white text-xs font-bold bg-red-500 px-2 py-1 rounded">Hết hàng</span>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -457,15 +465,19 @@ const CartPage = () => {
                                                         {/* Product Info */}
                                                         <div className="flex-1 min-w-0">
                                                             <h3 
-                                                                className="font-semibold text-[#1C1108] text-sm cursor-pointer hover:text-[#B86B05] transition-colors line-clamp-2 leading-snug"
-                                                                onClick={() => navigate(`/product/${productId}`)}
+                                                                className={`font-semibold text-sm cursor-pointer line-clamp-2 leading-snug ${isUnavailable ? 'text-gray-500' : 'text-[#1C1108] hover:text-[#B86B05] transition-colors'}`}
+                                                                onClick={() => !isUnavailable && navigate(`/product/${productId}`)}
                                                             >
                                                                 {item.name}
                                                             </h3>
                                                             
+                                                            {isUnavailable && (
+                                                                <p className="text-xs text-red-500 mt-1 font-medium">Cửa hàng đã ngừng hoạt động</p>
+                                                            )}
+                                                            
                                                             {/* Price Section - Shopee Style */}
                                                             <div className="flex items-center gap-2 mt-2 flex-wrap">
-                                                                <span className="font-bold text-[#B86B05] text-base">
+                                                                <span className={`font-bold text-base ${isUnavailable ? 'text-gray-400' : 'text-[#B86B05]'}`}>
                                                                     {formatPrice(discountedPrice)}
                                                                 </span>
                                                                 {hasDiscount && (
@@ -495,16 +507,16 @@ const CartPage = () => {
                                                             <div className="flex items-center gap-3 mt-3">
                                                                 <div className="flex items-center border border-[#D5C9BC] rounded-full overflow-hidden bg-white">
                                                                     <button
-                                                                        onClick={() => handleUpdateQuantity(productId, item.quantity - 1)}
-                                                                        disabled={updating === productId || item.quantity <= 1}
+                                                                        onClick={() => !isUnavailable && handleUpdateQuantity(productId, item.quantity - 1)}
+                                                                        disabled={updating === productId || item.quantity <= 1 || isUnavailable}
                                                                         className="w-9 h-9 flex items-center justify-center hover:bg-[#FAF7F4] disabled:opacity-50 transition-colors"
                                                                     >
                                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M5 12h14" /></svg>
                                                                     </button>
                                                                     <span className="w-10 text-center font-bold text-sm">{item.quantity}</span>
                                                                     <button
-                                                                        onClick={() => handleUpdateQuantity(productId, item.quantity + 1)}
-                                                                        disabled={updating === productId}
+                                                                        onClick={() => !isUnavailable && handleUpdateQuantity(productId, item.quantity + 1)}
+                                                                        disabled={updating === productId || isUnavailable}
                                                                         className="w-9 h-9 flex items-center justify-center hover:bg-[#FAF7F4] disabled:opacity-50 transition-colors"
                                                                     >
                                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M12 5v14M5 12h14" /></svg>
@@ -523,7 +535,7 @@ const CartPage = () => {
 
                                                         {/* Item Total */}
                                                         <div className="text-right shrink-0 flex flex-col items-end justify-between">
-                                                            <p className="font-bold text-[#1C1108] text-sm">
+                                                            <p className={`font-bold text-sm ${isUnavailable ? 'text-gray-400' : 'text-[#1C1108]'}`}>
                                                                 {formatPrice(discountedPrice * item.quantity)}
                                                             </p>
                                                             {hasDiscount && (
@@ -699,11 +711,15 @@ const CartPage = () => {
                                 )}
                                 
                                 <button
-                                    onClick={() => navigate("/checkout")}
+                                    onClick={() => {
+                                        // Save selected items to localStorage before navigating
+                                        localStorage.setItem('checkout_selected_items', JSON.stringify([...selectedItems]));
+                                        navigate("/checkout");
+                                    }}
                                     disabled={selectedCount === 0}
                                     className="w-full mt-6 bg-[#B86B05] text-white py-3.5 rounded-xl font-bold text-base hover:bg-[#95520B] transition-colors active:scale-[0.98] disabled:bg-[#D5C9BC] disabled:cursor-not-allowed"
                                 >
-                                    TIẾP TỤC THANH TOÁN
+                                    TIẾP TỤC THANH TOÁN ({selectedCount} sản phẩm)
                                 </button>
                                 <Link to="/" className="block text-center mt-3 text-sm text-[#A8896A] hover:text-[#B86B05] transition-colors">
                                     ← Tiếp tục mua sắm

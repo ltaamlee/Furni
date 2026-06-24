@@ -502,13 +502,15 @@ const getMyOrders = async (req, res) => {
         }
 
         const { status, search, page = 1, limit = 10 } = req.query;
-        const query = { 'products.shop': shop._id };
+        // Đơn con thuộc về shop này
+        const query = { shop: shop._id, isChildOrder: true };
         if (status && status !== 'all') query.status = status;
         if (search) {
             query.$or = [
                 { orderNumber: { $regex: search, $options: 'i' } },
                 { 'shippingAddress.fullName': { $regex: search, $options: 'i' } },
-                { 'shippingAddress.phone': { $regex: search, $options: 'i' } }
+                { 'shippingAddress.phone': { $regex: search, $options: 'i' } },
+                { 'products.shopOrderCode': { $regex: search, $options: 'i' } }
             ];
         }
 
@@ -518,18 +520,8 @@ const getMyOrders = async (req, res) => {
             Order.countDocuments(query)
         ]);
 
-        // Chỉ trả phần thuộc shop của vendor (ẩn sản phẩm của shop khác)
-        const data = orders.map((o) => {
-            const slice = shopSliceOfOrder(o, shop._id);
-            const obj = o.toObject();
-            obj.products = slice.shopItems;
-            obj.shopSubtotal = slice.shopSubtotal;
-            obj.shopQuantity = slice.shopQuantity;
-            return obj;
-        });
-
         // Số đếm theo trạng thái (đơn của shop)
-        const sb = { 'products.shop': shop._id };
+        const sb = { shop: shop._id, isChildOrder: true };
         const statuses = ['pending', 'confirmed', 'preparing', 'shipping', 'delivered', 'cancelled'];
         const counts = { all: await Order.countDocuments(sb) };
         await Promise.all(statuses.map(async (s) => { counts[s] = await Order.countDocuments({ ...sb, status: s }); }));
@@ -537,7 +529,7 @@ const getMyOrders = async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                orders: data,
+                orders,
                 counts,
                 pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)), limit: Number(limit) }
             }

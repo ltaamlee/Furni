@@ -158,9 +158,6 @@ const addToRecentlyViewed = async (req, res) => {
             });
         }
 
-        // Increment product views
-        await Product.findByIdAndUpdate(productId, { $inc: { views: 1 } });
-
         let recentlyViewed = await RecentlyViewed.findOne({ user: userId });
 
         if (!recentlyViewed) {

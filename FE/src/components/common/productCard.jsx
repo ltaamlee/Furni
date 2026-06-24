@@ -187,11 +187,7 @@ const ProductCard = ({ product, onAddToCart, wishlist = [] }) => {
                 </h3>
 
                 {/* Price */}
-                <div className="flex items-center justify-between">
-                    <span className="text-base font-extrabold text-[#B86B05]">
-                        {formatPrice(product.price)}
-                    </span>
-
+                <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-col">
                         {product.salePrice != null && product.salePrice < product.price ? (
                             <>
@@ -199,7 +195,7 @@ const ProductCard = ({ product, onAddToCart, wishlist = [] }) => {
                                 <span className="text-xs text-gray-400 line-through">{formatPrice(product.price)}</span>
                             </>
                         ) : (
-                            <span className="text-lg font-bold text-[#8B4513]">{formatPrice(product.price)}</span>
+                            <span className="text-base font-extrabold text-[#B86B05]">{formatPrice(product.price)}</span>
                         )}
                     </div>
                     {product.quantity > 0 ? (

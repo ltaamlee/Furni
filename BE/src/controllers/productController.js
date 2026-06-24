@@ -2,7 +2,10 @@ const mongoose = require('mongoose');
 const Product = require('../models/product');
 const Category = require('../models/category');
 const Shop = require('../models/shop');
+const PlatformConfig = require('../models/platformConfig');
 const { attachPricing } = require('../utils/pricing');
+
+const DEFAULT_PAGE_SIZE = 12;
 
 // Các field sản phẩm vendor có thể gửi lên (whitelist)
 const PRODUCT_FIELDS = [
@@ -26,6 +29,9 @@ const pickProductFields = (body) => {
 // @access  Public
 const getAllProducts = async (req, res) => {
   try {
+    // Lấy config số sản phẩm mỗi trang từ platform
+    const configLimit = await PlatformConfig.getValue('products_per_page', DEFAULT_PAGE_SIZE);
+    
     const { 
       category, 
       brand, 
@@ -35,7 +41,7 @@ const getAllProducts = async (req, res) => {
       sort = 'createdAt',
       order = 'desc',
       page = 1,
-      limit = 10
+      limit = configLimit
     } = req.query;
 
     // Build query
@@ -90,6 +96,8 @@ const getAllProducts = async (req, res) => {
 
     await attachPricing(products);
 
+    const totalPages = Math.ceil(total / Number(limit));
+
     res.status(200).json({
       success: true,
       data: {
@@ -97,7 +105,8 @@ const getAllProducts = async (req, res) => {
         pagination: {
           total,
           page: Number(page),
-          pages: Math.ceil(total / Number(limit)),
+          totalPages,
+          pages: totalPages,
           limit: Number(limit)
         }
       }
@@ -306,6 +315,8 @@ const deleteProduct = async (req, res) => {
 const filterProducts = async (req, res) => {
 
   try {
+    // Lấy config số sản phẩm mỗi trang từ platform
+    const configLimit = await PlatformConfig.getValue('products_per_page', DEFAULT_PAGE_SIZE);
 
     const queryObj = { ...req.query }
 
@@ -340,7 +351,7 @@ const filterProducts = async (req, res) => {
 
     // Pagination
     const page = Number(req.query.page) || 1
-    const limit = Number(req.query.limit) || 10
+    const limit = Number(req.query.limit) || configLimit
     const skip = (page - 1) * limit
 
     // Query
@@ -351,6 +362,7 @@ const filterProducts = async (req, res) => {
       .limit(limit)
 
     const count = await Product.countDocuments(formatQuery)
+    const totalPages = Math.ceil(count / limit);
 
     res.status(200).json({
       success: true,
@@ -361,7 +373,8 @@ const filterProducts = async (req, res) => {
         pagination: {
           total: count,
           page,
-          pages: Math.ceil(count / limit),
+          totalPages,
+          pages: totalPages,
           limit
         }
       }

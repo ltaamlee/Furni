@@ -9,12 +9,32 @@ const {
   updateUser,
   deleteUser
 } = require('../controllers/userController');
+const {
+  getAddresses,
+  createAddress,
+  updateAddress,
+  deleteAddress,
+  setDefaultAddress,
+  getDefaultAddress
+} = require('../controllers/addressController');
 
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { validateUpdateProfile } = require('../middleware/validationMiddleware');
 
 // All routes require authentication
 router.use(protect);
+
+// Address management (customer only)
+router.route('/addresses')
+  .get(authorize('customer'), getAddresses)
+  .post(authorize('customer'), createAddress);
+
+router.route('/addresses/:id')
+  .put(authorize('customer'), updateAddress)
+  .delete(authorize('customer'), deleteAddress);
+
+router.put('/addresses/:id/default', authorize('customer'), setDefaultAddress);
+router.get('/addresses/default', authorize('customer'), getDefaultAddress);
 
 // Profile routes - Customer only
 router.route('/profile')

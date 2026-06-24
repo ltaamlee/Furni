@@ -11,13 +11,29 @@ const VerifyPasswordPage = () => {
   const { setAuth } = useContext(AuthContext);
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const email = location.state?.email;
-  const type = location.state?.type || 'reset'; // 'registration' or 'reset'
+  const type = location.state?.type || 'reset'; // 'registration', 'login', or 'reset'
 
   useEffect(() => {
     if (!email) navigate('/login');
   }, [email, navigate]);
+
+  const handleResendOTP = async () => {
+    setResendLoading(true);
+    try {
+      await instance.post('/resend-otp', { email });
+      setSuccess('Đã gửi lại mã OTP!');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Không thể gửi lại mã OTP');
+      setTimeout(() => setError(''), 3000);
+    } finally {
+      setResendLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -27,6 +43,7 @@ const VerifyPasswordPage = () => {
     }
 
     setLoading(true);
+    setError('');
     try {
       const response = await instance.post('/verify-otp', { email, otp: code });
       setLoading(false);
@@ -37,7 +54,29 @@ const VerifyPasswordPage = () => {
         const user = response.data?.user;
 
         if (token) {
-          localStorage.setItem('accessToken', token);
+          localStorage.setItem('access_token', token);
+          localStorage.setItem('user', JSON.stringify(user));
+
+          setAuth({
+            isAuthenticated: true,
+            user: {
+              email: user?.email || email,
+              name: user?.fullName || '',
+              role: user?.role || 'customer',
+            },
+          });
+        }
+
+        // Redirect based on role
+        const redirectUrl = user?.role === 'admin' ? '/admin' : '/';
+        navigate(redirectUrl);
+      } else if (type === 'login') {
+        // Login flow: auto-login with new token and redirect to homepage
+        const token = response.data?.token;
+        const user = response.data?.user;
+
+        if (token) {
+          localStorage.setItem('access_token', token);
           localStorage.setItem('user', JSON.stringify(user));
 
           setAuth({
@@ -73,9 +112,22 @@ const VerifyPasswordPage = () => {
             Xác thực OTP
           </p>
 
+          {/* Success message */}
+          {success && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl text-center">
+              <p className="text-green-700 font-medium">{success}</p>
+            </div>
+          )}
+
+          {/* Email info */}
           <div className="text-center mb-8 p-4 bg-amber-50 rounded-xl border border-amber-200">
             <p className="text-sm text-stone-600 mb-1">Mã OTP đã gửi tới:</p>
             <p className="font-semibold text-lg text-amber-800">{email}</p>
+            {type === 'login' && (
+              <p className="text-xs text-stone-500 mt-2">
+                Tài khoản của bạn chưa được xác thực. Vui lòng nhập mã OTP để xác thực.
+              </p>
+            )}
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -96,10 +148,23 @@ const VerifyPasswordPage = () => {
             </Button>
           </form>
 
+          {/* Resend OTP */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-stone-500 mb-2">Không nhận được mã?</p>
+            <button
+              type="button"
+              onClick={handleResendOTP}
+              disabled={resendLoading}
+              className="text-sm text-amber-700 hover:text-amber-600 font-medium disabled:opacity-50"
+            >
+              {resendLoading ? 'Đang gửi...' : 'Gửi lại mã OTP'}
+            </button>
+          </div>
+
           <div className="mt-6 text-center">
             <button
               type="button"
-              onClick={() => navigate(type === 'registration' ? '/register' : '/forgot-password')}
+              onClick={() => navigate(type === 'registration' ? '/register' : '/login')}
               className="text-sm text-stone-500 hover:text-amber-600 font-medium"
             >
               ← Quay lại
