@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import CustomerLayout from "./components/layout/CustomerLayout";
 import UserLayout from "./components/layout/UserLayout";
 import VendorLayout from "./components/vendor/VendorLayout";
+import VendorGuard from './components/vendor/VendorGuard';
+import AdminLayout from "./components/layout/admin";
 import { useContext } from "react";
 import { AuthContext } from "./components/context/authContext";
 
@@ -21,6 +23,7 @@ import LoginPage from "./pages/auth/login";
 import RegisterPage from "./pages/auth/register";
 import VerifyPasswordPage from "./pages/auth/verify-password";
 import ForgotPasswordPage from "./pages/auth/forgot-password";
+import ResetPasswordPage from "./pages/auth/reset-password";
 import ProfilePage from "./pages/user/profile";
 import WishlistPage from "./components/common/WishlistPage";
 import LoyaltyPointsPage from "./components/common/LoyaltyPointsPage";
@@ -33,7 +36,6 @@ import AddressesPage from "./pages/user/addresses";
 import BlogPage from "./pages/user/Blog";
 
 //admin
-import AdminLayout from "./components/layout/admin";
 import AdminCustomersPage from "./pages/admin/Customers";
 import AdminCategoriesPage from "./pages/admin/Categories";
 import AdminShops from "./pages/admin/Shops";
@@ -55,6 +57,7 @@ import VendorReports from "./pages/vendor/Reports";
 import VendorReviews from "./pages/vendor/Reviews";
 import VendorNotifications from "./pages/vendor/Notifications";
 import VendorBlog from "./pages/vendor/Blog";
+import SuspendedPage from './pages/vendor/SuspendedPage';
 
 function App() {
     const { appLoading } = useContext(AuthContext);
@@ -75,6 +78,7 @@ function App() {
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/verify-password" element={<VerifyPasswordPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
 
                 {/* Vendor – shop registration (standalone, no sidebar) */}
                 <Route path="/vendor/register" element={<VendorRegister />} />
@@ -111,19 +115,21 @@ function App() {
                     </Route>
                 </Route>
 
-                {/* Vendor – portal (sidebar + topbar layout) */}
-                <Route path="/vendor" element={<VendorLayout />}>
-                    <Route index element={<Navigate to="/vendor/dashboard" replace />} />
-                    <Route path="dashboard" element={<VendorDashboard />} />
-                    <Route path="products" element={<VendorProducts />} />
-                    <Route path="orders" element={<VendorOrders />} />
-                    <Route path="promotions" element={<VendorPromotions />} />
-                    <Route path="wallet" element={<VendorWallet />} />
-                    <Route path="reports" element={<VendorReports />} />
-                    <Route path="blog" element={<VendorBlog />} />
-                    <Route path="reviews" element={<VendorReviews />} />
-                    <Route path="notifications" element={<VendorNotifications />} />
-                    <Route path="settings" element={<VendorSettings />} />
+                <Route path="/vendor/suspended" element={<SuspendedPage />} />
+                <Route path="/vendor" element={<VendorGuard />}>
+                    <Route element={<VendorLayout />}>
+                        <Route index element={<Navigate to="/vendor/dashboard" replace />} />
+                        <Route path="dashboard" element={<VendorDashboard />} />
+                        <Route path="products" element={<VendorProducts />} />
+                        <Route path="orders" element={<VendorOrders />} />
+                        <Route path="promotions" element={<VendorPromotions />} />
+                        <Route path="wallet" element={<VendorWallet />} />
+                        <Route path="reports" element={<VendorReports />} />
+                        <Route path="blog" element={<VendorBlog />} />
+                        <Route path="reviews" element={<VendorReviews />} />
+                        <Route path="notifications" element={<VendorNotifications />} />
+                        <Route path="settings" element={<VendorSettings />} />
+                    </Route>
                 </Route>
 
                 <Route path="/admin" element={<AdminLayout />}>
