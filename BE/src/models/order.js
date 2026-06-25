@@ -128,20 +128,12 @@ const orderSchema = new mongoose.Schema({
             type: String,
             default: ''
         },
-        // Administrative division codes (from open-api.vn)
+        // Administrative division codes (from open-api.vn) - new 2-level structure
         provinceCode: {
             type: Number,
             default: null
         },
         provinceName: {
-            type: String,
-            default: ''
-        },
-        districtCode: {
-            type: Number,
-            default: null
-        },
-        districtName: {
             type: String,
             default: ''
         },

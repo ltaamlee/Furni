@@ -43,11 +43,7 @@ const addressSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
-    // Ward
-    wardCode: {
-        type: String,
-        default: null
-    },
+    // Ward (text only - from MapVina reverse geocode, no dropdown)
     wardName: {
         type: String,
         default: ''

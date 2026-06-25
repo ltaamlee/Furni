@@ -3,7 +3,7 @@ import { PageHeader, Btn, Label, Hint, Badge, inputClass } from "../../component
 import { carriers as initialCarriers } from "../../components/vendor/data";
 import { IconUser, IconMapPin, IconTruck, IconWallet, IconDoc, IconImage } from "../../components/vendor/icons";
 import { useToast } from "../../components/context/ToastContext";
-import { getMyShopApi, updateMyShopApi, uploadVendorImagesApi } from "../../utils/api";
+import { getMyShopApi, updateMyShopApi, uploadVendorImagesApi, getGhnProvincesApi, getGhnDistrictsApi } from "../../utils/api";
 
 const TABS = [
     { key: "basic", label: "Thông tin cơ bản", icon: IconUser },
@@ -179,6 +179,79 @@ const ShippingSection = ({ shop, onSaved }) => {
         fromDistrictId: sp.GHN?.fromDistrictId || "",
     });
     const [showToken, setShowToken] = useState(false);
+    const [provinces, setProvinces] = useState([]);
+    const [districts, setDistricts] = useState([]);
+    const [loadingLocation, setLoadingLocation] = useState(false);
+    const [selectedProvince, setSelectedProvince] = useState(null);
+
+    // Fetch provinces on mount
+    useEffect(() => {
+        const fetchProvinces = async () => {
+            try {
+                const res = await getGhnProvincesApi();
+                if (res.data?.code === 200) {
+                    setProvinces(res.data.data || []);
+                }
+            } catch (e) {
+                console.error("Error fetching provinces:", e);
+            }
+        };
+        fetchProvinces();
+    }, []);
+
+    // Fetch districts when province changes
+    useEffect(() => {
+        if (!selectedProvince) return;
+        const fetchDistricts = async () => {
+            setLoadingLocation(true);
+            try {
+                const res = await getGhnDistrictsApi(selectedProvince.ProvinceID);
+                if (res.data?.code === 200) {
+                    setDistricts(res.data.data || []);
+                }
+            } catch (e) {
+                console.error("Error fetching districts:", e);
+            }
+            setLoadingLocation(false);
+        };
+        fetchDistricts();
+    }, [selectedProvince]);
+
+    // Find current province from district code (for editing existing)
+    useEffect(() => {
+        if (ghn.fromDistrictId && provinces.length > 0 && districts.length === 0) {
+            // Try to find from cached provinces
+            const findProvince = async () => {
+                for (const prov of provinces) {
+                    try {
+                        const res = await getGhnDistrictsApi(prov.ProvinceID);
+                        if (res.data?.code === 200) {
+                            const found = res.data.data.find(d => String(d.DistrictID) === String(ghn.fromDistrictId));
+                            if (found) {
+                                setSelectedProvince(prov);
+                                setDistricts(res.data.data);
+                                break;
+                            }
+                        }
+                    } catch {}
+                }
+            };
+            findProvince();
+        }
+    }, [provinces, ghn.fromDistrictId]);
+
+    const handleProvinceChange = (e) => {
+        const provId = Number(e.target.value);
+        const prov = provinces.find(p => p.ProvinceID === provId);
+        setSelectedProvince(prov || null);
+        setDistricts([]);
+        setGhn(p => ({ ...p, fromDistrictId: "" }));
+    };
+
+    const handleDistrictChange = (e) => {
+        const distId = e.target.value;
+        setGhn(p => ({ ...p, fromDistrictId: distId }));
+    };
 
     const setField = (field, val) => setGhn((p) => ({ ...p, [field]: val }));
 
@@ -227,8 +300,34 @@ const ShippingSection = ({ shop, onSaved }) => {
                     </div>
                     <div>
                         <Label>Mã quận gửi hàng</Label>
-                        <input className={inputClass} placeholder="VD: 1441" value={ghn.fromDistrictId} onChange={(e) => setField("fromDistrictId", e.target.value)} />
-                        <Hint>Quận kho hàng của bạn</Hint>
+                        <div className="grid grid-cols-2 gap-2">
+                            <select
+                                className={inputClass}
+                                value={selectedProvince?.ProvinceID || ""}
+                                onChange={handleProvinceChange}
+                            >
+                                <option value="">-- Chọn Tỉnh/TP --</option>
+                                {provinces.map(p => (
+                                    <option key={p.ProvinceID} value={p.ProvinceID}>{p.ProvinceName}</option>
+                                ))}
+                            </select>
+                            <select
+                                className={inputClass}
+                                value={ghn.fromDistrictId}
+                                onChange={handleDistrictChange}
+                                disabled={!selectedProvince || loadingLocation}
+                            >
+                                <option value="">
+                                    {loadingLocation ? "Đang tải..." : selectedProvince ? "-- Chọn Quận --" : "Chọn Tỉnh trước"}
+                                </option>
+                                {districts.map(d => (
+                                    <option key={d.DistrictID} value={d.DistrictID}>{d.DistrictName}</option>
+                                ))}
+                            </select>
+                        </div>
+                        {ghn.fromDistrictId && (
+                            <Hint>Mã quận: {ghn.fromDistrictId}</Hint>
+                        )}
                     </div>
                 </div>
             </div>

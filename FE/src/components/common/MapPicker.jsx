@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import mapvinaGL from "mapvina-gl";
 import "mapvina-gl/dist/mapvina-gl.css";
-import { getProvincesApi, getWardsApi, getWardsByProvinceApi } from "../../utils/api";
+import { getProvincesApi } from "../../utils/api";
 
 const MAPVINA_STYLE = (key) =>
   `https://maps.mapvina.com/styles/v2/streets.json?key=${key}`;
@@ -23,9 +23,6 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     phone: value.phone || "",
     provinceCode: value.provinceCode || null,
     provinceName: value.provinceName || "",
-    districtCode: value.districtCode || null,
-    districtName: value.districtName || "",
-    wardCode: value.wardCode || null,
     wardName: value.wardName || "",
     street: value.street || "",
     lat: value.lat || null,
@@ -37,7 +34,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
   // Map position
   const [markerPos, setMarkerPos] = useState(
     value.lat && value.lng
-      ? [Number(value.lng), Number(value.lat)] // [lng, lat] for mapvinagl
+      ? [Number(value.lng), Number(value.lat)]
       : [defaultCenter.lng, defaultCenter.lat]
   );
 
@@ -52,14 +49,39 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
 
   // Administrative divisions
   const [provinces, setProvinces] = useState([]);
-  const [wards, setWards] = useState([]);
   const [loadingProvinces, setLoadingProvinces] = useState(false);
-  const [loadingWards, setLoadingWards] = useState(false);
 
   // Load provinces
   useEffect(() => {
     fetchProvinces();
   }, []);
+
+  // Sync formData when value prop changes (for editing existing address)
+  useEffect(() => {
+    const hasChanges = value.provinceCode !== formData.provinceCode;
+
+    if (hasChanges) {
+      console.log('[MapPicker] Syncing formData:', {
+        from: { provinceCode: formData.provinceCode },
+        to: { provinceCode: value.provinceCode }
+      });
+
+      const newFormData = {
+        fullName: value.fullName ?? "",
+        phone: value.phone ?? "",
+        provinceCode: value.provinceCode ?? null,
+        provinceName: value.provinceName ?? "",
+        wardName: value.wardName ?? "",
+        street: value.street ?? "",
+        lat: value.lat ?? null,
+        lng: value.lng ?? null,
+        formattedAddress: value.formattedAddress ?? "",
+        isDefault: value.isDefault ?? false,
+      };
+      setFormData(newFormData);
+      setSearchQuery(value.street || "");
+    }
+  }, [value.provinceCode]);
 
   // Initialize map
   useEffect(() => {
@@ -80,7 +102,6 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
       map.on("load", () => {
         setMapLoaded(true);
 
-        // Add draggable marker
         const marker = new mapvinaGL.Marker({ draggable: true })
           .setLngLat(markerPos)
           .addTo(map);
@@ -116,7 +137,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     };
   }, [apiKey]);
 
-  // Cascade fill: province matched → fetch wards → match ward
+  // Cascade fill: province matched → done (no ward dropdown anymore)
   useEffect(() => {
     if (!reverseLoading && provinces.length > 0) {
       if (formData._provinceNamePending) {
@@ -125,7 +146,6 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
         );
         if (matched) {
           setFormData((f) => ({ ...f, provinceCode: matched.code, provinceName: matched.name, _provinceNamePending: undefined }));
-          fetchWardsByProvince(matched.code);
         } else {
           setFormData((f) => ({ ...f, provinceName: formData._provinceNamePending, _provinceNamePending: undefined }));
         }
@@ -133,21 +153,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     }
   }, [provinces, reverseLoading]);
 
-  // Cascade fill: wards loaded → match ward name
-  useEffect(() => {
-    if (!reverseLoading && wards.length > 0) {
-      if (formData._wardNamePending) {
-        const matched = wards.find(
-          (w) => w.name.toLowerCase() === formData._wardNamePending.toLowerCase()
-        );
-        if (matched) {
-          setFormData((f) => ({ ...f, wardCode: matched.code, wardName: matched.name, _wardNamePending: undefined }));
-        } else {
-          setFormData((f) => ({ ...f, wardName: formData._wardNamePending, _wardNamePending: undefined }));
-        }
-      }
-    }
-  }, [wards, reverseLoading]);
+  // Sync marker position when value changes externally
   useEffect(() => {
     if (!markerRef.current || !value.lat || !value.lng) return;
     const newPos = [Number(value.lng), Number(value.lat)];
@@ -162,23 +168,14 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     try {
       setLoadingProvinces(true);
       const res = await getProvincesApi();
+      console.log('[MapPicker] getProvincesApi raw response:', res);
+      console.log('[MapPicker] Provinces loaded:', res.data?.length, 'provinces');
+      console.log('[MapPicker] Sample province structure:', JSON.stringify(res.data?.[0]));
       if (res.success) setProvinces(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error("Error fetching provinces:", err);
     } finally {
       setLoadingProvinces(false);
-    }
-  };
-
-  const fetchWardsByProvince = async (provinceCode) => {
-    try {
-      setLoadingWards(true);
-      const res = await getWardsByProvinceApi(provinceCode);
-      if (res.success) setWards(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Error fetching wards by province:", err);
-    } finally {
-      setLoadingWards(false);
     }
   };
 
@@ -189,43 +186,31 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
   };
 
   const handleProvinceChange = (provinceCode) => {
+    console.log('[MapPicker] handleProvinceChange called with:', provinceCode, typeof provinceCode);
+    console.log('[MapPicker] All provinces codes:', provinces.map(p => ({ code: p.code, type: typeof p.code, name: p.name })));
     const province = provinces.find(
       (p) => String(p.code) === String(provinceCode)
     );
+    console.log('[MapPicker] Found province:', province);
+    console.log('[MapPicker] Province code type:', typeof province?.code, province?.code);
     const updated = {
       ...formData,
-      provinceCode: province ? province.code : null,
+      provinceCode: province ? String(province.code) : null,
       provinceName: province?.name || "",
-      wardCode: null,
       wardName: "",
     };
+    console.log('[MapPicker] Updated provinceCode:', updated.provinceCode, typeof updated.provinceCode);
     setFormData(updated);
-    setWards([]);
     onChange(updated);
     if (provinceCode) {
-      fetchWardsByProvince(provinceCode);
-      flyToAddress(province?.name, null, null);
+      flyToAddress(province?.name, null);
     }
   };
 
-  const handleWardChange = (wardCode) => {
-    const ward = wards.find((w) => String(w.code) === String(wardCode));
-    const updated = {
-      ...formData,
-      wardCode: ward ? ward.code : null,
-      wardName: ward?.name || "",
-    };
-    setFormData(updated);
-    onChange(updated);
-    if (wardCode) {
-      flyToAddress(formData.provinceName, null, ward?.name);
-    }
-  };
-
-  const flyToAddress = useCallback(async (provinceName, districtName, wardName) => {
+  const flyToAddress = useCallback(async (provinceName, wardName) => {
     try {
       const key = apiKey && apiKey !== "YOUR_GOOGLE_MAPS_KEY_HERE" ? apiKey : "public_key";
-      const parts = [wardName, districtName, provinceName].filter(Boolean);
+      const parts = [wardName, provinceName].filter(Boolean);
       const query = parts.join(", ");
       const params = new URLSearchParams({ address: query, key });
       const res = await fetch(`${API_BASE}/geocode/json?${params.toString()}`);
@@ -235,12 +220,13 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
         const newPos = [lng, lat];
         setMarkerPos(newPos);
         if (markerRef.current) markerRef.current.setLngLat(newPos);
-        if (mapRef.current) mapRef.current.flyTo({ center: newPos, zoom: wardName ? 16 : districtName ? 13 : 10, duration: 1200 });
+        if (mapRef.current) mapRef.current.flyTo({ center: newPos, zoom: wardName ? 16 : 10, duration: 1200 });
       }
     } catch (err) {
       console.error("Fly to address error:", err);
     }
   }, [apiKey]);
+
   const fetchSuggestions = useCallback(async (query) => {
     if (!query || query.length < 2) {
       setSuggestions([]);
@@ -288,7 +274,6 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     setSearchQuery(prediction.formatted_address || prediction.description);
     handleFieldChange("street", prediction.formatted_address || prediction.description);
 
-    // Geocode the selected place using MapVina textsearch
     try {
       const key = apiKey && apiKey !== "YOUR_GOOGLE_MAPS_KEY_HERE" ? apiKey : "public_key";
       const params = new URLSearchParams({
@@ -310,16 +295,13 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
         if (markerRef.current) markerRef.current.setLngLat(newPos);
         if (mapRef.current) mapRef.current.flyTo({ center: newPos, zoom: 17 });
 
-        // Parse address components
+        // Parse address components - province only (no ward dropdown)
         const comps = place.address_components || [];
-        let provinceName = "", districtName = "", wardName = "", street = "";
+        let provinceName = "";
         for (const c of comps) {
           const types = c.types || [];
           if (types.includes("administrative_area_level_1")) provinceName = c.long_name;
-          if (types.includes("administrative_area_level_2")) districtName = c.long_name;
-          if (types.includes("locality") || types.includes("sublocality")) wardName = c.long_name;
         }
-        // Extract street number and route
         const streetNum = comps.find((c) => c.types?.includes("street_number"))?.long_name || "";
         const route = comps.find((c) => c.types?.includes("route"))?.long_name || "";
         street = [streetNum, route].filter(Boolean).join(", ");
@@ -331,13 +313,11 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
           lat,
           lng,
           provinceCode: null,
-          wardCode: null,
+          provinceName: "",
           wardName: "",
           _provinceNamePending: provinceName || undefined,
-          _wardNamePending: wardName || undefined,
         };
         setFormData(updated);
-        setWards([]);
         onChange(updated);
 
         if (provinceName) {
@@ -346,7 +326,6 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
           );
           if (matched) {
             setFormData((f) => ({ ...f, provinceCode: matched.code, provinceName: matched.name, _provinceNamePending: undefined }));
-            fetchWardsByProvince(matched.code);
           } else if (provinces.length > 0) {
             setFormData((f) => ({ ...f, provinceName, _provinceNamePending: provinceName }));
           }
@@ -357,7 +336,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     }
   };
 
-  // Reverse geocode using MapVina
+  // Reverse geocode - simplified: province only (no ward dropdown)
   const reverseGeocode = useCallback(async (lat, lng) => {
     setReverseLoading(true);
     try {
@@ -379,42 +358,46 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
       if (data.results && data.results.length > 0) {
         const result = data.results[0];
         const comps = result.address_components || [];
-        let provinceName = "", districtName = "", wardName = "", street = "";
+        let provinceName = "";
         for (const c of comps) {
           const types = c.types || [];
           if (types.includes("administrative_area_level_1")) provinceName = c.long_name;
-          if (types.includes("administrative_area_level_2")) districtName = c.long_name;
-          if (types.includes("locality") || types.includes("sublocality")) wardName = c.long_name;
         }
         const streetNum = comps.find((c) => c.types?.includes("street_number"))?.long_name || "";
         const route = comps.find((c) => c.types?.includes("route"))?.long_name || "";
-        street = [streetNum, route].filter(Boolean).join(", ");
+        const street = [streetNum, route].filter(Boolean).join(", ");
 
-        // Cascade: clear downstream, set pending names, trigger from top
+        const sameProvince = formData.provinceName && provinceName &&
+          formData.provinceName.toLowerCase() === provinceName.toLowerCase();
+
         const updated = {
           ...formData,
           street: street || formData.street,
           formattedAddress: result.formatted_address || "",
           lat,
           lng,
-          provinceCode: null,
-          wardCode: null,
-          wardName: "",
-          _provinceNamePending: provinceName || undefined,
-          _wardNamePending: wardName || undefined,
+          wardName: formData.wardName,
         };
+
+        if (sameProvince) {
+          updated.provinceCode = formData.provinceCode;
+          updated.provinceName = formData.provinceName;
+        } else {
+          updated.provinceCode = null;
+          updated.provinceName = "";
+          updated._provinceNamePending = provinceName || undefined;
+        }
+
         setFormData(updated);
-        setWards([]);
         onChange(updated);
         setSearchQuery(street || result.formatted_address || "");
 
-        if (provinceName) {
+        if (provinceName && !sameProvince) {
           const matched = provinces.find(
             (p) => p.name.toLowerCase() === provinceName.toLowerCase()
           );
           if (matched) {
             setFormData((f) => ({ ...f, provinceCode: matched.code, provinceName: matched.name, _provinceNamePending: undefined }));
-            fetchWardsByProvince(matched.code);
           } else if (provinces.length > 0) {
             setFormData((f) => ({ ...f, provinceName, _provinceNamePending: provinceName }));
           }
@@ -425,7 +408,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     } finally {
       setReverseLoading(false);
     }
-  }, [apiKey, formData, onChange, provinces, wards]);
+  }, [apiKey, formData, onChange, provinces]);
 
   // Click outside to close suggestions
   useEffect(() => {
@@ -445,13 +428,10 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     return (
       <div className="flex flex-col lg:flex-row gap-4 h-full">
         <div className="w-full lg:w-1/2 space-y-4 overflow-y-auto max-h-[520px] pr-1">
-          {/* Form fields same as below */}
           <FormFields
             formData={formData}
             provinces={provinces}
-            wards={wards}
             loadingProvinces={loadingProvinces}
-            loadingWards={loadingWards}
             searchQuery={searchQuery}
             suggestions={suggestions}
             showSuggestions={showSuggestions}
@@ -460,7 +440,6 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
             suggestionRef={suggestionRef}
             onFieldChange={handleFieldChange}
             onProvinceChange={handleProvinceChange}
-            onWardChange={handleWardChange}
             onSearchChange={handleSearchChange}
             onSuggestionSelect={handleSuggestionSelect}
             setShowSuggestions={setShowSuggestions}
@@ -474,7 +453,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
               </svg>
               <p className="text-sm font-medium text-[#6B5C4C]">Cần API Key MapVina</p>
               <p className="text-xs text-[#A8896A] mt-1">
-                Đăng ký tại mapvina.com để nhận key miễn phí
+                Đăng ký tại mapvina.com để nhận key bản đồ
               </p>
             </div>
           </div>
@@ -485,14 +464,11 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 h-full">
-      {/* ===== LEFT: Form ===== */}
       <div className="w-full lg:w-1/2 space-y-4 overflow-y-auto max-h-[520px] pr-1">
         <FormFields
           formData={formData}
           provinces={provinces}
-          wards={wards}
           loadingProvinces={loadingProvinces}
-          loadingWards={loadingWards}
           searchQuery={searchQuery}
           suggestions={suggestions}
           showSuggestions={showSuggestions}
@@ -501,14 +477,12 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
           suggestionRef={suggestionRef}
           onFieldChange={handleFieldChange}
           onProvinceChange={handleProvinceChange}
-          onWardChange={handleWardChange}
           onSearchChange={handleSearchChange}
           onSuggestionSelect={handleSuggestionSelect}
           setShowSuggestions={setShowSuggestions}
         />
       </div>
 
-      {/* ===== RIGHT: MapVina Map ===== */}
       <div className="w-full lg:w-1/2 h-[320px] lg:h-auto lg:min-h-[520px]">
         {!mapLoaded && (
           <div className="w-full h-full bg-[#FAF7F4] rounded-xl flex items-center justify-center">
@@ -609,6 +583,7 @@ const SearchableCombobox = ({
   };
 
   const handleSelect = (opt) => {
+    console.log('[SearchableCombobox] handleSelect called with:', opt, 'label:', label);
     onChange(String(opt.code || opt.value || opt));
     setOpen(false);
     setQuery("");
@@ -709,13 +684,12 @@ const SearchableCombobox = ({
 
 // ===== Inline FormFields component =====
 const FormFields = ({
-  formData, provinces, wards,
-  loadingProvinces, loadingWards,
+  formData, provinces,
+  loadingProvinces,
   searchQuery, suggestions, showSuggestions,
   loadingSuggestions, reverseLoading, suggestionRef,
   onFieldChange, onProvinceChange,
-  onWardChange, onSearchChange, onSuggestionSelect,
-  setShowSuggestions,
+  onSearchChange, onSuggestionSelect, setShowSuggestions,
 }) => {
   return (
     <>
@@ -757,110 +731,82 @@ const FormFields = ({
         required
       />
 
-      {/* District info */}
-      <div className="bg-[#FAF7F4] border border-[#EDE8E0] rounded-xl px-4 py-3">
-        <div className="flex items-center gap-2 text-sm text-[#6B5C4C]">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-[#A8896A]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span>Đơn vị hành chính cấp quận/huyện không còn áp dụng — chọn trực tiếp Phường/Xã bên dưới</span>
+      {/* Address (street) with MapVina Autocomplete */}
+      <div className="relative" ref={suggestionRef}>
+        <label className="block text-sm font-medium text-[#1C1108] mb-1.5">
+          Địa chỉ chi tiết (Số nhà, đường) *
+          {reverseLoading && <span className="text-xs text-[#A8896A] ml-1">↻ đang tìm...</span>}
+        </label>
+        <div className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={onSearchChange}
+            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+            className="w-full px-4 py-2.5 border border-[#D5C9BC] rounded-xl focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] outline-none transition-all text-sm"
+            placeholder="Tìm địa chỉ trên MapVina..."
+            autoComplete="off"
+          />
+          {loadingSuggestions && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="w-4 h-4 border-2 border-[#D5C9BC] border-t-[#B86B05] rounded-full animate-spin" />
+            </div>
+          )}
         </div>
-      </div>
-
-      {/* Ward */}
-      <SearchableCombobox
-        label="Phường/Xã"
-        value={formData.wardCode || ""}
-        options={wards}
-        onChange={onWardChange}
-        placeholder={
-          !formData.provinceCode
-            ? "-- Chọn Tỉnh/Thành phố trước --"
-            : loadingWards
-            ? "Đang tải phường/xã..."
-            : "-- Tìm hoặc chọn Phường/Xã --"
-        }
-        disabled={!formData.provinceCode || loadingWards}
-        loading={loadingWards}
-        allowClear
-      />
-
-    {/* Street with MapVina Autocomplete */}
-    <div className="relative" ref={suggestionRef}>
-      <label className="block text-sm font-medium text-[#1C1108] mb-1.5">
-        Địa chỉ (Số nhà, đường) *{" "}
-        {reverseLoading && <span className="text-xs text-[#A8896A] ml-1">↻ đang tìm...</span>}
-      </label>
-      <div className="relative">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={onSearchChange}
-          onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-          className="w-full px-4 py-2.5 border border-[#D5C9BC] rounded-xl focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] outline-none transition-all text-sm"
-          placeholder="Tìm địa chỉ trên MapVina..."
-          autoComplete="off"
-        />
-        {loadingSuggestions && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="w-4 h-4 border-2 border-[#D5C9BC] border-t-[#B86B05] rounded-full animate-spin" />
-          </div>
-        )}
-      </div>
-      {showSuggestions && suggestions.length > 0 && (
-        <ul className="absolute z-50 w-full mt-1 bg-white border border-[#D5C9BC] rounded-xl shadow-lg max-h-52 overflow-auto">
-          {suggestions.map((s) => (
-            <li
-              key={s.place_id}
-              onClick={() => onSuggestionSelect(s)}
-              className="px-4 py-3 cursor-pointer hover:bg-[#FAF7F4] transition-colors border-b border-[#EDE8E0] last:border-b-0"
-            >
-              <div className="flex items-start gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-[#A8896A] flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <div>
-                  <p className="text-sm font-medium text-[#1C1108]">
-                    {s.structured_formatting?.main_text}
-                  </p>
-                  <p className="text-xs text-[#A8896A]">
-                    {s.structured_formatting?.secondary_text}
-                  </p>
+        {showSuggestions && suggestions.length > 0 && (
+          <ul className="absolute z-50 w-full mt-1 bg-white border border-[#D5C9BC] rounded-xl shadow-lg max-h-52 overflow-auto">
+            {suggestions.map((s) => (
+              <li
+                key={s.place_id}
+                onClick={() => onSuggestionSelect(s)}
+                className="px-4 py-3 cursor-pointer hover:bg-[#FAF7F4] transition-colors border-b border-[#EDE8E0] last:border-b-0"
+              >
+                <div className="flex items-start gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-[#A8896A] flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-[#1C1108]">
+                      {s.structured_formatting?.main_text}
+                    </p>
+                    <p className="text-xs text-[#A8896A]">
+                      {s.structured_formatting?.secondary_text}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-
-    {/* Set as default */}
-    <label className="flex items-center gap-3 cursor-pointer">
-      <input
-        type="checkbox"
-        checked={formData.isDefault}
-        onChange={(e) => onFieldChange("isDefault", e.target.checked)}
-        className="w-5 h-5 text-[#B86B05] rounded focus:ring-[#B86B05]"
-      />
-      <span className="text-sm text-[#1C1108]">Đặt làm địa chỉ mặc định</span>
-    </label>
-
-    {/* Coordinates display */}
-    {formData.lat && formData.lng && (
-      <div className="text-xs text-[#A8896A] bg-[#FAF7F4] rounded-lg px-3 py-2">
-        📍 {formData.lat.toFixed(6)}, {formData.lng.toFixed(6)}
-        {formData.formattedAddress && (
-          <span className="block mt-1">{formData.formattedAddress}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
-    )}
 
-    {/* Drag hint */}
-    <div className="text-xs text-[#A8896A]">
-      💡 Kéo marker hoặc click trên bản đồ để chọn vị trí chính xác
-    </div>
-  </>
+      {/* Set as default */}
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={formData.isDefault}
+          onChange={(e) => onFieldChange("isDefault", e.target.checked)}
+          className="w-5 h-5 text-[#B86B05] rounded focus:ring-[#B86B05]"
+        />
+        <span className="text-sm text-[#1C1108]">Đặt làm địa chỉ mặc định</span>
+      </label>
+
+      {/* Coordinates display */}
+      {formData.lat && formData.lng && (
+        <div className="text-xs text-[#A8896A] bg-[#FAF7F4] rounded-lg px-3 py-2">
+          📍 {formData.lat.toFixed(6)}, {formData.lng.toFixed(6)}
+          {formData.formattedAddress && (
+            <span className="block mt-1">{formData.formattedAddress}</span>
+          )}
+        </div>
+      )}
+
+      {/* Drag hint */}
+      <div className="text-xs text-[#A8896A]">
+        💡 Kéo marker hoặc click trên bản đồ để chọn vị trí chính xác
+      </div>
+    </>
   );
 };
 

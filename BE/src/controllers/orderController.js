@@ -26,32 +26,116 @@ const notifyVendorsNewOrder = async (order) => {
     }
 };
 
-// @desc    Create order from cart
+// @desc    Create order from cart or buy now
 // @route   POST /api/orders
 // @access  Private
 const createOrder = async (req, res) => {
     try {
-        const { shippingAddress, paymentMethod = 'COD', note } = req.body;
+        const { shippingAddress, paymentMethod = 'COD', note, isBuyNow, buyNowProductId, buyNowQuantity } = req.body;
 
-        // Lấy cart của user
-        const cart = await Cart.findOne({ user: req.user._id });
-        if (!cart || cart.products.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Giỏ hàng trống!'
-            });
+        let cart = null;
+        let cartProducts = [];
+        let isDirectPurchase = isBuyNow === true;
+
+        if (isDirectPurchase) {
+            // Mua ngay - lấy trực tiếp từ sản phẩm
+            if (!buyNowProductId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Thông tin sản phẩm không hợp lệ!'
+                });
+            }
+            
+            const product = await Product.findById(buyNowProductId).populate('shop', 'name code status isActive');
+            if (!product) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Sản phẩm không tồn tại!'
+                });
+            }
+            
+            // Kiểm tra trạng thái shop
+            if (product.shop) {
+                if (product.shop.status === 'suspended') {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Cửa hàng này đã bị khóa và không thể nhận đơn.'
+                    });
+                }
+                if (product.shop.isActive === false) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Cửa hàng đang tạm ngừng kinh doanh.'
+                    });
+                }
+            }
+            
+            if (!product.isActive) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Sản phẩm đã ngừng kinh doanh!'
+                });
+            }
+            
+            if (product.quantity < (buyNowQuantity || 1)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!`
+                });
+            }
+            
+            cartProducts = [{
+                product: product._id,
+                quantity: buyNowQuantity || 1,
+                price: product.discount > 0 
+                    ? Math.round(product.price * (1 - product.discount / 100))
+                    : product.price,
+                originalPrice: product.price,
+                discount: product.discount || 0,
+                name: product.name,
+                image: product.images?.[0] || null,
+                shop: product.shop?._id || null,
+                shopName: product.shop?.name || 'Cửa hàng',
+                shopCode: product.shop?.code || ''
+            }];
+        } else {
+            // Lấy cart của user
+            cart = await Cart.findOne({ user: req.user._id });
+            if (!cart || cart.products.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Giỏ hàng trống!'
+                });
+            }
+            cartProducts = cart.products;
         }
 
         // Kiểm tra tồn kho + thu thập thông tin shop của từng sản phẩm
         const productMap = {};
-        for (const item of cart.products) {
-            const product = await Product.findById(item.product).populate('shop', 'name code');
+        const suspendedShops = [];
+        
+        for (const item of cartProducts) {
+            const product = await Product.findById(item.product).populate('shop', 'name code status isActive');
             if (!product) {
                 return res.status(400).json({
                     success: false,
                     message: `Sản phẩm không tồn tại!`
                 });
             }
+            
+            // Kiểm tra trạng thái shop
+            if (product.shop) {
+                const shopStatus = product.shop.status;
+                const shopIsActive = product.shop.isActive;
+                
+                // Shop bị suspended hoặc tạm nghỉ thì không cho đặt hàng
+                if (shopStatus === 'suspended' || shopIsActive === false) {
+                    if (!suspendedShops.includes(product.shop.name)) {
+                        suspendedShops.push(product.shop.name);
+                    }
+                }
+            }
+            
             if (product.quantity < item.quantity) {
                 return res.status(400).json({
                     success: false,
@@ -60,10 +144,18 @@ const createOrder = async (req, res) => {
             }
             productMap[item.product.toString()] = product;
         }
+        
+        // Nếu có shop bị khóa/tạm nghỉ trong giỏ hàng
+        if (suspendedShops.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Không thể đặt hàng: Cửa hàng "${suspendedShops.join(', ')}" đang bị tạm khóa hoặc ngừng hoạt động. Vui lòng xóa sản phẩm khỏi giỏ hàng và thử lại.`
+            });
+        }
 
         // Nhóm sản phẩm theo shop (multi-vendor: tách đơn)
         const shopGroups = {};
-        for (const item of cart.products) {
+        for (const item of cartProducts) {
             const product = productMap[item.product.toString()];
             const shopId = product.shop?._id?.toString() || 'no-shop';
             
@@ -105,11 +197,19 @@ const createOrder = async (req, res) => {
 
         // Tạo 1 đơn hàng độc lập cho mỗi shop (không còn parent/child)
         const createdOrders = [];
+        
+        // Lấy shippingFee từ frontend (đã tính từ GHN API)
+        const frontendShippingFee = req.body.shippingFee || 0;
+        
         for (const shopId of shopKeys) {
             const group = shopGroups[shopId];
 
-            // Tính phí ship riêng cho mỗi shop (miễn phí nếu subtotal >= 500k)
-            const shippingFee = group.subtotal >= 500000 ? 0 : 30000;
+            // Dùng phí ship từ frontend, chỉ kiểm tra miễn phí nếu >= 500k
+            let shippingFee = frontendShippingFee;
+            if (group.subtotal >= 500000) {
+                shippingFee = 0; // Miễn phí vận chuyển
+            }
+
             const groupTotal = group.subtotal + shippingFee;
 
             const order = new Order({
@@ -128,7 +228,7 @@ const createOrder = async (req, res) => {
                 totalPrice: groupTotal,
                 totalQuantity: group.totalQuantity,
                 orderedAt: new Date(),
-                estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+                estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000)
             });
 
             // Trừ tồn kho cho sản phẩm của shop này
@@ -145,8 +245,10 @@ const createOrder = async (req, res) => {
             createdOrders.push(order);
         }
 
-        // Xóa giỏ hàng sau khi đặt thành công
-        await Cart.findByIdAndDelete(cart._id);
+        // Xóa giỏ hàng sau khi đặt thành công (chỉ khi không phải mua ngay)
+        if (!isDirectPurchase && cart) {
+            await Cart.findByIdAndDelete(cart._id);
+        }
 
         // Gửi thông báo cho vendors
         for (const order of createdOrders) {

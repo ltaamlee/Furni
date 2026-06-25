@@ -88,7 +88,7 @@ const getAllProducts = async (req, res) => {
     const skip = (Number(page) - 1) * Number(limit);
     const products = await Product.find(query)
       .populate('category', 'name slug')
-      .populate('shop', 'name slug logo')
+      .populate('shop', 'name slug logo status isActive')
       .sort({ [sort]: order === 'desc' ? -1 : 1 })
       .skip(skip)
       .limit(Number(limit))
@@ -135,13 +135,29 @@ const getProduct = async (req, res) => {
       { new: true }
     )
       .populate('category', 'name slug')
-      .populate('shop', 'name slug logo banner description phone email address isActive')
+      .populate('shop', 'name slug logo banner description phone email address isActive status')
       .lean();
 
     if (!product) {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy sản phẩm'
+      });
+    }
+
+    // Kiểm tra sản phẩm có đang active không
+    if (!product.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sản phẩm không tồn tại hoặc đã ngừng kinh doanh'
+      });
+    }
+
+    // Kiểm tra shop có đang hoạt động không
+    if (product.shop && (product.shop.status === 'suspended' || product.shop.isActive === false)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sản phẩm không tồn tại hoặc cửa hàng đã ngừng hoạt động'
       });
     }
 
@@ -357,7 +373,7 @@ const filterProducts = async (req, res) => {
     // Query
     const products = await Product.find(formatQuery)
       .populate('category', 'name')
-      .populate('shop', 'name slug logo')
+      .populate('shop', 'name slug logo status isActive')
       .sort(sortBy)
       .skip(skip)
       .limit(limit)
@@ -523,7 +539,7 @@ const getProductsByCategory = async (req, res) => {
             isActive: true
         })
             .populate('category', 'name slug')
-            .populate('shop', 'name slug logo')
+            .populate('shop', 'name slug logo status isActive')
             .sort(sort)
             .skip((page - 1) * limit)
             .limit(parseInt(limit))
@@ -567,7 +583,7 @@ const getBestSellers = async (req, res) => {
 
         const products = await Product.find({ isActive: true })
             .populate('category', 'name')
-            .populate('shop', 'name slug logo')
+            .populate('shop', 'name slug logo status isActive')
             .sort({ sold: -1 })
             .limit(parseInt(limit))
             .lean();
@@ -596,7 +612,7 @@ const getTrendingProducts = async (req, res) => {
 
         const products = await Product.find({ isActive: true })
             .populate('category', 'name')
-            .populate('shop', 'name slug logo')
+            .populate('shop', 'name slug logo status isActive')
             .sort({ views: -1 })
             .limit(parseInt(limit))
             .lean();

@@ -32,8 +32,8 @@ const getDistrictsHandler = async (req, res) => {
                 message: 'Thiếu mã tỉnh/thành phố',
             });
         }
-        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}`, {
-            timeout: 10000,
+        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}?depth=2`, {
+            timeout: 15000,
         });
         res.status(200).json({
             success: true,
@@ -86,11 +86,11 @@ const getWardsByProvinceHandler = async (req, res) => {
                 message: 'Thiếu mã tỉnh/thành phố',
             });
         }
-        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}`, {
-            timeout: 15000,
+        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}?depth=3`, {
+            timeout: 20000,
         });
         const province = response.data;
-        // Flatten all wards from all districts (new 2-level structure: province → wards)
+        // Flatten all wards from all districts (depth=3 returns province → districts → wards)
         const allWards = (province.districts || []).flatMap((d) => d.wards || []);
         res.status(200).json({
             success: true,

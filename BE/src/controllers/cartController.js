@@ -41,13 +41,13 @@ const getCart = async (req, res) => {
 
             if (product?.shop) {
                 try {
-                    const shop = await Shop.findById(product.shop).select('name avatar status');
+                    const shop = await Shop.findById(product.shop).select('name avatar status isActive');
                     if (shop) {
                         shopInfo = {
                             _id: shop._id,
                             name: shop.name,
                             avatar: shop.avatar,
-                            isActive: shop.status === 'approved' && product?.isActive !== false
+                            isActive: shop.status === 'approved' && shop.isActive !== false
                         };
                     }
                 } catch (e) {
@@ -103,7 +103,7 @@ const addToCart = async (req, res) => {
     try {
         const { productId, quantity = 1 } = req.body;
 
-        const product = await Product.findById(productId).populate('shop', 'name avatar status');
+        const product = await Product.findById(productId).populate('shop', 'name avatar status isActive');
         if (!product) {
             return res.status(404).json({
                 success: false,
@@ -118,8 +118,8 @@ const addToCart = async (req, res) => {
             });
         }
 
-        // Check if shop is active
-        if (product.shop && product.shop.status !== 'approved') {
+        // Check if shop is approved and active
+        if (product.shop && (product.shop.status !== 'approved' || product.shop.isActive === false)) {
             return res.status(400).json({
                 success: false,
                 message: 'Cửa hàng đã ngừng hoạt động'

@@ -87,7 +87,7 @@ const calculateFee = async (req, res) => {
 // @access  Public
 const calculateAllFees = async (req, res) => {
     try {
-        const { provinceCode, districtCode, orderTotal } = req.query;
+        const { provinceCode, districtCode, orderTotal, shopId } = req.query;
 
         if (!provinceCode) {
             return res.status(400).json({
@@ -98,53 +98,91 @@ const calculateAllFees = async (req, res) => {
 
         const provCode = Number(provinceCode);
         const distCode = districtCode ? Number(districtCode) : null;
-        const total = Number(orderTotal) || 0;
 
-        // Chỉ tính GHN
-        const ghnProvider = await ShippingProvider.findOne({ code: 'GHN', isActive: true });
-        if (!ghnProvider) {
-            return res.status(200).json({ success: true, data: { fees: [] } });
-        }
+        // Lấy GHN token từ DB shop hoặc platform config
+        const { GHN: ghnConfig } = await getShopShippingConfig(shopId || null);
 
-        const { GHN: ghnConfig } = await getShopShippingConfig(null);
-        let feeData = null;
-
+        // Resolve GHN district ID
+        let ghnDistrictId = null;
         if (distCode) {
-            // Tra cứu GHN district từ VN district code
-            const ghnDistrictId = await getGhnDistrictId(provCode, distCode, ghnConfig);
-            if (ghnDistrictId) {
-                feeData = await GHNService.calculateFee(ghnDistrictId, 1000, ghnConfig);
-            }
+            ghnDistrictId = await getGhnDistrictId(provCode, distCode, ghnConfig);
         }
-
-        // Fallback: dùng district_id mặc định của tỉnh
-        if (!feeData?.success) {
+        if (!ghnDistrictId) {
             const defaultDistrict = PROVINCE_TO_GHN_DISTRICT[provCode];
-            if (defaultDistrict) {
-                feeData = await GHNService.calculateFee(defaultDistrict.district_id, 1000, ghnConfig);
-            }
+            if (defaultDistrict) ghnDistrictId = defaultDistrict.district_id;
         }
 
-        // Final fallback: baseFee của provider
+        // Tính phí qua GHN API
+        let feeData = null;
+        if (ghnDistrictId && ghnConfig.token) {
+            feeData = await GHNService.calculateFee(ghnDistrictId, 1000, ghnConfig);
+        }
+
+        // Fallback: phí theo khoảng cách tỉnh/thành
         if (!feeData?.success) {
-            feeData = calculateFallbackFee(ghnProvider.baseFee, provCode, ghnProvider.freeThreshold);
+            // Phí cơ bản theo khu vực
+            const baseFeesByRegion = {
+                // TP HCM và vùng lân cận (miền Nam)
+                79: 20000,  // TP HCM
+                48: 20000,  // Hồ Chí Minh (code cũ)
+                74: 25000,  // Long An
+                75: 25000,  // Đồng Nai
+                80: 25000,  // Bình Dương
+                83: 30000,  // Tây Ninh
+                84: 30000,  // Tiền Giang
+                82: 30000,  // Bà Rịa Vũng Tàu
+                // Hà Nội và vùng lân cận (miền Bắc)
+                1: 25000,   // Hà Nội
+                2: 25000,   // Hà Nội (code cũ)
+                15: 35000,  // Vĩnh Phúc
+                16: 35000,  // Bắc Ninh
+                17: 40000,  // Yên Bái
+                18: 40000,  // Phú Thọ
+                19: 35000,  // Thái Bình
+                20: 40000,  // Thái Nguyên
+                23: 35000,  // Nam Định
+                24: 45000,  // Lạng Sơn
+                26: 35000,  // Hải Dương
+                33: 50000,  // Cao Bằng
+                36: 50000,  // Bắc Kạn
+                // Miền Trung
+                92: 35000,  // Đà Nẵng
+                38: 40000,  // Thanh Hóa
+                39: 40000,  // Thừa Thiên Huế
+                40: 45000,  // Quảng Bình
+                42: 40000,  // Quảng Ngãi
+                43: 45000,  // Quảng Nam
+                44: 40000,  // Khánh Hòa
+                46: 45000,  // Quảng Trị
+                51: 45000,  // Vĩnh Long
+                56: 45000,  // Bình Định
+                // Miền Tây
+                72: 40000,  // Cần Thơ
+                86: 45000,  // Sóc Trăng
+                60: 50000,  // Bạc Liêu
+            };
+            
+            const baseFee = baseFeesByRegion[provCode] || 40000; // Default cao cho xa
+            
+            feeData = {
+                success: true,
+                data: { fee: baseFee, estimatedDaysRange: { min: 2, max: 5 } }
+            };
         }
-
-        const isFree = total >= ghnProvider.freeThreshold;
 
         res.status(200).json({
             success: true,
             data: {
                 fees: [{
                     provider: {
-                        _id: ghnProvider._id,
-                        name: ghnProvider.name,
-                        code: ghnProvider.code,
-                        logo: ghnProvider.logo,
+                        _id: 'ghn-default',
+                        name: 'Giao Hàng Nhanh',
+                        code: 'GHN',
+                        logo: '/icons/ghn.png',
                     },
-                    fee: isFree ? 0 : (feeData?.data?.fee || ghnProvider.baseFee),
-                    estimatedDays: feeData?.data?.estimatedDaysRange || ghnProvider.estimatedDays,
-                    isFree,
+                    fee: feeData?.data?.fee || 25000,
+                    estimatedDays: feeData?.data?.estimatedDaysRange || { min: 2, max: 5 },
+                    isFree: false,
                 }]
             }
         });
@@ -187,7 +225,33 @@ const createShippingOrder = async (req, res) => {
             });
         }
 
-        const feeResult = await ShippingOrder.calculateFee(providerCode, order.shippingAddress.city, order.totalPrice);
+        // ── Lấy token GHN từ DB shop ──────────────────────────────────
+        const shopId = order.shop;
+        const { GHN: ghnConfig } = await getShopShippingConfig(shopId);
+
+        // Resolve GHN district ID từ địa chỉ người nhận
+        const addr = order.shippingAddress || {};
+        const provinceCode = addr.provinceCode;
+        const districtCode = addr.districtCode;
+        const toWardCode = addr.wardCode || '';
+
+        let ghnDistrictId = null;
+        if (provinceCode && districtCode) {
+            ghnDistrictId = await getGhnDistrictId(provinceCode, districtCode, ghnConfig);
+        }
+        if (!ghnDistrictId) {
+            const fallback = PROVINCE_TO_GHN_DISTRICT[provinceCode];
+            if (fallback) ghnDistrictId = fallback.district_id;
+        }
+
+        // Tính phí qua GHN API (dùng token từ DB shop)
+        let shippingFee = provider.baseFee;
+        if (ghnDistrictId && ghnConfig.token) {
+            const feeResult = await GHNService.calculateFee(ghnDistrictId, 1000, ghnConfig);
+            if (feeResult.success) {
+                shippingFee = feeResult.data.fee;
+            }
+        }
 
         const estimatedDays = provider.estimatedDays.max;
         const estimatedDelivery = new Date();
@@ -197,13 +261,34 @@ const createShippingOrder = async (req, res) => {
             order: orderId,
             provider: provider._id,
             providerCode: provider.code,
-            shippingAddress: order.shippingAddress,
-            shippingFee: feeResult.data?.fee || 0,
+            shippingAddress: addr,
+            shippingFee: shippingFee,
             estimatedDelivery,
             codAmount: order.paymentMethod === 'COD' ? order.totalPrice : 0
         });
 
         await shippingOrder.save();
+
+        // ── Tạo đơn trên GHN bằng token shop (nếu có district ID) ────
+        if (ghnDistrictId && ghnConfig.token && providerCode === 'GHN') {
+            const ghnResult = await GHNService.createOrder({
+                toDistrictId: ghnDistrictId,
+                toWardCode: String(toWardCode),
+                toName: addr.fullName || '',
+                toPhone: addr.phone || '',
+                toAddress: addr.address || '',
+                codAmount: order.paymentMethod === 'COD' ? order.totalPrice : 0,
+                weight: 1000,
+                orderCode: shippingOrder._id.toString(),
+            }, ghnConfig);
+
+            if (ghnResult.success) {
+                shippingOrder.trackingNumber = ghnResult.data.trackingNumber;
+                shippingOrder.externalId = ghnResult.data.orderCode;
+                shippingOrder.labelUrl = ghnResult.data.labelUrl;
+                await shippingOrder.save();
+            }
+        }
 
         res.status(201).json({
             success: true,
@@ -211,7 +296,8 @@ const createShippingOrder = async (req, res) => {
             data: {
                 shippingOrder,
                 trackingNumber: shippingOrder.trackingNumber,
-                estimatedDelivery: shippingOrder.estimatedDelivery
+                estimatedDelivery: shippingOrder.estimatedDelivery,
+                labelUrl: shippingOrder.labelUrl
             }
         });
     } catch (error) {

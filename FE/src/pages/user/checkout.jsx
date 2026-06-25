@@ -1,6 +1,7 @@
 import { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../../components/context/authContext";
+import AddressModal from "../../components/common/AddressModal";
 import {
   getCartApi,
   createOrderApi,
@@ -9,6 +10,8 @@ import {
   createPayOSPaymentWithCartApi,
   getUserWalletApi,
   getAddressesApi,
+  getProductByIdApi,
+  createAddressApi,
 } from "../../utils/api";
 
 const CheckoutPage = () => {
@@ -31,6 +34,8 @@ const CheckoutPage = () => {
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [isBuyNow, setIsBuyNow] = useState(false);
+  const [buyNowProduct, setBuyNowProduct] = useState(null);
+  const [showAddressModal, setShowAddressModal] = useState(false);
 
   const [customerInfo, setCustomerInfo] = useState({
     fullName: user?.fullName || "",
@@ -42,9 +47,6 @@ const CheckoutPage = () => {
     address: "",
     provinceCode: null,
     provinceName: "",
-    districtCode: null,
-    districtName: "",
-    wardCode: null,
     wardName: "",
     note: "",
     selectedProvider: null,
@@ -62,23 +64,26 @@ const CheckoutPage = () => {
     fetchWalletAccounts();
     fetchAddresses();
 
+    // Listen for address updates from profile page
+    const handleAddressUpdate = () => fetchAddresses();
+    window.addEventListener('addresses-updated', handleAddressUpdate);
+
     // Handle "mua ngay" flow
     const buyNowRaw = localStorage.getItem("buy_now");
     if (buyNowRaw) {
       try {
         const buyNow = JSON.parse(buyNowRaw);
-        // Expire after 30 minutes
         if (Date.now() - buyNow.timestamp < 30 * 60 * 1000) {
           setIsBuyNow(true);
           setSelectedItemIds(new Set([buyNow.productId]));
           localStorage.setItem("checkout_selected_items", JSON.stringify([buyNow.productId]));
+          fetchBuyNowProduct(buyNow.productId, buyNow.quantity);
         }
         localStorage.removeItem("buy_now");
       } catch (e) {
         console.error("Error parsing buy_now:", e);
       }
     } else {
-      // Normal cart checkout
       const savedSelected = localStorage.getItem("checkout_selected_items");
       if (savedSelected) {
         try {
@@ -89,11 +94,15 @@ const CheckoutPage = () => {
         }
       }
     }
+
+    return () => window.removeEventListener('addresses-updated', handleAddressUpdate);
   }, []);
 
   // Auto-select default address and pre-fill customer info
   useEffect(() => {
     if (addresses.length === 0 || loadingAddresses) return;
+    // Only auto-select if no address is currently selected
+    if (selectedAddressId && addresses.some(a => a._id === selectedAddressId)) return;
     const def = addresses.find((a) => a.isDefault) || addresses[0];
     if (def) {
       selectAddress(def);
@@ -103,7 +112,7 @@ const CheckoutPage = () => {
         phone: def.phone || prev.phone,
       }));
     }
-  }, [loadingAddresses]);
+  }, [loadingAddresses, addresses]);
 
   // Pre-fill customer info from user profile when buy_now flow starts
   useEffect(() => {
@@ -117,17 +126,24 @@ const CheckoutPage = () => {
 
   // Auto-advance to step 2 when "mua ngay" and address loaded
   useEffect(() => {
-    if (isBuyNow && selectedAddressId && step === 1) {
+    if (isBuyNow && selectedAddressId && (buyNowProduct || !isBuyNow) && step === 1) {
       setStep(2);
     }
-  }, [isBuyNow, selectedAddressId, step]);
+  }, [isBuyNow, selectedAddressId, step, buyNowProduct]);
 
-  // Fetch shipping fees when province changes
+  // Fetch shipping fees when province changes or when buyNowProduct is loaded
   useEffect(() => {
-    if (shippingInfo.provinceCode && cart?.totalPrice) {
+    console.log('[DEBUG] Shipping effect triggered:', { 
+      provinceCode: shippingInfo.provinceCode, 
+      hasCart: !!cart?.totalPrice, 
+      hasBuyNow: !!buyNowProduct,
+      isBuyNow,
+      shippingFeesLength: shippingFees.length
+    });
+    if (shippingInfo.provinceCode && (cart?.totalPrice || buyNowProduct?.price)) {
       fetchShippingFees();
     }
-  }, [shippingInfo.provinceCode, cart?.totalPrice]);
+  }, [shippingInfo.provinceCode, selectedAddressId, cart?.totalPrice, isBuyNow, buyNowProduct?.price, buyNowProduct?.shop]);
 
   const fetchCart = async () => {
     try {
@@ -187,32 +203,102 @@ const CheckoutPage = () => {
     }
   };
 
+  const handleAddNewAddress = async (formData) => {
+    console.log('[Checkout] handleAddNewAddress called with:', {
+      provinceCode: formData.provinceCode,
+      provinceCodeType: typeof formData.provinceCode,
+      wardName: formData.wardName,
+    });
+    try {
+      const res = await createAddressApi(formData);
+      if (res.success) {
+        await fetchAddresses();
+        // Auto-select the new address
+        const newAddr = res.data;
+        if (newAddr) {
+          selectAddress(newAddr);
+        }
+        // Emit event for other components
+        window.dispatchEvent(new Event('addresses-updated'));
+      }
+    } catch (error) {
+      console.error("Error creating address:", error);
+      alert("Không thể thêm địa chỉ. Vui lòng thử lại.");
+    }
+  };
+
+  const fetchBuyNowProduct = async (productId, quantity) => {
+    try {
+      const res = await getProductByIdApi(productId);
+      console.log('[DEBUG] getProductByIdApi response:', res.data);
+      if (res.success) {
+        const product = res.data.product;
+        // Tính giá - API trả về price đã là sale price hoặc dùng salePrice
+        const discount = product.discountPercent || product.discount || 0;
+        const originalPrice = product.originalPrice || product.price || 0;
+        const salePrice = product.salePrice || (discount > 0
+          ? Math.round(originalPrice * (1 - discount / 100))
+          : originalPrice);
+
+        setBuyNowProduct({
+          _id: product._id,
+          name: product.name,
+          image: product.images?.[0] || null,
+          price: salePrice,
+          originalPrice,
+          discount,
+          quantity: quantity || 1,
+          shop: product.shop?._id || product.shop,
+          shopName: product.shop?.name || 'Cửa hàng',
+        });
+        console.log('[DEBUG] buyNowProduct set:', { shop: product.shop?._id || product.shop, price: salePrice });
+      }
+    } catch (error) {
+      console.error("Error fetching buy now product:", error);
+    }
+  };
+
   const fetchShippingFees = async () => {
     if (!shippingInfo.provinceCode) return;
     try {
+      const shopId = buyNowProduct?.shop || cart?.products?.[0]?.shop;
+      
+      console.log('[DEBUG] fetchShippingFees called:', {
+        provinceCode: shippingInfo.provinceCode,
+        wardName: shippingInfo.wardName,
+        shopId,
+        orderTotal: isBuyNow ? (buyNowProduct?.price || 0) : (cart?.totalPrice || 0)
+      });
+
       const res = await calculateShippingFeesApi({
         provinceCode: shippingInfo.provinceCode,
-        districtCode: shippingInfo.districtCode,
-        orderTotal: cart?.totalPrice || 0,
+        orderTotal: isBuyNow
+          ? (buyNowProduct?.price || 0)
+          : (cart?.totalPrice || 0),
+        shopId,
       });
+      console.log('[DEBUG] Shipping API raw response:', res);
+      console.log('[DEBUG] Shipping API response.data:', res.data);
       if (res.success) {
+        console.log('[DEBUG] Setting shippingFees:', res.data.fees);
         setShippingFees(res.data.fees || []);
+      } else {
+        console.log('[DEBUG] API returned success: false');
       }
     } catch (error) {
-      console.error("Error fetching shipping fees:", error);
+      console.error("[DEBUG] Error fetching shipping fees:", error);
     }
   };
 
   const selectAddress = (addr) => {
+    console.log('[DEBUG] selectAddress called:', addr);
+    console.log('[DEBUG] addr.provinceCode:', addr.provinceCode, typeof addr.provinceCode);
     setSelectedAddressId(addr._id);
     setShippingInfo((prev) => ({
       ...prev,
       address: addr.street || "",
-      provinceCode: addr.provinceCode ? Number(addr.provinceCode) : null,
+      provinceCode: addr.provinceCode ? String(addr.provinceCode) : null,
       provinceName: addr.provinceName || "",
-      districtCode: addr.districtCode ? Number(addr.districtCode) : null,
-      districtName: addr.districtName || "",
-      wardCode: addr.wardCode ? Number(addr.wardCode) : null,
       wardName: addr.wardName || "",
       selectedProvider: null,
     }));
@@ -255,9 +341,6 @@ const CheckoutPage = () => {
           address: shippingInfo.address,
           provinceCode: shippingInfo.provinceCode,
           provinceName: shippingInfo.provinceName,
-          districtCode: shippingInfo.districtCode,
-          districtName: shippingInfo.districtName,
-          wardCode: shippingInfo.wardCode,
           wardName: shippingInfo.wardName,
           note: shippingInfo.note,
         },
@@ -265,6 +348,13 @@ const CheckoutPage = () => {
         shippingProvider: shippingInfo.selectedProvider,
         shippingFee: selectedProviderData?.fee || 0,
       };
+
+      // Thêm thông tin mua ngay nếu đang trong flow mua ngay
+      if (isBuyNow && buyNowProduct) {
+        orderData.isBuyNow = true;
+        orderData.buyNowProductId = buyNowProduct._id;
+        orderData.buyNowQuantity = buyNowProduct.quantity;
+      }
 
       if (paymentMethod === "COD") {
         const res = await createOrderApi(orderData);
@@ -306,7 +396,7 @@ const CheckoutPage = () => {
   };
 
   const formatAddress = (addr) => {
-    const parts = [addr.street, addr.wardName, addr.districtName, addr.provinceName].filter(Boolean);
+    const parts = [addr.street, addr.wardName, addr.provinceName].filter(Boolean);
     return parts.join(", ");
   };
 
@@ -318,11 +408,17 @@ const CheckoutPage = () => {
     );
   }
 
+  // Calculate totals based on mode (buy now vs cart)
   const selectedCartProducts =
     cart?.products?.filter((item) => selectedItemIds.has(item.product._id || item.product)) || [];
 
-  const selectedSubtotal = selectedCartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const selectedTotalQuantity = selectedCartProducts.reduce((sum, item) => sum + item.quantity, 0);
+  const selectedSubtotal = isBuyNow && buyNowProduct
+    ? buyNowProduct.price * buyNowProduct.quantity
+    : selectedCartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  
+  const selectedTotalQuantity = isBuyNow && buyNowProduct
+    ? buyNowProduct.quantity
+    : selectedCartProducts.reduce((sum, item) => sum + item.quantity, 0);
 
   const selectedProviderData = shippingFees.find((f) => f.provider.code === shippingInfo.selectedProvider);
   const subtotal = selectedSubtotal;
@@ -477,16 +573,25 @@ const CheckoutPage = () => {
                       <div>
                         <div className="flex items-center justify-between mb-3">
                           <label className="text-sm font-semibold text-[#1C1108]">Địa chỉ giao hàng</label>
-                          <button
-                            type="button"
-                            onClick={() => navigate("/profile?tab=addresses")}
-                            className="text-xs text-[#B86B05] hover:underline font-medium flex items-center gap-1"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                            Quản lý địa chỉ
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => navigate("/profile?tab=addresses")}
+                              className="text-xs text-[#6B5C4C] hover:text-[#B86B05] font-medium"
+                            >
+                              Quản lý địa chỉ
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowAddressModal(true)}
+                              className="text-xs text-[#B86B05] hover:underline font-medium flex items-center gap-1"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                              </svg>
+                              Thêm địa chỉ mới
+                            </button>
+                          </div>
                         </div>
 
                         {loadingAddresses ? (
@@ -766,7 +871,7 @@ const CheckoutPage = () => {
                     <div className="p-4 bg-[#FAF7F4] rounded-2xl">
                       <h4 className="font-semibold text-sm text-[#1C1108] mb-2 flex items-center gap-2">🚚 Địa chỉ giao hàng</h4>
                       <p className="text-sm text-[#6B5C4C]">{shippingInfo.address}</p>
-                      <p className="text-sm text-[#6B5C4C]">{[shippingInfo.wardName, shippingInfo.districtName, shippingInfo.provinceName].filter(Boolean).join(", ")}</p>
+                      <p className="text-sm text-[#6B5C4C]">{[shippingInfo.wardName, shippingInfo.provinceName].filter(Boolean).join(", ")}</p>
                       {shippingInfo.note && <p className="text-xs text-[#A8896A] italic mt-1">Ghi chú: {shippingInfo.note}</p>}
                     </div>
 
@@ -893,6 +998,13 @@ const CheckoutPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Address Modal */}
+      <AddressModal
+        isOpen={showAddressModal}
+        onClose={() => setShowAddressModal(false)}
+        onSave={handleAddNewAddress}
+      />
     </div>
   );
 };

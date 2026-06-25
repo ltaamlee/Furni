@@ -196,12 +196,14 @@ const ProductDetailPage = () => {
             requireLogin("Bạn cần đăng nhập để mua hàng. Đăng nhập ngay?");
             return;
         }
+        // Validate stock
+        if (quantity > displayStock) {
+            showToast(`Chỉ còn ${displayStock} sản phẩm trong kho`, "error");
+            return;
+        }
         try {
             setAdding(true);
-            // Add to cart first (needed for order creation)
-            await addToCartApi(product._id, quantity);
-            window.dispatchEvent(new Event("cart-updated"));
-            // Store "mua ngay" flag so checkout knows to skip step 1
+            // Store "mua ngay" flag - NO add to cart, checkout will handle it directly
             localStorage.setItem("buy_now", JSON.stringify({
                 productId: product._id,
                 quantity,
@@ -300,6 +302,25 @@ const ProductDetailPage = () => {
 
     const shop = product.shop;
     const shopInitial = shop?.name?.charAt(0)?.toUpperCase() || "S";
+    const shopIsOpen = shop && shop.status === 'approved' && shop.isActive !== false;
+    const shopStatusLabel = !shop
+        ? 'Không xác định'
+        : shop.status === 'approved' && shop.isActive !== false
+        ? 'Đang hoạt động'
+        : shop.status === 'suspended'
+        ? 'Đã bị khóa'
+        : !shop.isActive
+        ? 'Tạm ngừng'
+        : shop.status === 'pending'
+        ? 'Chờ duyệt'
+        : shop.status === 'rejected'
+        ? 'Bị từ chối'
+        : 'Không xác định';
+    const shopStatusColor = shopIsOpen
+        ? 'bg-green-500'
+        : shop?.status === 'suspended'
+        ? 'bg-red-500'
+        : 'bg-yellow-500';
 
     /* ── render ───────────────────────────────────────────── */
     return (
@@ -345,8 +366,8 @@ const ProductDetailPage = () => {
                                         )}
                                     </div>
                                     <div className="flex items-center gap-1.5 text-xs text-[#A8896A] mt-0.5">
-                                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-                                        Đang hoạt động
+                                        <span className={`w-1.5 h-1.5 rounded-full ${shopStatusColor}`} />
+                                        {shopStatusLabel}
                                     </div>
                                     {shop.address && (
                                         <div className="flex items-center gap-1 text-xs text-[#A8896A] mt-1 truncate">
@@ -540,6 +561,16 @@ const ProductDetailPage = () => {
 
                             {/* Stock + quantity + actions */}
                             <div className="bg-[#FAF7F4] rounded-xl p-5">
+                                {!shopIsOpen && (
+                                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl">
+                                        <p className="text-sm font-semibold text-red-600">
+                                            {shop?.status === 'suspended'
+                                                ? 'Cửa hàng này đã bị khóa và không thể nhận đơn.'
+                                                : 'Cửa hàng đã tạm ngừng kinh doanh.'}
+                                        </p>
+                                    </div>
+                                )}
+
                                 <div className="flex items-center justify-between mb-4">
                                     <span className="text-sm text-[#6B5C4C]">Kho hàng:</span>
                                     {displayStock > 0 ? (
@@ -552,7 +583,7 @@ const ProductDetailPage = () => {
                                     )}
                                 </div>
 
-                                {displayStock > 0 && (
+                                {displayStock > 0 && shopIsOpen && (
                                     <>
                                         {/* Quantity picker */}
                                         <div className="flex items-center gap-4 mb-5">

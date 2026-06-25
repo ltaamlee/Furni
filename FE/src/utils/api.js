@@ -274,21 +274,6 @@ const getProvincesApi = () => {
     return axios.get(URL_API);
 }
 
-const getDistrictsApi = (provinceCode) => {
-    const URL_API = `/locations/districts/${provinceCode}`;
-    return axios.get(URL_API);
-}
-
-const getWardsApi = (districtCode) => {
-    const URL_API = `/locations/wards/${districtCode}`;
-    return axios.get(URL_API);
-}
-
-const getWardsByProvinceApi = (provinceCode) => {
-    const URL_API = `/locations/wards/province/${provinceCode}`;
-    return axios.get(URL_API);
-}
-
 const getShippingByOrderApi = (orderId) => {
     const URL_API = `/shipping/orders/${orderId}`;
     return axios.get(URL_API);
@@ -499,6 +484,20 @@ const updateShopCommissionApi = (id, data) => axios.put(`/admin/commissions/${id
 // Admin — Báo cáo doanh thu
 const getAdminRevenueApi = (params) => axios.get("/admin/revenue", { params });
 
+// Shipping - GHN districts
+const getGhnDistrictsApi = (provinceId) =>
+    axios.get("https://online-gateway.ghn.vn/shiip/public-api/master-data/district", {
+        params: { province_id: provinceId },
+        headers: { token: "637170d5-942b-11ea-9821-0281a26fb5d4" } // Public token
+    });
+
+const getGhnProvincesApi = () =>
+    axios.get("https://online-gateway.ghn.vn/shiip/public-api/master-data/province", {
+        headers: { token: "637170d5-942b-11ea-9821-0281a26fb5d4" }
+    });
+
+export { getGhnDistrictsApi, getGhnProvincesApi };
+
 export {
     createUserApi,
     loginApi,
@@ -554,9 +553,7 @@ export {
     getShippingByOrderApi,
     trackShipmentApi,
     getProvincesApi,
-    getDistrictsApi,
-    getWardsApi,
-    getWardsByProvinceApi,
+    // GeoVina APIs
     getShopApi,
     getShopVouchersApi,
     claimVoucherApi,
