@@ -12,7 +12,7 @@ const { payosConfig, PAYOS_CLIENT_URL } = require('../config/payos');
 const payoutService = require('../services/payoutService');
 
 // Sử dụng thư viện PayOS SDK
-const PayOS = require('@payos/node');
+const { PayOS } = require('@payos/node');
 
 let payosInstance = null;
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
@@ -80,12 +80,17 @@ const removeCheckoutItemsFromCart = async (cart, checkoutItems, selectedProducts
 };
 
 const getPayOSInstance = () => {
-    if (!payosInstance && payosConfig.isConfigured()) {
-        payosInstance = new PayOS(
-            payosConfig.clientId,
-            payosConfig.apiKey,
-            payosConfig.checksumKey
-        );
+    if (!payosInstance) {
+        try {
+            payosInstance = new PayOS({
+                clientId: process.env.PAYOS_CLIENT_ID,
+                apiKey: process.env.PAYOS_API_KEY,
+                checksumKey: process.env.PAYOS_CHECKSUM_KEY,
+            });
+        } catch (e) {
+            console.error('PayOS init error:', e.message);
+            return null;
+        }
     }
     return payosInstance;
 };
@@ -149,35 +154,37 @@ const createPayOSPayment = async (req, res) => {
             });
         }
 
-        // Tạo mã đơn hàng PayOS (tối đa 25 ký tự)
-        const payosOrderCode = `PAY${Date.now()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-        
+        // Tạo mã đơn hàng PayOS (orderCode phải là number, tối đa 10 chữ số)
+        const payosOrderCode = Number(`${Date.now()}${Math.random().toString(36).substring(2, 6)}`.slice(0, 10));
+
         // Lưu mã PayOS vào đơn hàng
         order.payosOrderCode = payosOrderCode;
+        order.paymentExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
         await order.save();
 
         // Tạo payment link
         const paymentData = {
             orderCode: payosOrderCode,
             amount: Math.round(order.totalPrice), // PayOS yêu cầu số nguyên
-            description: `Thanh toan don hang ${order.orderNumber}`,
-            customerName: order.shippingAddress?.fullName || req.user.fullName || 'Khach hang',
-            customerEmail: req.user.email || '',
-            customerPhone: order.shippingAddress?.phone || '',
-            returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return`,
-            cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/cancel?orderId=${order._id}`,
+            description: `TT ${order.orderNumber}`.slice(0, 25),
+            buyerName: order.shippingAddress?.fullName || req.user.fullName || 'Khach hang',
+            buyerEmail: req.user.email || '',
+            buyerPhone: order.shippingAddress?.phone || '',
+            returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${order._id}`,
+            cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?payment=cancelled&orderId=${order._id}`,
         };
 
-        const response = await payos.createPaymentLink(paymentData);
+        const response = await payos.paymentRequests.create(paymentData);
 
-        if (response.data && response.data.checkoutUrl) {
+        if (response && response.checkoutUrl) {
             return res.status(200).json({
                 success: true,
                 message: 'Tạo link thanh toán thành công',
                 data: {
-                    checkoutUrl: response.data.checkoutUrl,
-                    paymentId: response.data.paymentId,
-                    orderCode: payosOrderCode
+                    checkoutUrl: response.checkoutUrl,
+                    paymentId: response.paymentLinkId,
+                    orderCode: payosOrderCode,
+                    qrCode: response.qrCode,
                 }
             });
         }
@@ -189,13 +196,13 @@ const createPayOSPayment = async (req, res) => {
 
     } catch (error) {
         console.error('PayOS create payment error:', error);
-        
+
         // Xử lý lỗi từ PayOS
-        if (error.response) {
-            return res.status(error.response.status || 400).json({
+        if (error.status || error.code) {
+            return res.status(error.status || 400).json({
                 success: false,
-                message: error.response.data?.message || 'Lỗi từ PayOS',
-                error: error.response.data
+                message: error.desc || error.message || 'Lỗi từ PayOS',
+                error: error.message
             });
         }
 
@@ -314,7 +321,9 @@ const createPayOSPaymentWithCart = async (req, res) => {
             totalPrice,
             totalQuantity: checkoutItems.reduce((sum, item) => sum + item.quantity, 0),
             orderedAt: new Date(),
-            estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+            estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+            // Thanh toán PayOS hết hạn sau 30 phút
+            paymentExpiresAt: new Date(Date.now() + 30 * 60 * 1000)
         });
 
         await order.save();
@@ -329,8 +338,8 @@ const createPayOSPaymentWithCart = async (req, res) => {
             });
         }
 
-        // Tạo mã đơn hàng PayOS
-        const payosOrderCode = `PAY${Date.now()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        // Tạo mã đơn hàng PayOS (orderCode phải là number, tối đa 10 chữ số)
+        const payosOrderCode = Number(`${Date.now()}${Math.random().toString(36).substring(2, 6)}`.slice(0, 10));
         order.payosOrderCode = payosOrderCode;
         await order.save();
 
@@ -338,17 +347,17 @@ const createPayOSPaymentWithCart = async (req, res) => {
         const paymentData = {
             orderCode: payosOrderCode,
             amount: Math.round(totalPrice),
-            description: `Thanh toan don hang ${order.orderNumber}`,
-            customerName: shippingAddress?.fullName || req.user.fullName || 'Khach hang',
-            customerEmail: req.user.email || '',
-            customerPhone: shippingAddress?.phone || '',
-            returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return`,
-            cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/cancel?orderId=${order._id}`,
+            description: `TT ${order.orderNumber}`.slice(0, 25),
+            buyerName: shippingAddress?.fullName || req.user.fullName || 'Khach hang',
+            buyerEmail: req.user.email || '',
+            buyerPhone: shippingAddress?.phone || '',
+            returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${order._id}`,
+            cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?payment=cancelled&orderId=${order._id}`,
         };
 
-        const response = await payos.createPaymentLink(paymentData);
+        const response = await payos.paymentRequests.create(paymentData);
 
-        if (response.data && response.data.checkoutUrl) {
+        if (response && response.checkoutUrl) {
             // Xóa khỏi giỏ các sản phẩm vừa tạo thanh toán, giữ lại item chưa chọn.
             if (!isBuyNow) {
                 await removeCheckoutItemsFromCart(cart, checkoutItems, selectedProducts, selectedProductIds);
@@ -359,9 +368,10 @@ const createPayOSPaymentWithCart = async (req, res) => {
                 message: 'Tạo link thanh toán thành công',
                 data: {
                     orderId: order._id,
-                    checkoutUrl: response.data.checkoutUrl,
-                    paymentId: response.data.paymentId,
-                    orderCode: payosOrderCode
+                    checkoutUrl: response.checkoutUrl,
+                    paymentId: response.paymentLinkId,
+                    orderCode: payosOrderCode,
+                    qrCode: response.qrCode,
                 }
             });
         }
@@ -376,11 +386,11 @@ const createPayOSPaymentWithCart = async (req, res) => {
     } catch (error) {
         console.error('PayOS create payment with cart error:', error);
 
-        if (error.response) {
-            return res.status(error.response.status || 400).json({
+        if (error.status || error.code) {
+            return res.status(error.status || 400).json({
                 success: false,
-                message: error.response.data?.message || 'Lỗi từ PayOS',
-                error: error.response.data
+                message: error.desc || error.message || 'Lỗi từ PayOS',
+                error: error.message
             });
         }
 
@@ -399,12 +409,14 @@ const createPayOSPaymentWithCart = async (req, res) => {
  */
 const payOSWebhook = async (req, res) => {
     try {
-        const { orderCode, code, status, amount } = req.body;
+        // PayOS v2: body chứa { success, code, data: { orderCode, amount, ... } }
+        const { success, code, data } = req.body;
+        const { orderCode, amount } = data || {};
 
         console.log('PayOS Webhook received:', req.body);
 
-        // Tìm đơn hàng theo mã PayOS
-        const order = await Order.findOne({ payosOrderCode: orderCode });
+        // Tìm đơn hàng theo mã PayOS (orderCode từ webhook là number)
+        const order = await Order.findOne({ payosOrderCode: Number(orderCode) });
 
         if (!order) {
             console.log('Order not found for PayOS orderCode:', orderCode);
@@ -414,8 +426,8 @@ const payOSWebhook = async (req, res) => {
             });
         }
 
-        // Xử lý theo trạng thái thanh toán
-        if (code === '00' && status === 'PAID') {
+        // Xử lý theo trạng thái thanh toán (PayOS v2: success=true, code='00')
+        if (success === true && code === '00') {
             // Thanh toán thành công
             if (order.paymentStatus !== 'paid') {
                 order.paymentStatus = 'paid';
@@ -444,18 +456,28 @@ const payOSWebhook = async (req, res) => {
                 // KHÔNG gọi payout ở đây - payout chỉ gọi khi đơn DELIVERED
                 // Điều này đảm bảo vendor chỉ nhận tiền khi giao hàng thành công
             }
-        } else if (status === 'CANCELLED' || status === 'FAILED') {
-            // Thanh toán thất bại hoặc bị hủy
-            order.paymentStatus = 'failed';
-            order.status = ORDER_STATUS.CANCELLED;
-            order.cancelledAt = new Date();
-            order.statusHistory.push({
-                status: ORDER_STATUS.CANCELLED,
-                timestamp: new Date(),
-                note: 'Thanh toán PayOS thất bại/bị hủy'
-            });
-            await order.save();
-            console.log('Order payment failed/cancelled:', order.orderNumber);
+        } else if (success === false || (code && code !== '00')) {
+            // Thanh toán thất bại hoặc bị hủy tại cổng PayOS
+            if (order.paymentStatus !== 'paid') {
+                order.paymentStatus = 'failed';
+                order.status = ORDER_STATUS.CANCELLED;
+                order.cancelledAt = new Date();
+                order.statusHistory.push({
+                    status: ORDER_STATUS.CANCELLED,
+                    timestamp: new Date(),
+                    note: 'Thanh toán PayOS thất bại/bị hủy tại cổng thanh toán'
+                });
+                await order.save();
+
+                // Hoàn tồn kho
+                for (const item of order.products) {
+                    await Product.findByIdAndUpdate(item.product, {
+                        $inc: { quantity: item.quantity }
+                    });
+                }
+
+                console.log('Order payment failed/cancelled:', order.orderNumber);
+            }
         }
 
         return res.status(200).json({ 
@@ -479,15 +501,13 @@ const payOSWebhook = async (req, res) => {
  */
 const payOSReturn = async (req, res) => {
     try {
-        const { orderId, orderCode, status, code } = req.query;
+        const { orderId, success, code } = req.query;
 
         console.log('PayOS Return URL received:', req.query);
 
-        if (code === '00' || status === 'PAID') {
-            // Thanh toán thành công - chuyển hướng về trang thành công
+        if (success === 'true' || success === true || code === '00') {
             return res.redirect(`${PAYOS_CLIENT_URL}/order-success/${orderId}?payment=success`);
         } else {
-            // Thanh toán thất bại - chuyển hướng về trang thất bại
             return res.redirect(`${PAYOS_CLIENT_URL}/payment/payos/failed?orderId=${orderId}`);
         }
 

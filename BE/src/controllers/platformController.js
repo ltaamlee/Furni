@@ -8,6 +8,8 @@ const PlatformConfig = require('../models/platformConfig');
 const Wallet = require('../models/wallet');
 const Transaction = require('../models/transaction');
 const payoutService = require('../services/payoutService');
+const path = require('path');
+const fs = require('fs');
 const { CONFIG_KEYS } = PlatformConfig;
 
 /**
@@ -88,6 +90,35 @@ const updatePlatformConfig = async (req, res) => {
             }
         }
 
+        // Validate boolean fields
+        if ([CONFIG_KEYS.PAYOUT_AUTO_ENABLED, CONFIG_KEYS.PAYOS_WEBHOOK_ENABLED, CONFIG_KEYS.WALLET_ENABLED, CONFIG_KEYS.PAYOS_QR_ENABLED].includes(key)) {
+            if (typeof value !== 'boolean') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Giá trị phải là true hoặc false'
+                });
+            }
+        }
+
+        // Validate numeric fields for wallet
+        if (key === CONFIG_KEYS.WALLET_MIN_DEPOSIT) {
+            if (value < 1000) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Số tiền nạp tối thiểu phải >= 1,000đ'
+                });
+            }
+        }
+
+        if (key === CONFIG_KEYS.WALLET_MIN_WITHDRAW) {
+            if (value < 10000) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Số tiền rút ví tối thiểu phải >= 10,000đ'
+                });
+            }
+        }
+
         const config = await PlatformConfig.setValue(key, value, req.user._id);
 
         res.status(200).json({
@@ -99,6 +130,70 @@ const updatePlatformConfig = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Lỗi khi cập nhật cấu hình',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Upload file cấu hình (logo, QR code, favicon)
+ * @route POST /api/admin/platform/upload
+ * @access Private/Admin
+ */
+const uploadPlatformFile = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'Không có file được upload'
+            });
+        }
+
+        const { fieldname } = req.file;
+        
+        // Validate field name
+        const validFields = ['logo', 'favicon', 'qr_image'];
+        if (!validFields.includes(fieldname)) {
+            // Delete uploaded file
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({
+                success: false,
+                message: 'Field name không hợp lệ. Chỉ chấp nhận: logo, favicon, qr_image'
+            });
+        }
+
+        // Map field name to config key
+        const fieldToConfigKey = {
+            'logo': CONFIG_KEYS.PLATFORM_LOGO,
+            'favicon': CONFIG_KEYS.PLATFORM_FAVICON,
+            'qr_image': CONFIG_KEYS.PLATFORM_QR_IMAGE
+        };
+
+        // Build URL - use relative path from uploads folder
+        const fileUrl = `/uploads/platform/${req.file.filename}`;
+
+        // Save to config
+        await PlatformConfig.setValue(fieldToConfigKey[fieldname], fileUrl, req.user._id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Upload thành công',
+            data: {
+                url: fileUrl,
+                filename: req.file.filename,
+                field: fieldname
+            }
+        });
+    } catch (error) {
+        // Clean up file if error
+        if (req.file && req.file.path) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (e) { /* ignore */ }
+        }
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi upload file',
             error: error.message
         });
     }
@@ -274,6 +369,7 @@ const getPlatformTransactions = async (req, res) => {
 module.exports = {
     getPlatformConfig,
     updatePlatformConfig,
+    uploadPlatformFile,
     getFinanceOverview,
     runManualPayout,
     getPlatformTransactions

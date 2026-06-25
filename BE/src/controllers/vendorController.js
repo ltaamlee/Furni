@@ -960,7 +960,7 @@ const deleteNotification = async (req, res) => {
 };
 
 // ── Cấu hình shop (Settings) ─────────────────────────────────
-const SHOP_FIELDS = ['name', 'description', 'phone', 'email', 'address', 'logo', 'banner', 'isActive'];
+const SHOP_FIELDS = ['name', 'description', 'phone', 'email', 'address', 'logo', 'banner', 'isActive', 'provinceCode', 'provinceName'];
 // @desc    Cập nhật thông tin shop
 // @route   PUT /api/vendor/shop
 // @access  Private/Vendor
@@ -971,17 +971,6 @@ const updateMyShop = async (req, res) => {
 
         SHOP_FIELDS.forEach((f) => { if (req.body[f] !== undefined) shop[f] = req.body[f]; });
         if (req.body.slug) shop.slug = req.body.slug; // setter tự slugify
-
-        // Cập nhật cấu hình nhà vận chuyển (GHN token riêng của shop)
-        if (req.body.shippingProviders) {
-            const sp = req.body.shippingProviders;
-            if (!shop.shippingProviders) {
-                shop.shippingProviders = {};
-            }
-            if (sp.GHN) {
-                shop.shippingProviders.GHN = { ...shop.shippingProviders.GHN, ...sp.GHN };
-            }
-        }
 
         await shop.save();
 

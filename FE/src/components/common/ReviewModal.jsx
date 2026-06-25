@@ -20,12 +20,15 @@ const ReviewModal = ({ isOpen, onClose, product, onReviewCreated }) => {
             setLoadingProducts(true);
             const res = await getPurchasableProductsApi();
             if (res.success) {
-                const filtered = res.data.products.filter(
-                    p => p.product._id === product?._id
+                const filtered = (res.data.products || []).filter(
+                    p => p.product?._id === product?._id
                 );
                 setPurchasableProducts(filtered);
+                // Auto-select the first purchasable order
                 if (filtered.length > 0) {
                     setSelectedOrder(filtered[0].orderId);
+                } else {
+                    setSelectedOrder(null);
                 }
             }
         } catch (error) {
@@ -38,7 +41,7 @@ const ReviewModal = ({ isOpen, onClose, product, onReviewCreated }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!selectedOrder) {
-            alert("Không tìm thấy đơn hàng để đánh giá!");
+            alert("Bạn chưa chọn đơn hàng để đánh giá!");
             return;
         }
 
@@ -52,7 +55,7 @@ const ReviewModal = ({ isOpen, onClose, product, onReviewCreated }) => {
             });
 
             if (res.success) {
-                alert(`Cảm ơn bạn đã đánh giá!\n${res.data.reward?.type === 'coupon' ? `Bạn nhận được mã giảm giá: ${res.data.reward.code}` : `Bạn nhận được ${res.data.reward?.value} điểm tích lũy!`}`);
+                alert(`Cảm ơn bạn đã đánh giá!${res.data.reward?.type === 'coupon' ? `\nBạn nhận được mã giảm giá: ${res.data.reward.code}` : `\nBạn nhận được ${res.data.reward?.value} điểm tích lũy!`}`);
                 onReviewCreated?.(res.data.review);
                 onClose();
                 setRating(5);
@@ -95,24 +98,48 @@ const ReviewModal = ({ isOpen, onClose, product, onReviewCreated }) => {
                     ) : purchasableProducts.length === 0 ? (
                         <div className="text-center py-8">
                             <div className="text-5xl mb-4">📦</div>
-                            <p className="text-gray-600">Bạn chưa mua sản phẩm này hoặc đơn hàng chưa được giao.</p>
+                            <p className="text-gray-600 font-medium">Bạn chưa mua sản phẩm này hoặc đơn hàng chưa được giao.</p>
+                            <p className="text-sm text-gray-400 mt-2">Chỉ những đơn hàng đã giao mới có thể đánh giá.</p>
                         </div>
                     ) : (
                         <form onSubmit={handleSubmit} className="space-y-5">
-                            {/* Product Info */}
+                            {/* Product Info + Order Selector */}
                             <div className="flex gap-4 p-4 bg-[#FAF8F5] rounded-xl">
                                 <img
                                     src={product?.images?.[0] || "/placeholder.png"}
                                     alt={product?.name}
-                                    className="w-20 h-20 object-cover rounded-lg"
+                                    className="w-20 h-20 object-cover rounded-lg shrink-0"
                                 />
-                                <div>
+                                <div className="flex-1 min-w-0">
                                     <h3 className="font-semibold text-gray-800 line-clamp-2">{product?.name}</h3>
-                                    <p className="text-sm text-gray-500 mt-1">
-                                        Đơn hàng: {purchasableProducts[0]?.orderNumber}
-                                    </p>
+                                    {purchasableProducts.length > 0 && (
+                                        <p className="text-sm text-[#B86B05] mt-1 font-medium">
+                                            Đơn #{purchasableProducts.find(p => p.orderId === selectedOrder)?.orderNumber
+                                                || purchasableProducts[0]?.orderNumber}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
+
+                            {/* Order Selector — always show when there are purchasable orders */}
+                            {purchasableProducts.length >= 1 && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Đơn hàng để đánh giá
+                                    </label>
+                                    <select
+                                        value={selectedOrder || ""}
+                                        onChange={(e) => setSelectedOrder(e.target.value)}
+                                        className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#8B4513] focus:border-transparent text-sm"
+                                    >
+                                        {purchasableProducts.map((p) => (
+                                            <option key={p.orderId} value={p.orderId}>
+                                                Đơn #{p.orderNumber} — {p.quantity} sản phẩm
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
 
                             {/* Star Rating */}
                             <div>
@@ -166,7 +193,7 @@ const ReviewModal = ({ isOpen, onClose, product, onReviewCreated }) => {
                             <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
                                 <p className="text-sm text-green-700">
                                     <span className="font-semibold">🎁 Phần thưởng:</span>{" "}
-                                    {rating >= 4 
+                                    {rating >= 4
                                         ? "Bạn sẽ nhận được mã giảm giá 10.000đ!"
                                         : "Bạn sẽ nhận được 50 điểm tích lũy!"}
                                 </p>
@@ -175,7 +202,7 @@ const ReviewModal = ({ isOpen, onClose, product, onReviewCreated }) => {
                             {/* Submit Button */}
                             <button
                                 type="submit"
-                                disabled={loading}
+                                disabled={loading || !selectedOrder}
                                 className="w-full bg-[#8B4513] text-white py-3 rounded-xl font-semibold hover:bg-[#A0522D] transition disabled:opacity-50 flex items-center justify-center gap-2"
                             >
                                 {loading ? (

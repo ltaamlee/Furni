@@ -132,8 +132,8 @@ const MyReviewsPage = () => {
                                                 </button>
                                             </div>
 
-                                            {review.comment && (
-                                                <p className="text-sm text-[#6B5C4C] mt-3 leading-relaxed">{review.comment}</p>
+                                            {review.content && (
+                                                <p className="text-sm text-[#6B5C4C] mt-3 leading-relaxed">{review.content}</p>
                                             )}
 
                                             {review.images && review.images.length > 0 && (

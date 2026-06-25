@@ -1,17 +1,34 @@
 const Cart = require('../models/cart');
 const Product = require('../models/product');
 const Shop = require('../models/Shop');
-const { currentSalePrice } = require('../utils/pricing');
+const { currentSalePrice, attachPricing } = require('../utils/pricing');
 
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
+// Middleware-like guard for customer-only routes
+const requireCustomer = (req, res, next) => {
+    if (req.user.role === 'vendor' || req.user.role === 'admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Tài khoản này không có quyền truy cập giỏ hàng'
+        });
+    }
+    next();
+};
+
 // @desc    Get user's cart with shop and promotion info
 // @route   GET /api/cart
-// @access  Private
+// @access  Private / Customer only
 const getCart = async (req, res) => {
+    if (req.user.role === 'vendor' || req.user.role === 'admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Tài khoản này không có quyền truy cập giỏ hàng'
+        });
+    }
     try {
         const cart = await Cart.findOne({ user: req.user._id })
-            .populate('products.product', 'name images price discount shop promotion status isActive');
+            .populate('products.product', 'name images price discount discountPercent shop promotion status isActive variants');
 
         if (!cart) {
             return res.status(200).json({
@@ -25,16 +42,26 @@ const getCart = async (req, res) => {
         }
 
         // Transform cart items to include shop info and calculate discount
+        // Luôn re-evaluate giá KM hiện tại để tránh hiển thị giá cũ khi KM đã hết hạn
+
+        // Chuyển populated products sang plain object và gắn pricing
+        const populatedPlain = cart.products.map(item => item.product?.toObject?.() || null).filter(Boolean);
+        await attachPricing(populatedPlain);
+        const productMap = Object.fromEntries(populatedPlain.map(p => [p._id.toString(), p]));
+
         const transformedProducts = (await Promise.all(cart.products.map(async (item) => {
-            const product = item.product;
+            const product = productMap[(item.product._id || item.product).toString()];
             if (!product || product.isActive === false || !PUBLIC_PRODUCT_STATUSES.includes(product.status)) {
                 return null;
             }
-            const discount = product?.discount || 0;
-            const originalPrice = product?.price || item.price;
-            const discountedPrice = discount > 0 
-                ? Math.round(originalPrice * (1 - discount / 100)) 
-                : originalPrice;
+            // Ưu tiên discountPercent từ attachPricing, fallback về discount field thủ công
+            const discount = product.discountPercent || product.discount || 0;
+            // Variant price: nếu item có variant đã lưu thì dùng, không thì dùng product.price
+            const variantBasePrice = item.variantPrice || null;
+            const originalPrice = variantBasePrice ?? product.price;
+
+            // Luôn dùng currentSalePrice để lấy giá KM mới nhất từ Promotion model
+            const salePrice = await currentSalePrice(product, variantBasePrice);
 
             // Get shop info
             let shopInfo = {
@@ -62,7 +89,7 @@ const getCart = async (req, res) => {
             return {
                 product: item.product._id,
                 quantity: item.quantity,
-                price: discountedPrice,
+                price: salePrice,
                 originalPrice: originalPrice,
                 discount: discount,
                 name: product?.name || item.name,
@@ -71,7 +98,10 @@ const getCart = async (req, res) => {
                 shopName: shopInfo.name,
                 shopAvatar: shopInfo.avatar,
                 shopIsActive: shopInfo.isActive,
-                addedAt: item.addedAt || cart.createdAt
+                promotionId: product.promotion?._id || item.promotionId || null,
+                promotionName: product.promotion?.name || item.promotionName || null,
+                addedAt: item.addedAt || cart.createdAt,
+                ...(item.variant ? { variant: item.variant, variantPrice: item.variantPrice, variantStock: item.variantStock } : {})
             };
         }))).filter(Boolean);
 
@@ -102,10 +132,16 @@ const getCart = async (req, res) => {
 
 // @desc    Add product to cart
 // @route   POST /api/cart
-// @access  Private
+// @access  Private / Customer only
 const addToCart = async (req, res) => {
+    if (req.user.role === 'vendor' || req.user.role === 'admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Tài khoản này không có quyền truy cập giỏ hàng'
+        });
+    }
     try {
-        const { productId, quantity = 1 } = req.body;
+        const { productId, quantity = 1, variantIndex = null } = req.body;
 
         const product = await Product.findById(productId).populate('shop', 'name avatar logo status isActive');
         if (!product) {
@@ -139,19 +175,23 @@ const addToCart = async (req, res) => {
             });
         }
 
-        if (product.quantity < quantity) {
+        // Kiểm tra variant hoặc sản phẩm chính
+        const selectedVariant = variantIndex != null ? product.variants?.[variantIndex] : null;
+        const variantStock = selectedVariant ? selectedVariant.stock : product.quantity;
+        if (variantStock < quantity) {
             return res.status(400).json({
                 success: false,
-                message: 'Số lượng sản phẩm trong kho không đủ'
+                message: selectedVariant
+                    ? `Chỉ còn ${variantStock} sản phẩm "${selectedVariant.name}" trong kho`
+                    : `Chỉ còn ${product.quantity} sản phẩm trong kho`
             });
         }
 
-        // Calculate discount
-        const discount = product.discount || 0;
-        const originalPrice = product.price;
-        const discountedPrice = discount > 0 
-            ? Math.round(originalPrice * (1 - discount / 100)) 
-            : originalPrice;
+        // Discount: ưu tiên discountPercent từ attachPricing, fallback về discount field thủ công
+        const discount = product.discountPercent || product.discount || 0;
+        // Original price: variant price if selected, else product price
+        const basePrice = selectedVariant ? selectedVariant.price : product.price;
+        const originalPrice = basePrice;
 
         // Get shop info
         const shopInfo = product.shop ? {
@@ -159,8 +199,9 @@ const addToCart = async (req, res) => {
             name: product.shop.name,
             avatar: product.shop.avatar || product.shop.logo
         } : null;
-        // Giá tại thời điểm thêm giỏ = đã trừ khuyến mãi đang chạy (nếu có)
-        const salePrice = await currentSalePrice(product);
+
+        // Giá sale: dùng currentSalePrice để hỗ trợ basePrice (variant) và maxDiscount cap
+        const salePrice = await currentSalePrice(product, basePrice);
 
         let cart = await Cart.findOne({ user: req.user._id });
 
@@ -170,14 +211,16 @@ const addToCart = async (req, res) => {
                 products: [{
                     product: productId,
                     quantity,
-                    price: discountedPrice,
+                    price: salePrice,
                     originalPrice: originalPrice,
                     name: product.name,
                     image: product.images[0] || null,
                     shop: shopInfo?._id,
                     shopName: shopInfo?.name || 'Cửa hàng',
                     shopAvatar: shopInfo?.avatar || null,
-                    discount: discount
+                    discount: discount,
+                    promotionId: product.promotion?._id || product.promotionId || null,
+                    promotionName: product.promotion?.name || product.promotionName || null,
                 }]
             });
         } else {
@@ -187,19 +230,28 @@ const addToCart = async (req, res) => {
 
             if (existingProduct) {
                 const newQuantity = existingProduct.quantity + quantity;
-                if (newQuantity > product.quantity) {
+                if (newQuantity > variantStock) {
                     return res.status(400).json({
                         success: false,
-                        message: `Chỉ còn ${product.quantity} sản phẩm trong kho`
+                        message: `Chỉ còn ${variantStock} sản phẩm trong kho`
                     });
                 }
                 existingProduct.quantity = newQuantity;
-                existingProduct.price = salePrice; // cập nhật giá KM mới nhất
+                existingProduct.price = salePrice;
+                existingProduct.originalPrice = originalPrice;
+                existingProduct.discount = discount;
+                existingProduct.promotionId = product.promotion?._id || product.promotionId || null;
+                existingProduct.promotionName = product.promotion?.name || product.promotionName || null;
+                if (selectedVariant) {
+                    existingProduct.variant = selectedVariant.name || null;
+                    existingProduct.variantPrice = selectedVariant.price || null;
+                    existingProduct.variantStock = selectedVariant.stock || 0;
+                }
             } else {
                 cart.products.push({
                     product: productId,
                     quantity,
-                    price: discountedPrice,
+                    price: salePrice,
                     originalPrice: originalPrice,
                     name: product.name,
                     image: product.images[0] || null,
@@ -207,7 +259,14 @@ const addToCart = async (req, res) => {
                     shopName: shopInfo?.name || 'Cửa hàng',
                     shopAvatar: shopInfo?.avatar || null,
                     discount: discount,
-                    addedAt: new Date()
+                    promotionId: product.promotion?._id || product.promotionId || null,
+                    promotionName: product.promotion?.name || product.promotionName || null,
+                    addedAt: new Date(),
+                    ...(selectedVariant ? {
+                        variant: selectedVariant.name || null,
+                        variantPrice: selectedVariant.price || null,
+                        variantStock: selectedVariant.stock || 0,
+                    } : {})
                 });
             }
         }
@@ -231,8 +290,14 @@ const addToCart = async (req, res) => {
 
 // @desc    Update product quantity in cart
 // @route   PUT /api/cart/:productId
-// @access  Private
+// @access  Private / Customer only
 const updateCartItem = async (req, res) => {
+    if (req.user.role === 'vendor' || req.user.role === 'admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Tài khoản này không có quyền truy cập giỏ hàng'
+        });
+    }
     try {
         const { productId } = req.params;
         const { quantity } = req.body;
@@ -252,10 +317,11 @@ const updateCartItem = async (req, res) => {
             });
         }
 
-        if (quantity > product.quantity) {
+        const stock = cartItem.variantStock ?? product.quantity;
+        if (quantity > stock) {
             return res.status(400).json({
                 success: false,
-                message: `Chỉ còn ${product.quantity} sản phẩm trong kho`
+                message: `Chỉ còn ${stock} sản phẩm trong kho`
             });
         }
 
@@ -279,11 +345,11 @@ const updateCartItem = async (req, res) => {
         }
 
         cartItem.quantity = quantity;
-        // Recalculate price from current promotion (latest flash sale price)
-        const salePrice = await currentSalePrice(product);
+        // Re-evaluate giá KM hiện tại (hỗ trợ variant)
+        const salePrice = await currentSalePrice(product, cartItem.variantPrice || null);
         cartItem.price = salePrice;
-        cartItem.originalPrice = product.price;
-        cartItem.discount = product.discount || 0;
+        cartItem.originalPrice = cartItem.variantPrice ?? product.price;
+        cartItem.discount = product.discountPercent || product.discount || 0;
 
         await cart.save();
 
@@ -304,8 +370,14 @@ const updateCartItem = async (req, res) => {
 
 // @desc    Remove product from cart
 // @route   DELETE /api/cart/:productId
-// @access  Private
+// @access  Private / Customer only
 const removeFromCart = async (req, res) => {
+    if (req.user.role === 'vendor' || req.user.role === 'admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Tài khoản này không có quyền truy cập giỏ hàng'
+        });
+    }
     try {
         const { productId } = req.params;
 
@@ -348,8 +420,14 @@ const removeFromCart = async (req, res) => {
 
 // @desc    Clear cart
 // @route   DELETE /api/cart
-// @access  Private
+// @access  Private / Customer only
 const clearCart = async (req, res) => {
+    if (req.user.role === 'vendor' || req.user.role === 'admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Tài khoản này không có quyền truy cập giỏ hàng'
+        });
+    }
     try {
         const cart = await Cart.findOne({ user: req.user._id });
         if (!cart) {

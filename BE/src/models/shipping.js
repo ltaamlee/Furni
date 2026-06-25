@@ -10,65 +10,15 @@ const SHIPPING_STATUS = {
     RETURNED: 'returned'          // Hoàn hàng
 };
 
-const shippingProviderSchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: true
-    },
-    code: {
-        type: String,
-        required: true,
-        unique: true
-    },
-    logo: {
-        type: String,
-        default: null
-    },
-    description: {
-        type: String,
-        default: ''
-    },
-    isActive: {
-        type: Boolean,
-        default: true
-    },
-    baseFee: {
-        type: Number,
-        default: 0
-    },
-    feePerKm: {
-        type: Number,
-        default: 0
-    },
-    freeThreshold: {
-        type: Number,
-        default: 500000
-    },
-    estimatedDays: {
-        min: {
-            type: Number,
-            default: 2
-        },
-        max: {
-            type: Number,
-            default: 5
-        }
-    }
-});
-
 const shippingOrderSchema = new mongoose.Schema({
     order: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Order',
         required: true
     },
-    provider: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'ShippingProvider'
-    },
     providerCode: {
         type: String,
-        required: true
+        default: 'GHN'
     },
     trackingNumber: {
         type: String,
@@ -253,11 +203,9 @@ shippingOrderSchema.virtual('id').get(function() {
 shippingOrderSchema.set('toJSON', { virtuals: true });
 shippingOrderSchema.set('toObject', { virtuals: true });
 
-const ShippingProvider = mongoose.model('ShippingProvider', shippingProviderSchema);
 const ShippingOrder = mongoose.model('ShippingOrder', shippingOrderSchema);
 
 module.exports = {
-    ShippingProvider,
     ShippingOrder,
     SHIPPING_STATUS
 };

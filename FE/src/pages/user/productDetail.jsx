@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import {
     getProductByIdApi,
     getProductsByCategoryApi,
@@ -74,6 +74,7 @@ const ProductDetailPage = () => {
     const { slug } = useParams();
     const navigate = useNavigate();
     const { showToast } = useToast();
+    const [searchParams, setSearchParams] = useSearchParams();
 
     const [product, setProduct] = useState(null);
     const [relatedProducts, setRelatedProducts] = useState([]);
@@ -90,6 +91,15 @@ const ProductDetailPage = () => {
     const [reviewModalOpen, setReviewModalOpen] = useState(false);
 
     const [selectedVariant, setSelectedVariant] = useState(null);
+
+    // Auto-open review modal when navigated from order history with ?write-review=true
+    useEffect(() => {
+        if (searchParams.get("write-review") === "true") {
+            setReviewModalOpen(true);
+            // Remove the param from URL so refresh doesn't re-open
+            setSearchParams({});
+        }
+    }, []);
 
     /* ── data fetching ────────────────────────────────────── */
     useEffect(() => {
@@ -176,10 +186,6 @@ const ProductDetailPage = () => {
             requireLogin("Bạn cần đăng nhập để thêm vào giỏ hàng. Đăng nhập ngay?");
             return;
         }
-        if (product.shop?.isActive === false) {
-            showToast("Shop đang tạm nghỉ, sản phẩm hiện chưa thể mua.", "warning");
-            return;
-        }
         try {
             setAdding(true);
             await addToCartApi(product._id, quantity);
@@ -200,13 +206,14 @@ const ProductDetailPage = () => {
             requireLogin("Bạn cần đăng nhập để mua hàng. Đăng nhập ngay?");
             return;
         }
-        if (product.shop?.isActive === false) {
-            showToast("Shop đang tạm nghỉ, sản phẩm hiện chưa thể mua.", "warning");
+        // Validate stock
+        if (quantity > displayStock) {
+            showToast(`Chỉ còn ${displayStock} sản phẩm trong kho`, "error");
             return;
         }
         try {
             setAdding(true);
-            // Store "mua ngay" flag so checkout knows to skip step 1
+            // Store "mua ngay" flag - NO add to cart, checkout will handle it directly
             localStorage.setItem("buy_now", JSON.stringify({
                 productId: product._id,
                 quantity,
@@ -305,7 +312,6 @@ const ProductDetailPage = () => {
 
     const shop = product.shop;
     const shopInitial = shop?.name?.charAt(0)?.toUpperCase() || "S";
-    const isShopPaused = shop?.isActive === false;
 
     /* ── render ───────────────────────────────────────────── */
     return (
@@ -351,8 +357,8 @@ const ProductDetailPage = () => {
                                         )}
                                     </div>
                                     <div className="flex items-center gap-1.5 text-xs text-[#A8896A] mt-0.5">
-                                        <span className={`w-1.5 h-1.5 rounded-full ${isShopPaused ? "bg-amber-500" : "bg-green-500"}`} />
-                                        {isShopPaused ? "Tạm nghỉ" : "Đang hoạt động"}
+                                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                                        Đang hoạt động
                                     </div>
                                     {shop.address && (
                                         <div className="flex items-center gap-1 text-xs text-[#A8896A] mt-1 truncate">
@@ -584,7 +590,7 @@ const ProductDetailPage = () => {
                                         <div className="flex flex-col sm:flex-row gap-3">
                                             <button
                                                 onClick={handleAddToCart}
-                                                disabled={adding || isShopPaused}
+                                                disabled={adding}
                                                 className={`flex-1 py-4 rounded-xl font-bold text-base transition-all flex items-center justify-center gap-2.5 disabled:opacity-70 active:scale-[0.98] ${
                                                     addedSuccess
                                                         ? "bg-green-600 text-white"
@@ -595,8 +601,6 @@ const ProductDetailPage = () => {
                                                     <><Spinner className="border-white" /> Đang thêm...</>
                                                 ) : addedSuccess ? (
                                                     <><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><path d="M5 13l4 4L19 7" /></svg> Đã thêm vào giỏ!</>
-                                                ) : isShopPaused ? (
-                                                    "Shop tạm nghỉ"
                                                 ) : (
                                                     <><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg> Thêm vào giỏ hàng</>
                                                 )}
@@ -604,10 +608,10 @@ const ProductDetailPage = () => {
 
                                             <button
                                                 onClick={handleBuyNow}
-                                                disabled={adding || isShopPaused}
+                                                disabled={adding}
                                                 className="px-8 py-4 border-2 border-[#B86B05] text-[#B86B05] rounded-xl font-bold hover:bg-[#B86B05] hover:text-white transition-all disabled:opacity-70 active:scale-[0.98]"
                                             >
-                                                {isShopPaused ? "Shop tạm nghỉ" : "Mua ngay"}
+                                                Mua ngay
                                             </button>
 
                                             <button

@@ -5,12 +5,15 @@ const EXTERNAL_API = 'https://provinces.open-api.vn/api';
 // Proxy: List all provinces
 const getProvincesHandler = async (req, res) => {
     try {
-        const response = await axios.get(`${EXTERNAL_API}/`, {
+        const response = await axios.get(`${EXTERNAL_API}/?depth=1`, {
             timeout: 10000,
         });
         res.status(200).json({
             success: true,
-            data: response.data,
+            data: response.data.map(p => ({
+                ProvinceID: p.code,
+                ProvinceName: p.name,
+            })),
         });
     } catch (error) {
         console.error('Error fetching provinces:', error.message);
@@ -32,12 +35,15 @@ const getDistrictsHandler = async (req, res) => {
                 message: 'Thiếu mã tỉnh/thành phố',
             });
         }
-        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}`, {
-            timeout: 10000,
+        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}?depth=2`, {
+            timeout: 15000,
         });
         res.status(200).json({
             success: true,
-            data: response.data.districts || [],
+            data: (response.data.districts || []).map(d => ({
+                DistrictID: d.code,
+                DistrictName: d.name,
+            })),
         });
     } catch (error) {
         console.error('Error fetching districts:', error.message);
@@ -64,7 +70,10 @@ const getWardsHandler = async (req, res) => {
         });
         res.status(200).json({
             success: true,
-            data: response.data.wards || [],
+            data: (response.data.wards || []).map(w => ({
+                WardCode: w.code,
+                WardName: w.name,
+            })),
         });
     } catch (error) {
         console.error('Error fetching wards:', error.message);
@@ -86,15 +95,18 @@ const getWardsByProvinceHandler = async (req, res) => {
                 message: 'Thiếu mã tỉnh/thành phố',
             });
         }
-        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}`, {
-            timeout: 15000,
+        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}?depth=3`, {
+            timeout: 20000,
         });
         const province = response.data;
-        // Flatten all wards from all districts (new 2-level structure: province → wards)
+        // Flatten all wards from all districts (depth=3 returns province → districts → wards)
         const allWards = (province.districts || []).flatMap((d) => d.wards || []);
         res.status(200).json({
             success: true,
-            data: allWards,
+            data: allWards.map(w => ({
+                WardCode: w.code,
+                WardName: w.name,
+            })),
         });
     } catch (error) {
         console.error('Error fetching wards by province:', error.message);

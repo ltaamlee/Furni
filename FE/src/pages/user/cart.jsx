@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useMemo } from "react";
+import { useState, useEffect, useContext, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "../../components/context/authContext";
 import {
@@ -9,6 +9,8 @@ import {
     validateCouponApi,
     getMyPointsApi,
     getShopVouchersApi,
+    getAddressesApi,
+    calculateShippingFeesApi,
 } from "../../utils/api";
 import { useToast } from "../../components/context/ToastContext";
 
@@ -32,9 +34,15 @@ const CartPage = () => {
     // Selection state
     const [selectedItems, setSelectedItems] = useState(new Set());
     const [selectAll, setSelectAll] = useState(false);
+    const [addresses, setAddresses] = useState([]);
+    const [selectedAddressId, setSelectedAddressId] = useState(null);
+    const [shippingFees, setShippingFees] = useState([]);
+    const [loadingShipping, setLoadingShipping] = useState(false);
+    const shippingDebounceRef = useRef(null);
 
     useEffect(() => {
         fetchCart();
+        fetchAddresses();
         if (auth?.user) {
             fetchCoupons();
             fetchLoyaltyPoints();
@@ -113,6 +121,42 @@ const CartPage = () => {
             console.error("Error fetching shop vouchers:", error);
         }
     };
+
+    const fetchAddresses = async () => {
+        try {
+            const res = await getAddressesApi();
+            if (res.success) {
+                const addrList = res.data || [];
+                setAddresses(addrList);
+                const def = addrList.find(a => a.isDefault) || addrList[0];
+                if (def) {
+                    setSelectedAddressId(def._id);
+                }
+            }
+        } catch (error) {
+            console.error("Error fetching addresses:", error);
+        }
+    };
+
+    const fetchShippingFees = async (provinceCode) => {
+        if (!provinceCode) return;
+        try {
+            setLoadingShipping(true);
+            const res = await calculateShippingFeesApi({
+                provinceCode,
+                orderTotal: selectedItemsData.itemsTotal,
+            });
+            if (res.success) {
+                setShippingFees(res.data.fees || []);
+            }
+        } catch (error) {
+            console.error("Error fetching shipping fees:", error);
+        } finally {
+            setLoadingShipping(false);
+        }
+    };
+
+    const selectedAddress = addresses.find(a => a._id === selectedAddressId);
 
     const handleUpdateQuantity = async (productId, newQuantity) => {
         if (newQuantity < 1) return;
@@ -324,6 +368,25 @@ const CartPage = () => {
         return { items, subtotal, itemsTotal, totalDiscount, totalQuantity };
     }, [selectedItems, cart]);
 
+    // Fetch shipping fees when items total or address changes (debounced 500ms)
+    useEffect(() => {
+        if (selectedAddress?.provinceCode && selectedItemsData.itemsTotal > 0) {
+            if (shippingDebounceRef.current) clearTimeout(shippingDebounceRef.current);
+            shippingDebounceRef.current = setTimeout(() => {
+                fetchShippingFees(String(selectedAddress.provinceCode));
+            }, 500);
+        }
+        return () => {
+            if (shippingDebounceRef.current) clearTimeout(shippingDebounceRef.current);
+        };
+    }, [selectedItemsData.itemsTotal, selectedAddressId, selectedAddress?.provinceCode]);
+
+    // Get the cheapest available shipping fee
+    const cheapestShippingFee = shippingFees.length > 0
+        ? Math.min(...shippingFees.map(f => f.isFree ? 0 : f.fee))
+        : null;
+    const shippingFee = cheapestShippingFee === 0 ? 0 : (cheapestShippingFee || 30000);
+
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#FAF7F4]">
@@ -336,7 +399,6 @@ const CartPage = () => {
     const originalSubtotal = selectedItemsData.subtotal; // giá gốc tổng (để hiển thị tiết kiệm)
     const itemsTotal = selectedItemsData.itemsTotal; // giá sau giảm tổng
     const totalDiscount = selectedItemsData.totalDiscount;
-    const shippingFee = originalSubtotal >= 500000 ? 0 : 30000;
     const pointsDiscount = usePoints ? Math.min(loyaltyPoints, itemsTotal) : 0;
     const discount = couponDiscount + pointsDiscount;
     const total = Math.max(0, itemsTotal + shippingFee - discount);
@@ -515,11 +577,11 @@ const CartPage = () => {
                                             {shop.items.map((item) => {
                                                 const productId = item.product._id || item.product;
                                                 const isSelected = selectedItems.has(productId);
+                                                // item.price đã là giá sale hiện tại (re-evaluated từ backend getCart)
                                                 const originalPrice = item.originalPrice || item.price;
                                                 const hasDiscount = item.discount > 0;
-                                                const discountedPrice = hasDiscount 
-                                                    ? Math.round(item.price * (1 - item.discount / 100)) 
-                                                    : item.price;
+                                                // Giá hiển thị = item.price (đã trừ KM), gạch ngang = originalPrice
+                                                const discountedPrice = item.price;
                                                 const isUnavailable = item.shopIsActive === false;
                                                 
                                                 return (
@@ -776,14 +838,20 @@ const CartPage = () => {
                                     <div className="flex justify-between">
                                         <span className="text-[#6B5C4C]">Phí vận chuyển</span>
                                         <span className="font-semibold text-[#1C1108]">
-                                            {shippingFee === 0 ? (
+                                            {loadingShipping ? (
+                                                <span className="text-[#A8896A]">Đang tính...</span>
+                                            ) : cheapestShippingFee === 0 ? (
                                                 <span className="text-green-600">Miễn phí</span>
-                                            ) : formatPrice(shippingFee)}
+                                            ) : cheapestShippingFee ? (
+                                                formatPrice(cheapestShippingFee)
+                                            ) : (
+                                                <span className="text-[#A8896A]">—</span>
+                                            )}
                                         </span>
                                     </div>
-                                    {shippingFee > 0 && selectedCount > 0 && (
-                                        <p className="text-xs text-green-600 bg-green-50 rounded-lg px-3 py-2">
-                                            Mua thêm {formatPrice(500000 - originalSubtotal)} để được miễn phí ship!
+                                    {cheapestShippingFee !== 0 && !loadingShipping && selectedCount > 0 && (
+                                        <p className="text-xs text-orange-500 bg-orange-50 rounded-lg px-3 py-2">
+                                            Mua thêm {formatPrice(500000 - itemsTotal)} để được miễn phí ship!
                                         </p>
                                     )}
                                     

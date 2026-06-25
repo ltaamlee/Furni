@@ -60,9 +60,9 @@ const getCartApi = () => {
     return axios.get(URL_API);
 }
 
-const addToCartApi = (productId, quantity) => {
+const addToCartApi = (productId, quantity, variantIndex = null) => {
     const URL_API = "/cart";
-    return axios.post(URL_API, { productId, quantity });
+    return axios.post(URL_API, { productId, quantity, variantIndex });
 }
 
 const updateCartItemApi = (productId, quantity) => {
@@ -271,21 +271,6 @@ const calculateShippingFeesApi = (params) => {
 // Location APIs (Vietnam administrative divisions)
 const getProvincesApi = () => {
     const URL_API = "/locations/provinces";
-    return axios.get(URL_API);
-}
-
-const getDistrictsApi = (provinceCode) => {
-    const URL_API = `/locations/districts/${provinceCode}`;
-    return axios.get(URL_API);
-}
-
-const getWardsApi = (districtCode) => {
-    const URL_API = `/locations/wards/${districtCode}`;
-    return axios.get(URL_API);
-}
-
-const getWardsByProvinceApi = (provinceCode) => {
-    const URL_API = `/locations/wards/province/${provinceCode}`;
     return axios.get(URL_API);
 }
 
@@ -499,6 +484,78 @@ const updateShopCommissionApi = (id, data) => axios.put(`/admin/commissions/${id
 // Admin — Báo cáo doanh thu
 const getAdminRevenueApi = (params) => axios.get("/admin/revenue", { params });
 
+// Shipping Region Fee APIs
+const getShippingRegionFeesApi = (params = {}) => {
+    const URL_API = "/shipping-region";
+    return axios.get(URL_API, { params });
+};
+
+const getShippingRegionGroupedApi = () => {
+    const URL_API = "/shipping-region/grouped";
+    return axios.get(URL_API);
+};
+
+const getShippingRegionByProvinceApi = (provinceCode) => {
+    const URL_API = `/shipping-region/province/${provinceCode}`;
+    return axios.get(URL_API);
+};
+
+const createShippingRegionFeeApi = (data) => {
+    const URL_API = "/shipping-region";
+    return axios.post(URL_API, data);
+};
+
+const updateShippingRegionFeeApi = (id, data) => {
+    const URL_API = `/shipping-region/${id}`;
+    return axios.put(URL_API, data);
+};
+
+const deleteShippingRegionFeeApi = (id) => {
+    const URL_API = `/shipping-region/${id}`;
+    return axios.delete(URL_API);
+};
+
+const toggleShippingRegionFeeApi = (id) => {
+    const URL_API = `/shipping-region/${id}/toggle`;
+    return axios.patch(URL_API);
+};
+
+const seedShippingRegionFeesApi = () => {
+    const URL_API = "/shipping-region/seed";
+    return axios.post(URL_API);
+};
+
+// Shipping Rates Reference APIs
+const getShippingRatesApi = (params = {}) => {
+    const URL_API = "/shipping-rates";
+    return axios.get(URL_API, { params });
+};
+
+const getShippingRatesGroupedApi = () => {
+    const URL_API = "/shipping-rates/grouped";
+    return axios.get(URL_API);
+};
+
+const updateShippingRateApi = (id, data) => {
+    const URL_API = `/shipping-rates/${id}`;
+    return axios.put(URL_API, data);
+};
+
+const seedShippingRatesApi = () => {
+    const URL_API = "/shipping-rates/seed";
+    return axios.post(URL_API);
+};
+
+const resetShippingRatesApi = () => {
+    const URL_API = "/shipping-rates/reset";
+    return axios.post(URL_API);
+};
+
+const syncShippingRatesApi = () => {
+    const URL_API = "/shipping-rates/sync";
+    return axios.post(URL_API);
+};
+
 export {
     createUserApi,
     loginApi,
@@ -554,9 +611,7 @@ export {
     getShippingByOrderApi,
     trackShipmentApi,
     getProvincesApi,
-    getDistrictsApi,
-    getWardsApi,
-    getWardsByProvinceApi,
+    // GeoVina APIs
     getShopApi,
     getShopVouchersApi,
     claimVoucherApi,
@@ -654,4 +709,20 @@ export {
     markAllAdminNotificationsReadApi,
     deleteAdminNotificationApi,
     getAdminRevenueApi,
+    // Shipping Region Fee APIs
+    getShippingRegionFeesApi,
+    getShippingRegionGroupedApi,
+    getShippingRegionByProvinceApi,
+    createShippingRegionFeeApi,
+    updateShippingRegionFeeApi,
+    deleteShippingRegionFeeApi,
+    toggleShippingRegionFeeApi,
+    seedShippingRegionFeesApi,
+    // Shipping Rates Reference APIs
+    getShippingRatesApi,
+    getShippingRatesGroupedApi,
+    updateShippingRateApi,
+    seedShippingRatesApi,
+    resetShippingRatesApi,
+    syncShippingRatesApi,
 };

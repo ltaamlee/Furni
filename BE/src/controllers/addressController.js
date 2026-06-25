@@ -21,8 +21,7 @@ const createAddress = async (req, res) => {
         const {
             fullName, phone, street,
             provinceCode, provinceName,
-            districtCode, districtName,
-            wardCode, wardName,
+            wardName,
             lat, lng, formattedAddress,
             isDefault
         } = req.body;
@@ -40,8 +39,7 @@ const createAddress = async (req, res) => {
             user: req.user._id,
             fullName, phone, street,
             provinceCode, provinceName,
-            districtCode, districtName,
-            wardCode, wardName,
+            wardName,
             lat, lng, formattedAddress,
             isDefault: isDefault || false
         });
@@ -74,8 +72,7 @@ const updateAddress = async (req, res) => {
         const {
             fullName, phone, street,
             provinceCode, provinceName,
-            districtCode, districtName,
-            wardCode, wardName,
+            wardName,
             lat, lng, formattedAddress,
             isDefault
         } = req.body;
@@ -90,8 +87,7 @@ const updateAddress = async (req, res) => {
             {
                 fullName, phone, street,
                 provinceCode, provinceName,
-                districtCode, districtName,
-                wardCode, wardName,
+                wardName,
                 lat, lng, formattedAddress,
                 isDefault: isDefault !== undefined ? isDefault : address.isDefault
             },

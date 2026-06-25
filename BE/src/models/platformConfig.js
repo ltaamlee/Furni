@@ -37,7 +37,18 @@ const CONFIG_KEYS = {
     PAYOUT_AUTO_ENABLED: 'payout_auto_enabled',        // Bật/tắt chi trả tự động
     PAYOS_WEBHOOK_ENABLED: 'payos_webhook_enabled',     // Bật webhook PayOS
     PAYMENT_HOLD_HOURS: 'payment_hold_hours',           // Số giờ giữ tiền trước khi chuyển
-    PRODUCTS_PER_PAGE: 'products_per_page'              // Số sản phẩm mỗi trang
+    PRODUCTS_PER_PAGE: 'products_per_page',              // Số sản phẩm mỗi trang
+    // Cấu hình hiển thị sàn
+    PLATFORM_NAME: 'platform_name',                     // Tên sàn (VD: "SORA FURNITURE")
+    PLATFORM_TAGLINE: 'platform_tagline',              // Tagline sàn (VD: "Đồ gỗ nội thất cao cấp")
+    PLATFORM_LOGO: 'platform_logo',                    // Logo sàn (URL)
+    PLATFORM_FAVICON: 'platform_favicon',               // Favicon sàn (URL)
+    // Cấu hình ví điện tử & QR
+    WALLET_ENABLED: 'wallet_enabled',                   // Bật/tắt ví điện tử
+    WALLET_MIN_DEPOSIT: 'wallet_min_deposit',          // Số tiền nạp tối thiểu
+    WALLET_MIN_WITHDRAW: 'wallet_min_withdraw',        // Số tiền rút ví tối thiểu
+    PLATFORM_QR_IMAGE: 'platform_qr_image',            // Ảnh QR thanh toán sàn (URL)
+    PAYOS_QR_ENABLED: 'payos_qr_enabled',              // Bật hiển thị QR PayOS trực tiếp
 };
 
 // Default values
@@ -49,7 +60,18 @@ const DEFAULT_CONFIG = {
     [CONFIG_KEYS.PAYOUT_AUTO_ENABLED]: true,             // Bật chi trả tự động
     [CONFIG_KEYS.PAYOS_WEBHOOK_ENABLED]: true,          // Bật webhook
     [CONFIG_KEYS.PAYMENT_HOLD_HOURS]: 0,                 // Không giữ tiền
-    [CONFIG_KEYS.PRODUCTS_PER_PAGE]: 12                 // 12 sản phẩm mỗi trang
+    [CONFIG_KEYS.PRODUCTS_PER_PAGE]: 12,                 // 12 sản phẩm mỗi trang
+    // Cấu hình hiển thị sàn
+    [CONFIG_KEYS.PLATFORM_NAME]: 'SORA FURNITURE',       // Tên sàn mặc định
+    [CONFIG_KEYS.PLATFORM_TAGLINE]: 'Đồ gỗ nội thất cao cấp', // Tagline
+    [CONFIG_KEYS.PLATFORM_LOGO]: '',                     // Logo URL (rỗng)
+    [CONFIG_KEYS.PLATFORM_FAVICON]: '',                  // Favicon URL (rỗng)
+    // Cấu hình ví điện tử
+    [CONFIG_KEYS.WALLET_ENABLED]: true,                  // Bật ví điện tử
+    [CONFIG_KEYS.WALLET_MIN_DEPOSIT]: 10000,             // Nạp tối thiểu 10k
+    [CONFIG_KEYS.WALLET_MIN_WITHDRAW]: 50000,            // Rút ví tối thiểu 50k
+    [CONFIG_KEYS.PLATFORM_QR_IMAGE]: '',                 // QR thanh toán sàn
+    [CONFIG_KEYS.PAYOS_QR_ENABLED]: true,               // Bật QR PayOS trực tiếp
 };
 
 // Get config value
@@ -92,7 +114,18 @@ function getConfigDescription(key) {
         [CONFIG_KEYS.PAYOUT_AUTO_ENABLED]: 'Bật/tắt chi trả tự động cho vendor (true/false)',
         [CONFIG_KEYS.PAYOS_WEBHOOK_ENABLED]: 'Bật xử lý webhook PayOS (true/false)',
         [CONFIG_KEYS.PAYMENT_HOLD_HOURS]: 'Số giờ giữ tiền trước khi chuyển cho vendor (0 = chuyển ngay)',
-        [CONFIG_KEYS.PRODUCTS_PER_PAGE]: 'Số sản phẩm hiển thị mỗi trang (FE)'
+        [CONFIG_KEYS.PRODUCTS_PER_PAGE]: 'Số sản phẩm hiển thị mỗi trang (FE)',
+        // Hiển thị sàn
+        [CONFIG_KEYS.PLATFORM_NAME]: 'Tên hiển thị của sàn (VD: SORA FURNITURE)',
+        [CONFIG_KEYS.PLATFORM_TAGLINE]: 'Tagline sàn (VD: Đồ gỗ nội thất cao cấp)',
+        [CONFIG_KEYS.PLATFORM_LOGO]: 'Logo sàn (URL ảnh)',
+        [CONFIG_KEYS.PLATFORM_FAVICON]: 'Favicon sàn (URL ảnh)',
+        // Ví điện tử
+        [CONFIG_KEYS.WALLET_ENABLED]: 'Bật/tắt ví điện tử (true/false)',
+        [CONFIG_KEYS.WALLET_MIN_DEPOSIT]: 'Số tiền nạp tối thiểu (VND)',
+        [CONFIG_KEYS.WALLET_MIN_WITHDRAW]: 'Số tiền rút ví tối thiểu (VND)',
+        [CONFIG_KEYS.PLATFORM_QR_IMAGE]: 'Ảnh QR thanh toán sàn (Upload ảnh QR)',
+        [CONFIG_KEYS.PAYOS_QR_ENABLED]: 'Bật hiển thị QR PayOS trực tiếp tại checkout (true/false)',
     };
     return descriptions[key] || '';
 }

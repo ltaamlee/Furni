@@ -44,6 +44,8 @@ import AdminPromotions from './pages/admin/Promotions';
 import AdminCommission from './pages/admin/Commission';
 import AdminNotifications from "./pages/admin/Notifications";
 import AdminRevenue from "./pages/admin/Revenue";
+import AdminShippingRates from "./pages/admin/ShippingRates";
+import AdminPlatformSettings from "./pages/admin/PlatformSettings";
 
 // Vendor pages
 import VendorRegister from "./pages/vendor/Register";
@@ -144,6 +146,8 @@ function App() {
                     <Route path="categories" element={<AdminCategoriesPage />} />
                     <Route path="promotions" element={<AdminPromotions />} />
                     <Route path="commissions" element={<AdminCommission />} />
+                    <Route path="shipping-rates" element={<AdminShippingRates />} />
+                    <Route path="settings" element={<AdminPlatformSettings />} />
                     <Route path="notifications" element={<AdminNotifications />} />
                 </Route>
 

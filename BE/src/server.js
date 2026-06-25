@@ -6,6 +6,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+const cron = require('node-cron');
 require('dotenv').config();
 
 const authRoutes = require('./routes/authRoutes');
@@ -27,7 +28,47 @@ const platformRoutes = require('./routes/platformRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const voucherRoutes = require('./routes/voucherRoutes');
+const shippingRateRoutes = require('./routes/shippingRateRoutes');
 const { errorHandler } = require('./middleware/errorMiddleware');
+
+// Seed shipping rates
+const seedShippingRates = async () => {
+  try {
+    const ShippingRate = mongoose.model('ShippingRate');
+    const count = await ShippingRate.countDocuments();
+    if (count === 0) {
+      const { REGION, SERVICE_TYPE, PROVIDER_CODE } = require('./models/shippingRate');
+
+      const defaultRates = [
+        { provider: PROVIDER_CODE.JT, serviceType: SERVICE_TYPE.ECONOMY, region: REGION.SOUTH, baseFee: 17000, feePer500g: 3000, estimatedDays: { min: 2, max: 3 } },
+        { provider: PROVIDER_CODE.JT, serviceType: SERVICE_TYPE.EXPRESS, region: REGION.SOUTH, baseFee: 22000, feePer500g: 4000, estimatedDays: { min: 1, max: 2 } },
+        { provider: PROVIDER_CODE.JT, serviceType: SERVICE_TYPE.ECONOMY, region: REGION.CENTRAL, baseFee: 22000, feePer500g: 4000, estimatedDays: { min: 3, max: 4 } },
+        { provider: PROVIDER_CODE.JT, serviceType: SERVICE_TYPE.EXPRESS, region: REGION.CENTRAL, baseFee: 28000, feePer500g: 5000, estimatedDays: { min: 2, max: 3 } },
+        { provider: PROVIDER_CODE.JT, serviceType: SERVICE_TYPE.ECONOMY, region: REGION.NORTH, baseFee: 25000, feePer500g: 5000, estimatedDays: { min: 3, max: 5 } },
+        { provider: PROVIDER_CODE.JT, serviceType: SERVICE_TYPE.EXPRESS, region: REGION.NORTH, baseFee: 32000, feePer500g: 6000, estimatedDays: { min: 2, max: 4 } },
+        { provider: PROVIDER_CODE.GHTK, serviceType: SERVICE_TYPE.ECONOMY, region: REGION.SOUTH, baseFee: 16500, feePer500g: 2500, estimatedDays: { min: 2, max: 3 } },
+        { provider: PROVIDER_CODE.GHTK, serviceType: SERVICE_TYPE.EXPRESS, region: REGION.SOUTH, baseFee: 21000, feePer500g: 3500, estimatedDays: { min: 1, max: 2 } },
+        { provider: PROVIDER_CODE.GHTK, serviceType: SERVICE_TYPE.ECONOMY, region: REGION.CENTRAL, baseFee: 21500, feePer500g: 3500, estimatedDays: { min: 3, max: 4 } },
+        { provider: PROVIDER_CODE.GHTK, serviceType: SERVICE_TYPE.EXPRESS, region: REGION.CENTRAL, baseFee: 27500, feePer500g: 4500, estimatedDays: { min: 2, max: 3 } },
+        { provider: PROVIDER_CODE.GHTK, serviceType: SERVICE_TYPE.ECONOMY, region: REGION.NORTH, baseFee: 24000, feePer500g: 4500, estimatedDays: { min: 3, max: 5 } },
+        { provider: PROVIDER_CODE.GHTK, serviceType: SERVICE_TYPE.EXPRESS, region: REGION.NORTH, baseFee: 31000, feePer500g: 5500, estimatedDays: { min: 2, max: 4 } },
+        { provider: PROVIDER_CODE.VIETTEL, serviceType: SERVICE_TYPE.ECONOMY, region: REGION.SOUTH, baseFee: 18000, feePer500g: 3000, estimatedDays: { min: 2, max: 4 } },
+        { provider: PROVIDER_CODE.VIETTEL, serviceType: SERVICE_TYPE.EXPRESS, region: REGION.SOUTH, baseFee: 24000, feePer500g: 4500, estimatedDays: { min: 1, max: 3 } },
+        { provider: PROVIDER_CODE.VIETTEL, serviceType: SERVICE_TYPE.ECONOMY, region: REGION.CENTRAL, baseFee: 23000, feePer500g: 4500, estimatedDays: { min: 3, max: 5 } },
+        { provider: PROVIDER_CODE.VIETTEL, serviceType: SERVICE_TYPE.EXPRESS, region: REGION.CENTRAL, baseFee: 30000, feePer500g: 5500, estimatedDays: { min: 2, max: 4 } },
+        { provider: PROVIDER_CODE.VIETTEL, serviceType: SERVICE_TYPE.ECONOMY, region: REGION.NORTH, baseFee: 26000, feePer500g: 5000, estimatedDays: { min: 3, max: 6 } },
+        { provider: PROVIDER_CODE.VIETTEL, serviceType: SERVICE_TYPE.EXPRESS, region: REGION.NORTH, baseFee: 34000, feePer500g: 6500, estimatedDays: { min: 2, max: 5 } },
+      ];
+
+      for (const rate of defaultRates) {
+        await ShippingRate.create(rate);
+      }
+      console.log('Shipping rates seeded successfully');
+    }
+  } catch (error) {
+    console.error('Error seeding shipping rates:', error);
+  }
+};
 
 const app = express();
 
@@ -72,6 +113,7 @@ app.use('/api/wallets', walletRoutes);
 app.use('/api/admin/platform', platformRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/vouchers', voucherRoutes);
+app.use('/api/shipping-rates', shippingRateRoutes);
 // Health check
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Server is running' });
@@ -85,45 +127,54 @@ app.use('*', (req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
 
-// Seed shipping providers
-const seedShippingProviders = async () => {
-  try {
-    const ShippingProvider = mongoose.model('ShippingProvider');
-    const count = await ShippingProvider.countDocuments();
-    if (count === 0) {
-      const providers = [
-        {
-          name: 'Giao Hàng Nhanh',
-          code: 'GHN',
-          baseFee: 30000,
-          feePerKm: 0,
-          freeThreshold: 500000,
-          estimatedDays: { min: 1, max: 3 }
-        }
-      ];
-
-      for (const provider of providers) {
-        await ShippingProvider.findOneAndUpdate(
-          { code: provider.code },
-          provider,
-          { upsert: true, new: true }
-        );
-      }
-      console.log('Shipping providers seeded successfully');
-    }
-  } catch (error) {
-    console.error('Error seeding shipping providers:', error);
-  }
-};
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/furni-ecommerce', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => {
+.then(async () => {
   console.log('Connected to MongoDB');
-  seedShippingProviders();
+  seedShippingRates();
+
+  // === Cron: Auto-cancel PayOS orders that haven't been paid within 30 minutes ===
+  cron.schedule('* * * * *', async () => {
+    try {
+      const Order = mongoose.model('Order');
+      const Product = mongoose.model('Product');
+
+      const expiredOrders = await Order.find({
+        paymentMethod: 'PAYOS',
+        paymentStatus: 'pending',
+        status: 'pending',
+        paymentExpiresAt: { $lt: new Date() },
+      });
+
+      for (const order of expiredOrders) {
+        order.paymentStatus = 'failed';
+        order.status = 'cancelled';
+        order.cancelledAt = new Date();
+        order.statusHistory.push({
+          status: 'cancelled',
+          timestamp: new Date(),
+          note: 'Đơn hàng hết hạn thanh toán PayOS (30 phút)',
+        });
+        await order.save();
+
+        // Hoàn tồn kho
+        for (const item of order.products) {
+          await Product.findByIdAndUpdate(item.product, {
+            $inc: { quantity: item.quantity },
+          });
+        }
+
+        console.log(`Auto-cancelled expired PayOS order: ${order.orderNumber}`);
+      }
+    } catch (err) {
+      console.error('Cron auto-cancel error:', err);
+    }
+  });
+  console.log('PayOS auto-cancel cron job started (runs every minute)');
 })
 .catch((error) => {
   console.error('MongoDB connection error:', error);

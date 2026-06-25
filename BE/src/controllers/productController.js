@@ -207,6 +207,22 @@ const getProduct = async (req, res) => {
       });
     }
 
+    // Kiểm tra sản phẩm có đang active không
+    if (!product.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sản phẩm không tồn tại hoặc đã ngừng kinh doanh'
+      });
+    }
+
+    // Kiểm tra shop có đang hoạt động không
+    if (product.shop && (product.shop.status === 'suspended' || product.shop.isActive === false)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sản phẩm không tồn tại hoặc cửa hàng đã ngừng hoạt động'
+      });
+    }
+
     await attachPricing(product);
 
     res.status(200).json({

@@ -3,7 +3,7 @@ import { PageHeader, Btn, Label, Hint, Badge, inputClass } from "../../component
 import { carriers as initialCarriers } from "../../components/vendor/data";
 import { IconUser, IconMapPin, IconTruck, IconWallet, IconDoc, IconImage } from "../../components/vendor/icons";
 import { useToast } from "../../components/context/ToastContext";
-import { getMyShopApi, updateMyShopApi, uploadVendorImagesApi } from "../../utils/api";
+import { getMyShopApi, updateMyShopApi, uploadVendorImagesApi, getProvincesApi } from "../../utils/api";
 
 const TABS = [
     { key: "basic", label: "Thông tin cơ bản", icon: IconUser },
@@ -129,9 +129,39 @@ const BasicSection = ({ shop, onSaved }) => {
 /* ---- Tab: Address & contact ---- */
 const AddressSection = ({ shop, onSaved }) => {
     const { showToast } = useToast();
-    const [form, setForm] = useState({ address: shop.address || "", phone: shop.phone || "", email: shop.email || "" });
+    const [form, setForm] = useState({ 
+        address: shop.address || "", 
+        phone: shop.phone || "", 
+        email: shop.email || "",
+        provinceCode: shop.provinceCode || "",
+        provinceName: shop.provinceName || ""
+    });
     const [saving, setSaving] = useState(false);
+    const [provinces, setProvinces] = useState([]);
+    const [loadingProvinces, setLoadingProvinces] = useState(true);
     const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+    useEffect(() => {
+        const fetchProvinces = async () => {
+            try {
+                const res = await getProvincesApi();
+                if (res.success) {
+                    setProvinces(res.data || []);
+                }
+            } catch (error) {
+                console.error("Error fetching provinces:", error);
+            } finally {
+                setLoadingProvinces(false);
+            }
+        };
+        fetchProvinces();
+    }, []);
+
+    const handleProvinceChange = (e) => {
+        const code = e.target.value;
+        const name = e.target.options[e.target.selectedIndex].text;
+        setForm((f) => ({ ...f, provinceCode: code, provinceName: name }));
+    };
 
     const save = async () => {
         try {
@@ -147,8 +177,25 @@ const AddressSection = ({ shop, onSaved }) => {
         <div className="vendor-fade-in">
             <SectionHead title="Địa chỉ & Liên hệ" sub="Địa chỉ kho hàng và thông tin liên lạc" />
             <div className="mb-3.5">
+                <Label required>Tỉnh / Thành phố</Label>
+                <select 
+                    className={inputClass} 
+                    value={form.provinceCode} 
+                    onChange={handleProvinceChange}
+                    disabled={loadingProvinces}
+                >
+                    <option value="">-- Chọn tỉnh/thành phố --</option>
+                    {provinces.map((p) => (
+                        <option key={p.ProvinceID} value={String(p.ProvinceID)}>
+                            {p.ProvinceName}
+                        </option>
+                    ))}
+                </select>
+                <Hint>Vị trí cửa hàng để tính phí vận chuyển chính xác cho khách hàng</Hint>
+            </div>
+            <div className="mb-3.5">
                 <Label required>Địa chỉ kho hàng</Label>
-                <input className={inputClass} value={form.address} onChange={(e) => set("address", e.target.value)} />
+                <input className={inputClass} value={form.address} onChange={(e) => set("address", e.target.value)} placeholder="Số nhà, đường, phường/xã..." />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3.5">
                 <div>
@@ -165,77 +212,32 @@ const AddressSection = ({ shop, onSaved }) => {
     );
 };
 
-/* ---- Tab: Shipping (chỉ GHN) ---- */
-const GHN_FIELDS = ['token', 'shopId', 'fromDistrictId'];
-
-const ShippingSection = ({ shop, onSaved }) => {
-    const { showToast } = useToast();
-    const [saving, setSaving] = useState(false);
-
-    const sp = shop?.shippingProviders || {};
-    const [ghn, setGhn] = useState({
-        token: sp.GHN?.token || "",
-        shopId: sp.GHN?.shopId || "",
-        fromDistrictId: sp.GHN?.fromDistrictId || "",
-    });
-    const [showToken, setShowToken] = useState(false);
-
-    const setField = (field, val) => setGhn((p) => ({ ...p, [field]: val }));
-
-    const save = async () => {
-        try {
-            setSaving(true);
-            const payload = {
-                shippingProviders: {
-                    GHN: GHN_FIELDS.reduce((o, f) => { o[f] = ghn[f]; return o; }, {}),
-                }
-            };
-            const res = await updateMyShopApi(payload);
-            if (res.success) { showToast("Đã lưu cấu hình vận chuyển", "success"); onSaved?.(); }
-            else showToast(res.message || "Lưu thất bại", "error");
-        } catch { showToast("Có lỗi xảy ra", "error"); }
-        finally { setSaving(false); }
-    };
-
+/* ---- Tab: Shipping (phí cố định theo khu vực) ---- */
+const ShippingSection = () => {
     return (
         <div className="vendor-fade-in">
-            <SectionHead title="Cấu hình vận chuyển" sub="Kết nối API Giao Hàng Nhanh (GHN) — Furni sẽ dùng token của shop khi tạo đơn, fallback về token nền tảng nếu trống." />
+            <SectionHead title="Cấu hình vận chuyển" sub="Phí vận chuyển được tính dựa trên khoảng cách từ cửa hàng đến khách hàng và cân nặng sản phẩm." />
 
             <div className="h-px bg-[#EDE8E0] my-5" />
 
-            {/* GHN */}
-            <div className="mb-6">
-                <div className="flex items-center gap-2.5 mb-4">
-                    <div className="w-10 h-[26px] bg-[#FAF7F4] rounded flex items-center justify-center text-[9px] font-bold text-[#6B5C4C] border border-[#EDE8E0]">GHN</div>
+            <div className="bg-[#FAF7F4] rounded-[6px] p-4 border border-[#EDE8E0] text-[13px] text-[#6B5C4C]">
+                <div className="flex items-start gap-2">
+                    <svg className="w-5 h-5 text-[#B86B05] flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                     <div>
-                        <div className="text-[13px] font-semibold">Giao Hàng Nhanh</div>
-                        <div className="text-[11.5px] text-[#9E8E7E]">API Token, Shop ID & Quận gửi hàng mặc định</div>
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="sm:col-span-3">
-                        <Label>API Token <span className="text-[#b91c1c]">*</span></Label>
-                        <div className="relative">
-                            <input type={showToken ? "text" : "password"} className={inputClass} placeholder="Token API GHN của shop" value={ghn.token} onChange={(e) => setField("token", e.target.value)} />
-                            <button type="button" onClick={() => setShowToken((v) => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9E8E7E] hover:text-[#6B5C4C] text-[11px]">{showToken ? "Ẩn" : "Hiện"}</button>
-                        </div>
-                        <Hint>Lấy tại trang cài đặt API của GHN</Hint>
-                    </div>
-                    <div>
-                        <Label>Shop ID</Label>
-                        <input className={inputClass} placeholder="VD: 23731" value={ghn.shopId} onChange={(e) => setField("shopId", e.target.value)} />
-                    </div>
-                    <div>
-                        <Label>Mã quận gửi hàng</Label>
-                        <input className={inputClass} placeholder="VD: 1441" value={ghn.fromDistrictId} onChange={(e) => setField("fromDistrictId", e.target.value)} />
-                        <Hint>Quận kho hàng của bạn</Hint>
+                        <p className="font-semibold mb-1">Cách tính phí vận chuyển</p>
+                        <ul className="mt-2 space-y-1">
+                            <li>• <strong>Cùng tỉnh:</strong> Giá cơ bản (thấp nhất)</li>
+                            <li>• <strong>Cùng miền:</strong> Giá cơ bản × 1.2 (+20%)</li>
+                            <li>• <strong>Khác miền:</strong> Giá cơ bản × 1.5 (+50%)</li>
+                            <li>• <strong>Cân nặng:</strong> Phí tăng theo mỗi 500g vượt quá 500g đầu tiên</li>
+                            <li>• <strong>Miễn phí:</strong> Đơn hàng từ <strong>500,000đ</strong></li>
+                        </ul>
+                        <p className="mt-3">Bạn không cần cấu hình thêm. Phí sẽ được tự động tính khi khách đặt hàng dựa trên địa chỉ kho hàng của bạn.</p>
                     </div>
                 </div>
             </div>
-
-            <div className="h-px bg-[#EDE8E0] my-5" />
-
-            <SaveBar saveLabel="Lưu cấu hình vận chuyển" onSave={save} onCancel={onSaved} saving={saving} />
         </div>
     );
 };
@@ -292,7 +294,7 @@ const Settings = () => {
     }, [fetchShop]);
 
     const renderSection = () => {
-        if (active === "shipping") return <ShippingSection shop={shop} onSaved={fetchShop} />;
+        if (active === "shipping") return <ShippingSection />;
         if (active === "payment") return <PaymentSection />;
         if (active === "policy") return <PolicySection />;
         if (!shop) return null;

@@ -153,6 +153,14 @@ const orderSchema = new mongoose.Schema({
             type: String,
             default: ''
         },
+        wardCode: {
+            type: Number,
+            default: null
+        },
+        wardName: {
+            type: String,
+            default: ''
+        },
         note: {
             type: String,
             default: ''
@@ -251,6 +259,11 @@ const orderSchema = new mongoose.Schema({
     },
     estimatedDelivery: {
         type: Date
+    },
+    // Thời hạn thanh toán PayOS (mặc định 30 phút kể từ khi tạo đơn)
+    paymentExpiresAt: {
+        type: Date,
+        index: true
     }
 }, { timestamps: true });
 
@@ -333,9 +346,24 @@ orderSchema.methods.canCancel = function() {
            [ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED].includes(this.status);
 };
 
+// Kiểm tra đơn PayOS đã hết hạn thanh toán chưa
+orderSchema.methods.isPaymentExpired = function() {
+    if (!this.paymentExpiresAt) return false;
+    return this.status === ORDER_STATUS.PENDING && Date.now() > new Date(this.paymentExpiresAt).getTime();
+};
+
 // Kiểm tra có thể gửi yêu cầu hủy không (đang ở bước 3)
 orderSchema.methods.canRequestCancel = function() {
     return this.status === ORDER_STATUS.PREPARING;
+};
+
+// Kiểm tra có thể thanh toán lại không (PayOS pending + chưa expired)
+orderSchema.methods.canRetryPayment = function() {
+    if (this.paymentMethod !== 'PAYOS') return false;
+    if (this.paymentStatus === 'paid') return false;
+    if (this.status === ORDER_STATUS.CANCELLED) return false;
+    if (this.isPaymentExpired()) return false;
+    return true;
 };
 
 // Kiểm tra có thể xác nhận tự động không

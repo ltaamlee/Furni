@@ -5,6 +5,20 @@ const Coupon = require('../models/Coupon');
 const LoyaltyPoint = require('../models/LoyaltyPoint');
 const mongoose = require('mongoose');
 
+const REVIEW_TYPE = require('../models/Review').TYPE || { PRODUCT: 'product', ORDER: 'order', SHOP: 'shop' };
+
+// Helper: find-or-throw pattern used consistently throughout
+const findOrderOrThrow = async (query, errorMsg) => {
+    const order = await Order.findOne(query).populate('products.product');
+    if (!order) throw Object.assign(new Error(errorMsg), { status: 400 });
+    return order;
+};
+const findProductOrThrow = async (id, errorMsg) => {
+    const product = await Product.findById(id);
+    if (!product) throw Object.assign(new Error(errorMsg), { status: 404 });
+    return product;
+};
+
 // @desc    Create a review for a product
 // @route   POST /api/reviews
 // @access  Private/Customer
@@ -13,39 +27,37 @@ const createReview = async (req, res) => {
         const { productId, orderId, rating, comment, images } = req.body;
         const userId = req.user._id;
 
-        // Check if user purchased this product
-        const order = await Order.findOne({
-            _id: orderId,
-            user: userId,
-            status: 'delivered'
-        });
-
-        if (!order) {
-            return res.status(400).json({
-                success: false,
-                message: 'Bạn cần mua và nhận được sản phẩm trước khi đánh giá!'
-            });
+        // ── Validate productId ──────────────────────────────────────
+        if (!productId) {
+            return res.status(400).json({ success: false, message: 'Thiếu productId!' });
+        }
+        if (!mongoose.Types.ObjectId.isValid(productId)) {
+            return res.status(400).json({ success: false, message: 'productId không hợp lệ!' });
         }
 
-        // Check if user already reviewed this product from this order
-        const existingReview = await Review.findOne({
-            user: userId,
-            product: productId,
-            order: orderId
-        });
-
-        if (existingReview) {
-            return res.status(400).json({
-                success: false,
-                message: 'Bạn đã đánh giá sản phẩm này cho đơn hàng này!'
-            });
+        // ── Validate orderId ───────────────────────────────────────
+        if (!orderId) {
+            return res.status(400).json({ success: false, message: 'Vui lòng chọn đơn hàng để đánh giá!' });
+        }
+        if (!mongoose.Types.ObjectId.isValid(orderId)) {
+            return res.status(400).json({ success: false, message: 'orderId không hợp lệ!' });
         }
 
-        // Check if product exists in order
-        const productInOrder = order.products.find(
-            p => p.product.toString() === productId
+        // ── Validate rating ────────────────────────────────────────
+        if (!rating || rating < 1 || rating > 5) {
+            return res.status(400).json({ success: false, message: 'Số sao phải từ 1 đến 5!' });
+        }
+
+        // ── Check if user purchased this product in a delivered order ──
+        const order = await findOrderOrThrow(
+            { _id: orderId, user: userId, status: 'delivered' },
+            'Không tìm thấy đơn hàng đã giao để đánh giá!'
         );
 
+        // ── Check product exists in order ─────────────────────────
+        const productInOrder = order.products.find(
+            p => p.product._id.toString() === productId
+        );
         if (!productInOrder) {
             return res.status(400).json({
                 success: false,
@@ -53,37 +65,57 @@ const createReview = async (req, res) => {
             });
         }
 
-        // Create review
-        const review = await Review.create({
+        // ── Fetch shop from product ─────────────────────────────────
+        const product = await findProductOrThrow(productId, 'Sản phẩm không tồn tại!');
+        const shopId = product.shop;
+
+        // ── Check duplicate review using the model's unique index ─────
+        // Model index: { user, type, targetId, order } — all 4 fields required
+        const existingReview = await Review.findOne({
             user: userId,
-            product: productId,
+            type: REVIEW_TYPE.PRODUCT,
+            targetId: productId,
+            order: orderId
+        });
+        if (existingReview) {
+            return res.status(400).json({
+                success: false,
+                message: 'Bạn đã đánh giá sản phẩm này cho đơn hàng này rồi!'
+            });
+        }
+
+        // ── Create review (matches new Review model schema) ──────────
+        const review = await Review.create({
+            type: REVIEW_TYPE.PRODUCT,
+            targetId: productId,          // required by model schema
+            product: productId,            // for backward / query convenience
+            shop: shopId || undefined,
             order: orderId,
+            user: userId,
             rating,
-            comment,
+            content: comment || '',
             images: images || [],
-            isVerifiedPurchase: true
+            status: 'approved'
         });
 
-        // Update product rating
-        const allReviews = await Review.find({ 
-            product: productId, 
-            status: 'approved' 
+        // ── Update product rating stats ─────────────────────────────
+        const allReviews = await Review.find({
+            targetId: productId,
+            status: 'approved'
         });
-        
+
         const totalRating = allReviews.reduce((sum, r) => sum + r.rating, 0);
-        const averageRating = totalRating / allReviews.length;
+        const averageRating = allReviews.length > 0 ? totalRating / allReviews.length : 0;
 
         await Product.findByIdAndUpdate(productId, {
             totalRatings: allReviews.length,
             averageRating: Math.round(averageRating * 10) / 10
         });
 
-        // Reward user: Give coupon or loyalty points
+        // ── Reward user ─────────────────────────────────────────────
         let reward = null;
-        const rewardType = rating >= 4 ? 'coupon' : 'points';
-        
+
         if (rating >= 4) {
-            // Give a discount coupon for 4-5 star reviews
             const coupon = await Coupon.create({
                 code: `RATED-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
                 name: `Cảm ơn bạn đã đánh giá ${rating} sao!`,
@@ -97,35 +129,19 @@ const createReview = async (req, res) => {
                 isPublic: false,
                 loyaltyCost: null
             });
-
-            // Assign coupon to user
-            await Coupon.findByIdAndUpdate(coupon._id, {
-                applicableProducts: [productId]
-            });
-
-            reward = {
-                type: 'coupon',
-                code: coupon.code,
-                value: coupon.value
-            };
+            await Coupon.findByIdAndUpdate(coupon._id, { applicableProducts: [productId] });
+            reward = { type: 'coupon', code: coupon.code, value: coupon.value };
         } else {
-            // Give loyalty points for any review
             let loyaltyPoint = await LoyaltyPoint.findOne({ user: userId });
-            
             if (!loyaltyPoint) {
                 loyaltyPoint = await LoyaltyPoint.create({ user: userId });
             }
-            
             await loyaltyPoint.addPoints(
                 50,
                 `Nhận điểm từ việc đánh giá sản phẩm ${rating} sao`,
                 orderId
             );
-
-            reward = {
-                type: 'points',
-                value: 50
-            };
+            reward = { type: 'points', value: 50 };
         }
 
         const populatedReview = await Review.findById(review._id)
@@ -135,16 +151,14 @@ const createReview = async (req, res) => {
         res.status(201).json({
             success: true,
             message: 'Cảm ơn bạn đã đánh giá sản phẩm!',
-            data: {
-                review: populatedReview,
-                reward
-            }
+            data: { review: populatedReview, reward }
         });
     } catch (error) {
+        const status = error.status || 500;
         console.error('Create review error:', error);
-        res.status(500).json({
+        res.status(status).json({
             success: false,
-            message: 'Đã xảy ra lỗi khi tạo đánh giá!'
+            message: error.message || 'Đã xảy ra lỗi khi tạo đánh giá!'
         });
     }
 };
@@ -165,7 +179,7 @@ const getProductReviews = async (req, res) => {
         if (sort === 'lowest') sortOption = { rating: 1, createdAt: -1 };
 
         const reviews = await Review.find({
-            product: productId,
+            targetId: productId,
             status: 'approved'
         })
         .populate('user', 'fullName profileImage')
@@ -174,7 +188,7 @@ const getProductReviews = async (req, res) => {
         .limit(parseInt(limit));
 
         const total = await Review.countDocuments({
-            product: productId,
+            targetId: productId,
             status: 'approved'
         });
 
@@ -182,7 +196,7 @@ const getProductReviews = async (req, res) => {
         const ratingStats = await Review.aggregate([
         {
             $match: {
-                product: new mongoose.Types.ObjectId(productId),
+                targetId: new mongoose.Types.ObjectId(productId),
                 status: 'approved'
             }
         },
@@ -234,6 +248,7 @@ const getMyReviews = async (req, res) => {
         const reviews = await Review.find({ user: userId })
             .populate('product', 'name images price')
             .populate('order', 'orderNumber')
+            .populate('targetId', 'name images price')
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(parseInt(limit));
@@ -279,25 +294,28 @@ const updateReview = async (req, res) => {
             });
         }
 
-        if (rating) review.rating = rating;
-        if (comment !== undefined) review.comment = comment;
-        if (images) review.images = images;
+        if (rating !== undefined) review.rating = rating;
+        if (comment !== undefined) review.content = comment;
+        if (images !== undefined) review.images = images;
 
         await review.save();
 
-        // Recalculate product rating
-        const allReviews = await Review.find({ 
-            product: review.product, 
-            status: 'approved' 
+        // Recalculate product rating using targetId
+        const allReviews = await Review.find({
+            targetId: review.targetId,
+            status: 'approved'
         });
-        
-        const totalRating = allReviews.reduce((sum, r) => sum + r.rating, 0);
-        const averageRating = totalRating / allReviews.length;
 
-        await Product.findByIdAndUpdate(review.product, {
-            totalRatings: allReviews.length,
-            averageRating: Math.round(averageRating * 10) / 10
-        });
+        const totalRating = allReviews.reduce((sum, r) => sum + r.rating, 0);
+        const averageRating = allReviews.length > 0 ? totalRating / allReviews.length : 0;
+
+        const productId = review.product || review.targetId;
+        if (productId) {
+            await Product.findByIdAndUpdate(productId, {
+                totalRatings: allReviews.length,
+                averageRating: Math.round(averageRating * 10) / 10
+            });
+        }
 
         const populatedReview = await Review.findById(review._id)
             .populate('user', 'fullName profileImage')
@@ -334,23 +352,26 @@ const deleteReview = async (req, res) => {
             });
         }
 
-        const productId = review.product;
+        const targetId = review.targetId;
         await Review.findByIdAndDelete(reviewId);
 
-        // Recalculate product rating
-        const allReviews = await Review.find({ 
-            product: productId, 
-            status: 'approved' 
+        // Recalculate product rating using targetId
+        const allReviews = await Review.find({
+            targetId: targetId,
+            status: 'approved'
         });
-        
-        const totalRating = allReviews.length > 0 
-            ? allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length 
+
+        const totalRating = allReviews.length > 0
+            ? allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length
             : 0;
 
-        await Product.findByIdAndUpdate(productId, {
-            totalRatings: allReviews.length,
-            averageRating: Math.round(totalRating * 10) / 10
-        });
+        const productId = review.product || targetId;
+        if (productId) {
+            await Product.findByIdAndUpdate(productId, {
+                totalRatings: allReviews.length,
+                averageRating: Math.round(totalRating * 10) / 10
+            });
+        }
 
         res.status(200).json({
             success: true,
@@ -384,7 +405,7 @@ const getPurchasableProducts = async (req, res) => {
             for (const item of order.products) {
                 const existingReview = await Review.findOne({
                     user: userId,
-                    product: item.product._id,
+                    targetId: item.product._id,
                     order: order._id
                 });
 
@@ -427,7 +448,7 @@ const getProductStats = async (req, res) => {
         });
 
         const reviewerCount = await Review.countDocuments({
-            product: productId,
+            targetId: productId,
             status: 'approved'
         });
 

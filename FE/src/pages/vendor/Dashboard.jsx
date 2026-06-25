@@ -47,7 +47,7 @@ const Dashboard = () => {
         { key: "orders", label: "Đơn hàng hôm nay", value: String(stats.ordersToday), color: "blue", icon: <IconBag size={18} /> },
         { key: "products", label: "Sản phẩm đang bán", value: String(stats.activeProducts), color: "green", icon: <IconBox size={18} /> },
         { key: "visits", label: "Lượt xem sản phẩm", value: stats.visits.toLocaleString("vi-VN"), color: "rose", icon: <IconEye size={18} /> },
-    ];
+    ].map(({ key, ...props }) => ({ ...props, statKey: key }));
 
     const quickRows = [
         { label: "Tỉ lệ hoàn thành đơn", value: `${quickStats.completionRate}%`, color: "text-[#16a34a]" },
@@ -76,7 +76,7 @@ const Dashboard = () => {
 
             {/* KPI cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-5">
-                {kpiCards.map((s) => <StatCard key={s.key} {...s} />)}
+                {kpiCards.map((s) => <StatCard key={s.statKey} {...s} />)}
             </div>
 
             {/* Charts + Top products */}

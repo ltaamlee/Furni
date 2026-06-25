@@ -42,8 +42,9 @@ const loadRunningPromotions = async (shopIds = []) => {
 };
 
 // Chọn khuyến mãi cho giá thấp nhất
-const bestPricing = (product, promos) => {
-    const base = product.price;
+// basePrice: cho variant; nếu null dùng product.price
+const bestPricing = (product, promos, basePrice = null) => {
+    const base = basePrice ?? product.price;
     let best = null;
     for (const promo of promos) {
         if (promo.maxUsage && promo.usedCount >= promo.maxUsage) continue;
@@ -81,10 +82,13 @@ const attachPricing = async (products) => {
 };
 
 // Giá bán hiện tại của 1 sản phẩm (dùng khi thêm vào giỏ) — đã trừ khuyến mãi
-const currentSalePrice = async (product) => {
+// basePrice: nếu truyền sẽ dùng làm base (cho variant), không truyền thì dùng product.price
+const currentSalePrice = async (product, basePrice = null) => {
     const promos = await loadRunningPromotions([idStr(product.shop)].filter(Boolean));
-    const best = bestPricing(product, promos);
-    return best ? best.salePrice : product.price;
+    const base = basePrice ?? product.price;
+    const promo = bestPricing(product, promos, basePrice); // truyền basePrice để tính giá sale đúng
+    if (!promo) return base;
+    return promo.salePrice;
 };
 
 module.exports = { attachPricing, currentSalePrice, discountedPrice };

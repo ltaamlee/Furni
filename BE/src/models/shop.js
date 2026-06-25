@@ -72,6 +72,16 @@ const ShopSchema = new mongoose.Schema({
         maxlength: [500, 'Địa chỉ không được vượt quá 500 ký tự!'],
         default: null
     },
+    provinceCode: {
+        type: String,
+        default: null,
+        description: 'Mã tỉnh/thành phố của cửa hàng'
+    },
+    provinceName: {
+        type: String,
+        default: null,
+        description: 'Tên tỉnh/thành phố của cửa hàng'
+    },
     // Trạng thái duyệt (admin kiểm duyệt trước khi shop được bán)
     status: {
         type: String,
@@ -94,24 +104,6 @@ const ShopSchema = new mongoose.Schema({
         min: 0,
         max: 100
     },
-    // Token API vận chuyển riêng của từng shop
-    // Nếu không set sẽ dùng token mặc định của platform
-    shippingProviders: {
-        GHN: {
-            token: {
-                type: String,
-                default: ''
-            },
-            shopId: {
-                type: String,
-                default: ''
-            },
-            fromDistrictId: {
-                type: String,
-                default: ''
-            }
-        }
-    }
 }, { timestamps: true });
 
 // Tự động tạo mã cửa hàng trước khi lưu

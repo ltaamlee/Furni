@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getProductReviewsApi } from "../../utils/api";
 
 const ReviewList = ({ productId }) => {
@@ -30,7 +30,7 @@ const ReviewList = ({ productId }) => {
         }
     };
 
-    useState(() => {
+    useEffect(() => {
         fetchReviews();
     }, [productId]);
 
@@ -167,9 +167,9 @@ const ReviewList = ({ productId }) => {
                                         </span>
                                     </div>
 
-                                    {review.comment && (
+                                    {review.content && (
                                         <p className="text-gray-600 mt-3 whitespace-pre-line">
-                                            {review.comment}
+                                            {review.content}
                                         </p>
                                     )}
 
@@ -187,11 +187,11 @@ const ReviewList = ({ productId }) => {
                                         </div>
                                     )}
 
-                                    {/* Admin Reply */}
-                                    {review.adminReply && (
+                                    {/* Vendor Reply */}
+                                    {review.vendorReply && review.vendorReply.content && (
                                         <div className="mt-4 bg-blue-50 rounded-xl p-4 border-l-4 border-blue-400">
                                             <p className="text-sm font-medium text-blue-800 mb-1">Phản hồi từ cửa hàng:</p>
-                                            <p className="text-gray-600">{review.adminReply.content}</p>
+                                            <p className="text-gray-600">{review.vendorReply.content}</p>
                                         </div>
                                     )}
                                 </div>

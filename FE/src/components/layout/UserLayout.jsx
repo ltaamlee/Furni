@@ -4,7 +4,7 @@ import { AuthContext } from "../context/authContext";
 import { Outlet } from "react-router-dom"
 
 const UserLayout = ({ children }) => {
-    const { auth, logout } = useContext(AuthContext);
+    const { auth, setAuth, logout } = useContext(AuthContext);
     const location = useLocation();
     const navigate = useNavigate();
     const { user } = auth;
@@ -18,6 +18,20 @@ const UserLayout = ({ children }) => {
             navigate('/admin', { replace: true });
         }
     }, [user?.role, navigate]);
+
+    // Listen for avatar updates
+    useEffect(() => {
+        const handleAvatarUpdate = (e) => {
+            setAuth((prev) => ({
+                ...prev,
+                user: { ...prev.user, avatar: e.detail.avatar }
+            }));
+        };
+        window.addEventListener("avatar-updated", handleAvatarUpdate);
+        return () => {
+            window.removeEventListener("avatar-updated", handleAvatarUpdate);
+        };
+    }, [setAuth]);
 
     const handleLogout = () => {
         if (confirm("Bạn có chắc muốn đăng xuất?")) {
@@ -39,7 +53,6 @@ const UserLayout = ({ children }) => {
             children: [
                 { path: "/profile", label: "Thông tin cá nhân", icon: InfoIcon },
                 { path: "/addresses", label: "Địa chỉ", icon: AddressIcon },
-                { path: "/profile#wallet", label: "Ví thanh toán", icon: WalletIcon },
                 { path: "/change-password", label: "Đổi mật khẩu", icon: LockIcon },
             ]
         },
@@ -77,9 +90,17 @@ const UserLayout = ({ children }) => {
                         <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-4">
                             <div className="flex flex-col items-center text-center">
                                 <div className="relative mb-3">
-                                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#B86B05] to-[#95520B] flex items-center justify-center text-white text-2xl font-bold shadow-md">
-                                        {user?.fullName ? user.fullName.charAt(0).toUpperCase() : "U"}
-                                    </div>
+                                    {user?.avatar ? (
+                                        <img
+                                            src={user.avatar}
+                                            alt={user.fullName}
+                                            className="w-20 h-20 rounded-full object-cover shadow-md"
+                                        />
+                                    ) : (
+                                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#B86B05] to-[#95520B] flex items-center justify-center text-white text-2xl font-bold shadow-md">
+                                            {user?.fullName ? user.fullName.charAt(0).toUpperCase() : "U"}
+                                        </div>
+                                    )}
                                 </div>
                                 <h2 className="text-base font-semibold text-[#1C1108]">Xin chào,</h2>
                                 <p className="text-lg font-bold text-[#1C1108]">{user?.fullName || "Người dùng"}</p>
@@ -228,12 +249,6 @@ const StarIcon = ({ active }) => (
 const HeartIcon = ({ active }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${active ? "text-[#B86B05]" : "text-[#A8896A]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-    </svg>
-);
-
-const WalletIcon = ({ active }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${active ? "text-[#B86B05]" : "text-[#A8896A]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
     </svg>
 );
 

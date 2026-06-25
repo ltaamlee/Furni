@@ -5,6 +5,7 @@ const Shop = require('../models/Shop');
 const Notification = require('../models/notification');
 const { ORDER_STATUS } = require('../models/order');
 const payoutService = require('../services/payoutService');
+const { attachPricing } = require('../utils/pricing');
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
 const pickCheckoutItems = (cart, selectedProductIds = [], selectedProducts = []) => {
@@ -89,13 +90,15 @@ const notifyVendorsNewOrder = async (order) => {
     }
 };
 
-// @desc    Create order from cart
+// @desc    Create order from cart or buy now
 // @route   POST /api/orders
 // @access  Private
 const createOrder = async (req, res) => {
     try {
-        const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null } = req.body;
+        const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, shippingServiceType = null } = req.body;
         const isBuyNow = Boolean(buyNowProduct?.productId && Number(buyNowProduct.quantity) > 0);
+        // Ước tính ngày giao dựa trên service type từ frontend, fallback 3 ngày
+        const estimatedDays = shippingServiceType === 'express' ? 1 : shippingServiceType === 'economy' ? 7 : 3;
 
         // Lấy cart của user
         const cart = isBuyNow ? null : await Cart.findOne({ user: req.user._id });
@@ -121,6 +124,7 @@ const createOrder = async (req, res) => {
         }
 
         const productMap = {};
+        const productList = [];
         for (const item of checkoutItems) {
             const product = await Product.findById(item.product).populate('shop', 'name code status isActive');
             if (!product) {
@@ -143,25 +147,21 @@ const createOrder = async (req, res) => {
                     message: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!`
                 });
             }
-            if (isBuyNow) {
-                const productDiscount = product.discount || 0;
-                item.price = productDiscount > 0
-                    ? Math.round(product.price * (1 - productDiscount / 100))
-                    : product.price;
-                item.originalPrice = product.price;
-                item.discount = productDiscount;
-                item.name = product.name;
-                item.image = getProductImage(product);
-            }
-            productMap[item.product.toString()] = product;
+            productList.push(product);
+            productMap[item.product.toString()] = { product, item };
         }
+
+        // Gắn pricing (discountPercent từ promotion đang chạy) trước khi tạo order
+        await attachPricing(productList);
+        const pricedProductMap = Object.fromEntries(productList.map(p => [p._id.toString(), p]));
 
         // Nhóm sản phẩm theo shop (multi-vendor: tách đơn)
         const shopGroups = {};
         for (const item of checkoutItems) {
-            const product = productMap[item.product.toString()];
+            const { product } = productMap[item.product.toString()];
+            const pricedProduct = pricedProductMap[item.product.toString()];
             const shopId = product.shop?._id?.toString() || 'no-shop';
-            
+
             if (!shopGroups[shopId]) {
                 shopGroups[shopId] = {
                     shop: product.shop?._id || null,
@@ -172,12 +172,14 @@ const createOrder = async (req, res) => {
                     totalQuantity: 0
                 };
             }
-            
-            const productPrice = product.price;
-            const productDiscount = product.discount || 0;
-            const discountedPrice = productDiscount > 0
-                ? Math.round(productPrice * (1 - productDiscount / 100))
-                : item.price;
+
+            // Dùng discountPercent từ attachPricing (từ promotion), fallback về discount field thủ công
+            const productDiscount = pricedProduct.discountPercent || pricedProduct.discount || 0;
+            // originalPrice = giá gốc (chưa sale), salePrice = giá sau giảm
+            const originalPrice = pricedProduct.originalPrice || product.price;
+            const salePrice = pricedProduct.salePrice || (productDiscount > 0
+                ? Math.round(originalPrice * (1 - productDiscount / 100))
+                : originalPrice);
 
             shopGroups[shopId].items.push({
                 product: item.product,
@@ -185,13 +187,13 @@ const createOrder = async (req, res) => {
                 shopName: product.shop?.name || '',
                 shopCode: product.shop?.code || '',
                 quantity: item.quantity,
-                price: discountedPrice,
-                originalPrice: productPrice,
+                price: salePrice,
+                originalPrice: originalPrice,
                 discount: productDiscount,
-                name: item.name,
-                image: item.image
+                name: product.name,
+                image: getProductImage(product)
             });
-            shopGroups[shopId].subtotal += discountedPrice * item.quantity;
+            shopGroups[shopId].subtotal += salePrice * item.quantity;
             shopGroups[shopId].totalQuantity += item.quantity;
         }
 
@@ -200,11 +202,19 @@ const createOrder = async (req, res) => {
 
         // Tạo 1 đơn hàng độc lập cho mỗi shop (không còn parent/child)
         const createdOrders = [];
+        
+        // Lấy shippingFee từ frontend (đã tính từ bảng phí cố định theo khu vực)
+        const frontendShippingFee = req.body.shippingFee || 0;
+        
         for (const shopId of shopKeys) {
             const group = shopGroups[shopId];
 
-            // Tính phí ship riêng cho mỗi shop (miễn phí nếu subtotal >= 500k)
-            const shippingFee = group.subtotal >= 500000 ? 0 : 30000;
+            // Dùng phí ship từ frontend, chỉ kiểm tra miễn phí nếu >= 500k
+            let shippingFee = frontendShippingFee;
+            if (group.subtotal >= 500000) {
+                shippingFee = 0; // Miễn phí vận chuyển
+            }
+
             const groupTotal = group.subtotal + shippingFee;
 
             const order = new Order({
@@ -223,7 +233,7 @@ const createOrder = async (req, res) => {
                 totalPrice: groupTotal,
                 totalQuantity: group.totalQuantity,
                 orderedAt: new Date(),
-                estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+                estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000)
             });
 
             // Trừ tồn kho cho sản phẩm của shop này

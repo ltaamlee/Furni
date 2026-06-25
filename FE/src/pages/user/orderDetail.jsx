@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { getOrderByIdApi, cancelOrderApi, confirmReceivedApi } from "../../utils/api";
+import { getOrderByIdApi, cancelOrderApi, confirmReceivedApi, cancelPayOSPaymentApi } from "../../utils/api";
 
 const OrderDetailPage = () => {
     const { id } = useParams();
@@ -9,16 +9,50 @@ const OrderDetailPage = () => {
     const [loading, setLoading] = useState(true);
     const [cancelling, setCancelling] = useState(false);
     const [confirming, setConfirming] = useState(false);
+    const [payosCountdown, setPayosCountdown] = useState(null); // seconds remaining for PayOS
 
     useEffect(() => {
         fetchOrder();
     }, [id]);
 
+    // PayOS countdown timer — auto-refresh khi hết hạn
+    useEffect(() => {
+        if (payosCountdown === null || payosCountdown <= 0) return;
+        const timer = setInterval(() => {
+            setPayosCountdown((prev) => {
+                if (prev === null || prev <= 1) {
+                    clearInterval(timer);
+                    fetchOrder(); // re-fetch để cập nhật trạng thái
+                    return null;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [payosCountdown]);
+
     const fetchOrder = async () => {
         try {
             const res = await getOrderByIdApi(id);
             if (res.success) {
-                setOrder(res.data);
+                const o = res.data;
+                setOrder(o);
+
+                // Compute PayOS countdown from paymentExpiresAt
+                if (
+                    o.paymentMethod === "PAYOS" &&
+                    o.paymentStatus === "pending" &&
+                    o.status === "pending" &&
+                    o.paymentExpiresAt
+                ) {
+                    const remaining = Math.max(
+                        0,
+                        Math.floor((new Date(o.paymentExpiresAt) - Date.now()) / 1000)
+                    );
+                    setPayosCountdown(remaining);
+                } else {
+                    setPayosCountdown(null);
+                }
             } else {
                 navigate("/orders");
             }
@@ -31,6 +65,13 @@ const OrderDetailPage = () => {
 
     const formatPrice = (price) => {
         return new Intl.NumberFormat("vi-VN").format(price) + " đ";
+    };
+
+    const formatPayOSCountdown = (seconds) => {
+        if (seconds === null || seconds === undefined) return null;
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
     };
 
     const formatDate = (date) => {
@@ -81,7 +122,12 @@ const OrderDetailPage = () => {
         const reason = prompt("Nhập lý do hủy (không bắt buộc):");
         try {
             setCancelling(true);
-            const res = await cancelOrderApi(order._id, reason);
+            let res;
+            if (order.paymentMethod === "PAYOS" && order.paymentStatus === "pending") {
+                res = await cancelPayOSPaymentApi(order._id);
+            } else {
+                res = await cancelOrderApi(order._id, reason);
+            }
             if (res.success) {
                 alert(res.message);
                 fetchOrder();
@@ -227,6 +273,80 @@ const OrderDetailPage = () => {
                             </div>
                         </div>
                     </div>
+                )}
+
+                {/* ─── PayOS: countdown banner + nút thanh toán lại ─── */}
+                {order.paymentMethod === "PAYOS" && order.paymentStatus === "pending" && order.status === "pending" && (
+                    (() => {
+                        const isExpired = payosCountdown !== null && payosCountdown <= 0;
+                        return (
+                            <div className={`rounded-2xl p-5 border ${
+                                isExpired
+                                    ? "bg-gradient-to-r from-red-50 to-orange-50 border-red-200"
+                                    : "bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200"
+                            }`}>
+                                <div className="flex items-start gap-4">
+                                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                                        isExpired ? "bg-red-100" : "bg-amber-100"
+                                    }`}>
+                                        <span className="text-2xl">{isExpired ? "⏰" : "⏳"}</span>
+                                    </div>
+                                    <div className="flex-1">
+                                        {isExpired ? (
+                                            <>
+                                                <p className="font-bold text-red-700 text-sm">Đơn hàng đã hết hạn thanh toán!</p>
+                                                <p className="text-xs text-red-500 mt-0.5">
+                                                    Bạn đã không thanh toán trong thời gian quy định. Đơn hàng sẽ tự động bị hủy.
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="flex items-center gap-3">
+                                                    <p className="font-bold text-amber-700 text-sm">Chờ thanh toán PayOS</p>
+                                                    {payosCountdown !== null && (
+                                                        <span className={`font-mono font-black text-lg tracking-wider ${
+                                                            payosCountdown <= 60 ? "text-red-500 animate-pulse" : "text-amber-600"
+                                                        }`}>
+                                                            {formatPayOSCountdown(payosCountdown)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-amber-600 mt-0.5">
+                                                    Vui lòng thanh toán trước khi hết thời gian để tránh đơn tự động bị hủy.
+                                                </p>
+                                            </>
+                                        )}
+                                        {order.paymentExpiresAt && (
+                                            <p className="text-xs text-amber-500 mt-1">
+                                                Hạn thanh toán: {formatDate(order.paymentExpiresAt)}
+                                            </p>
+                                        )}
+                                        {/* Nút thanh toán lại */}
+                                        {!isExpired && order.paymentExpiresAt && new Date(order.paymentExpiresAt) > new Date() && (
+                                            <button
+                                                onClick={() => navigate("/payment/payos/return?orderId=" + order._id)}
+                                                className="mt-3 px-4 py-2 rounded-xl text-sm font-bold text-white transition-all shadow-md hover:shadow-lg"
+                                                style={{
+                                                    background: "linear-gradient(135deg, #1a56db 0%, #1e40af 100%)",
+                                                    boxShadow: "0 4px 14px rgba(29, 86, 219, 0.4)",
+                                                }}
+                                            >
+                                                💳 Thanh toán ngay
+                                            </button>
+                                        )}
+                                        {isExpired && (
+                                            <button
+                                                onClick={() => navigate("/")}
+                                                className="mt-3 px-4 py-2 rounded-xl text-sm font-semibold text-amber-700 bg-amber-100 border border-amber-300 hover:bg-amber-200 transition-all"
+                                            >
+                                                🛍️ Tiếp tục mua sắm
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()
                 )}
 
                 {/* ─── Nhận hàng Banner (khi đang giao) ─── */}

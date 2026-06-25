@@ -1,95 +1,46 @@
 import { useContext, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/authContext.jsx";
-import { getCartApi, getCategoriesApi, getMyPointsApi } from "../../utils/api.js";
+import { getCartApi, getCategoriesApi } from "../../utils/api.js";
 
 export default function Header() {
-  const { auth, logout, token } = useContext(AuthContext);
+  const { auth, setAuth, logout, token } = useContext(AuthContext);
   const [open, setOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [categories, setCategories] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [loyaltyPoints, setLoyaltyPoints] = useState(0);
-  const [membershipTier, setMembershipTier] = useState(null);
   const navigate = useNavigate();
   const { user } = auth;
 
-  // Membership tier configuration
-  const membershipConfig = {
-    bronze: { 
-      name: 'Đồng', 
-      color: '#CD7F32',
-      gradient: 'from-amber-700 to-amber-900',
-      borderColor: '#CD7F32',
-      bgColor: 'bg-amber-100',
-      textColor: 'text-amber-800',
-      icon: '🥉',
-      minPoints: 0
-    },
-    silver: { 
-      name: 'Bạc', 
-      color: '#C0C0C0',
-      gradient: 'from-gray-400 to-gray-600',
-      borderColor: '#C0C0C0',
-      bgColor: 'bg-gray-100',
-      textColor: 'text-gray-700',
-      icon: '🥈',
-      minPoints: 100000
-    },
-    gold: { 
-      name: 'Vàng', 
-      color: '#FFD700',
-      gradient: 'from-yellow-400 to-yellow-600',
-      borderColor: '#FFD700',
-      bgColor: 'bg-yellow-100',
-      textColor: 'text-yellow-800',
-      icon: '🥇',
-      minPoints: 500000
-    },
-    diamond: { 
-      name: 'Kim Cương', 
-      color: '#B9F2FF',
-      gradient: 'from-cyan-300 to-blue-500',
-      borderColor: '#00D4FF',
-      bgColor: 'bg-cyan-100',
-      textColor: 'text-cyan-800',
-      icon: '💎',
-      minPoints: 2000000
-    }
-  };
-
-  // Determine membership tier based on loyalty points
-  const getMembershipTier = (points) => {
-    if (points >= 2000000) return 'diamond';
-    if (points >= 500000) return 'gold';
-    if (points >= 100000) return 'silver';
-    return 'bronze';
-  };
-
-  // Calculate points needed for next tier
-  const getPointsToNextTier = (currentTier) => {
-    const tiers = ['bronze', 'silver', 'gold', 'diamond'];
-    const currentIndex = tiers.indexOf(currentTier);
-    if (currentIndex === tiers.length - 1) return null;
-    return membershipConfig[tiers[currentIndex + 1]].minPoints;
-  };
-
   useEffect(() => {
+    if (user?.role === "vendor" || user?.role === "admin") {
+      setCartCount(0);
+      return;
+    }
     fetchCartCount();
     fetchCategories();
-    if (token) {
-      fetchLoyaltyPoints();
-    }
 
     const handleCartUpdate = () => fetchCartCount();
+    const handleAvatarUpdate = (e) => {
+      setAuth((prev) => ({
+        ...prev,
+        user: { ...prev.user, avatar: e.detail.avatar }
+      }));
+    };
     window.addEventListener("cart-updated", handleCartUpdate);
+    window.addEventListener("avatar-updated", handleAvatarUpdate);
 
     return () => {
       window.removeEventListener("cart-updated", handleCartUpdate);
+      window.removeEventListener("avatar-updated", handleAvatarUpdate);
     };
-  }, [token]);
+  }, [!!token, user?.role]); // !!token as boolean — stable reference across renders
 
   const fetchCartCount = async () => {
+    if (!token || user?.role === "vendor" || user?.role === "admin") {
+      setCartCount(0);
+      return;
+    }
     if (!token) {
       const cart = JSON.parse(localStorage.getItem("cart") || "[]");
       const total = cart.reduce((sum, i) => sum + i.quantity, 0);
@@ -104,19 +55,6 @@ export default function Header() {
       }
     } catch (error) {
       console.error("Error fetching cart:", error);
-    }
-  };
-
-  const fetchLoyaltyPoints = async () => {
-    try {
-      const res = await getMyPointsApi();
-      if (res.success) {
-        const points = res.data.points || 0;
-        setLoyaltyPoints(points);
-        setMembershipTier(getMembershipTier(points));
-      }
-    } catch (error) {
-      console.error("Error fetching loyalty points:", error);
     }
   };
 
@@ -214,10 +152,14 @@ export default function Header() {
                 onClick={() => setOpen(!open)}
                 className="flex items-center gap-2 p-2 hover:bg-[#FAF7F4] rounded-lg transition-colors"
               >
-                <div className="w-8 h-8 bg-[#B86B05] rounded-full flex items-center justify-center">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" className="w-4.5 h-4.5">
-                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
+                <div className="w-8 h-8 bg-[#B86B05] rounded-full flex items-center justify-center overflow-hidden">
+                  {user?.avatar ? (
+                    <img src={user.avatar} alt={user.fullName} className="w-full h-full object-cover" />
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" className="w-4.5 h-4.5">
+                      <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  )}
                 </div>
               </button>
 
@@ -249,59 +191,19 @@ export default function Header() {
                   ) : (
                     <>
                       <div className="px-4 py-3.5 bg-[#FAF7F4] border-b border-[#EDE8E0]">
-                        {/* User info with membership badge */}
                         <div className="flex items-center gap-3 mb-2">
-                          {/* Avatar with membership ring */}
-                          <div className={`relative ${membershipTier && membershipTier !== 'bronze' ? 'p-0.5 rounded-full' : ''}`}
-                               style={membershipTier && membershipTier !== 'bronze' ? {
-                                 background: `linear-gradient(135deg, ${membershipConfig[membershipTier].color}, ${membershipConfig[membershipTier].gradient.includes('cyan') ? '#00D4FF' : membershipConfig[membershipTier].color}80)`
-                               } : {}}>
-                            <div className="w-10 h-10 bg-[#B86B05] rounded-full flex items-center justify-center overflow-hidden">
-                              {user?.avatar ? (
-                                <img src={user.avatar} alt={user.fullName} className="w-full h-full object-cover" />
-                              ) : (
-                                <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" className="w-5 h-5">
-                                  <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                </svg>
-                              )}
-                            </div>
-                            {/* Membership badge */}
-                            {membershipTier && (
-                              <div className={`absolute -bottom-1 -right-1 w-5 h-5 ${membershipConfig[membershipTier].bgColor} rounded-full flex items-center justify-center border-2 border-white shadow-sm`}
-                                   title={`Hạng ${membershipConfig[membershipTier].name}`}>
-                                <span className="text-[10px]">{membershipConfig[membershipTier].icon}</span>
-                              </div>
+                          <div className="w-10 h-10 bg-[#B86B05] rounded-full flex items-center justify-center overflow-hidden">
+                            {user?.avatar ? (
+                              <img src={user.avatar} alt={user.fullName} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-white font-bold text-lg">{user?.fullName?.charAt(0)?.toUpperCase() || 'U'}</span>
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold text-[#1C1108] text-sm truncate">{user.fullName}</p>
-                            {membershipTier && (
-                              <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${membershipConfig[membershipTier].bgColor} ${membershipConfig[membershipTier].textColor}`}>
-                                <span>{membershipConfig[membershipTier].icon}</span>
-                                <span>{membershipConfig[membershipTier].name}</span>
-                              </div>
-                            )}
+                            <p className="text-xs text-[#A8896A] truncate">{user.email}</p>
                           </div>
                         </div>
-                        <p className="text-xs text-[#A8896A]">{user.email}</p>
-                        {loyaltyPoints > 0 && (
-                          <div className="mt-2 px-2 py-1 bg-purple-50 rounded-lg inline-flex items-center gap-1">
-                            <span className="text-xs">💎</span>
-                            <span className="text-xs font-semibold text-purple-700">{loyaltyPoints.toLocaleString('vi-VN')} điểm</span>
-                            {membershipTier && (
-                              <div className="ml-1 flex items-center gap-1">
-                                <div className="w-16 h-1.5 bg-purple-200 rounded-full overflow-hidden">
-                                  {(() => {
-                                    const nextTier = getPointsToNextTier(membershipTier);
-                                    if (!nextTier) return <div className="w-full h-full bg-purple-500 rounded-full" />;
-                                    const progress = Math.min(100, (loyaltyPoints / nextTier) * 100);
-                                    return <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${progress}%` }} />;
-                                  })()}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </div>
                       {user.role === "customer" && (
                         <>
@@ -371,17 +273,19 @@ export default function Header() {
               )}
             </div>
 
-            {/* CART */}
-            <Link to="/cart" className="relative p-2.5 hover:bg-[#FAF7F4] rounded-lg transition-colors">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5.5 h-5.5 text-[#6B5C4C]">
-                <path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-              {cartCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 bg-[#BF4343] text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold min-w-4.5 text-center">
-                  {cartCount > 99 ? "99+" : cartCount}
-                </span>
-              )}
-            </Link>
+            {/* CART — only shown for customers */}
+            {user?.role !== "vendor" && user?.role !== "admin" && (
+              <Link to="/cart" className="relative p-2.5 hover:bg-[#FAF7F4] rounded-lg transition-colors">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5.5 h-5.5 text-[#6B5C4C]">
+                  <path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                {cartCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 bg-[#BF4343] text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold min-w-4.5 text-center">
+                    {cartCount > 99 ? "99+" : cartCount}
+                  </span>
+                )}
+              </Link>
+            )}
 
             {/* Mobile Menu Toggle */}
             <button className="lg:hidden p-2.5 hover:bg-[#FAF7F4] rounded-lg" onClick={() => setOpen(!open)}>
