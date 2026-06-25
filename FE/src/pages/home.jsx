@@ -145,7 +145,7 @@ const HomePage = () => {
                                         <path d="M5 12h14M12 5l7 7-7 7" />
                                     </svg>
                                 </Link>
-                                <Link to="/best-sellers" className="inline-flex items-center gap-2 px-7 py-3 bg-white/10 text-white font-semibold rounded-xl hover:bg-white/20 transition-all border border-white/20 active:scale-[0.98]">
+                                <Link to="/products?sort=-sold" className="inline-flex items-center gap-2 px-7 py-3 bg-white/10 text-white font-semibold rounded-xl hover:bg-white/20 transition-all border border-white/20 active:scale-[0.98]">
                                     Bán chạy nhất
                                 </Link>
                             </div>
@@ -231,7 +231,7 @@ const HomePage = () => {
                                 <p className="text-sm text-[#6B5C4C] mt-1">Top sản phẩm được yêu thích nhất</p>
                             </div>
                             <Link
-                                to="/best-sellers"
+                                to="/products?sort=-sold"
                                 className="inline-flex items-center gap-1.5 text-sm font-medium text-[#B86B05] hover:text-[#95520B] transition-colors"
                             >
                                 Xem tất cả
@@ -263,7 +263,7 @@ const HomePage = () => {
                                 <p className="text-sm text-[#6B5C4C] mt-1">Xu hướng được quan tâm nhiều nhất</p>
                             </div>
                             <Link
-                                to="/products"
+                                to="/products?sort=-wishlistCount"
                                 className="inline-flex items-center gap-1.5 text-sm font-medium text-[#B86B05] hover:text-[#95520B] transition-colors"
                             >
                                 Xem tất cả

@@ -2,10 +2,41 @@ const mongoose = require('mongoose');
 const Product = require('../models/product');
 const Category = require('../models/category');
 const Shop = require('../models/Shop');
+const User = require('../models/User');
 const PlatformConfig = require('../models/platformConfig');
 const { attachPricing } = require('../utils/pricing');
 
 const DEFAULT_PAGE_SIZE = 12;
+const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
+const PRODUCT_SORT_FIELDS = ['createdAt', 'price', 'sold', 'averageRating', 'views', 'wishlistCount'];
+
+const getPublicProductQuery = async (extra = {}) => {
+  const visibleShops = await Shop.find({ status: Shop.STATUS.APPROVED }).select('_id').lean();
+  const visibleShopIds = visibleShops.map((shop) => shop._id);
+
+  return {
+    $and: [
+      { isActive: true },
+      { status: { $in: PUBLIC_PRODUCT_STATUSES } },
+      {
+        $or: [
+          { shop: { $in: visibleShopIds } },
+          { shop: null }
+        ]
+      },
+      extra
+    ]
+  };
+};
+
+const isPublicProductVisible = (product) => {
+  return Boolean(
+    product &&
+    product.isActive !== false &&
+    PUBLIC_PRODUCT_STATUSES.includes(product.status) &&
+    (!product.shop || product.shop.status === Shop.STATUS.APPROVED)
+  );
+};
 
 // Các field sản phẩm vendor có thể gửi lên (whitelist)
 const PRODUCT_FIELDS = [
@@ -45,7 +76,7 @@ const getAllProducts = async (req, res) => {
     } = req.query;
 
     // Build query
-    const query = { isActive: true };
+    let query = {};
     
     if (category) {
       // Check if it's a valid ObjectId, otherwise treat as slug
@@ -81,18 +112,49 @@ const getAllProducts = async (req, res) => {
       ];
     }
 
+    query = await getPublicProductQuery(query);
+    const normalizedSort = sort.startsWith('-') ? sort.slice(1) : sort;
+    const sortField = PRODUCT_SORT_FIELDS.includes(normalizedSort) ? normalizedSort : 'createdAt';
+    const sortDirection = sort.startsWith('-') || order === 'desc' ? -1 : 1;
+
     // Count total
     const total = await Product.countDocuments(query);
 
     // Pagination
     const skip = (Number(page) - 1) * Number(limit);
-    const products = await Product.find(query)
-      .populate('category', 'name slug')
-      .populate('shop', 'name slug logo')
-      .sort({ [sort]: order === 'desc' ? -1 : 1 })
-      .skip(skip)
-      .limit(Number(limit))
-      .lean();
+    let products;
+
+    if (sortField === 'wishlistCount') {
+      products = await Product.aggregate([
+        { $match: query },
+        {
+          $lookup: {
+            from: User.collection.name,
+            localField: '_id',
+            foreignField: 'wishlist',
+            as: 'wishlistedBy'
+          }
+        },
+        { $addFields: { wishlistCount: { $size: '$wishlistedBy' } } },
+        { $sort: { wishlistCount: sortDirection, views: -1, sold: -1, createdAt: -1 } },
+        { $skip: skip },
+        { $limit: Number(limit) },
+        { $project: { wishlistedBy: 0 } }
+      ]);
+
+      await Product.populate(products, [
+        { path: 'category', select: 'name slug' },
+        { path: 'shop', select: 'name slug logo isActive status' }
+      ]);
+    } else {
+      products = await Product.find(query)
+        .populate('category', 'name slug')
+        .populate('shop', 'name slug logo isActive status')
+        .sort({ [sortField]: sortDirection })
+        .skip(skip)
+        .limit(Number(limit))
+        .lean();
+    }
 
     await attachPricing(products);
 
@@ -135,10 +197,10 @@ const getProduct = async (req, res) => {
       { new: true }
     )
       .populate('category', 'name slug')
-      .populate('shop', 'name slug logo banner description phone email address isActive')
+      .populate('shop', 'name slug logo banner description phone email address isActive status')
       .lean();
 
-    if (!product) {
+    if (!isPublicProductVisible(product)) {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy sản phẩm'
@@ -354,10 +416,12 @@ const filterProducts = async (req, res) => {
     const limit = Number(req.query.limit) || configLimit
     const skip = (page - 1) * limit
 
+    const publicQuery = await getPublicProductQuery(formatQuery);
+
     // Query
-    const products = await Product.find(formatQuery)
+    const products = await Product.find(publicQuery)
       .populate('category', 'name')
-      .populate('shop', 'name slug logo')
+      .populate('shop', 'name slug logo isActive status')
       .sort(sortBy)
       .skip(skip)
       .limit(limit)
@@ -365,7 +429,7 @@ const filterProducts = async (req, res) => {
 
     await attachPricing(products);
 
-    const count = await Product.countDocuments(formatQuery)
+    const count = await Product.countDocuments(publicQuery)
     const totalPages = Math.ceil(count / limit);
 
     res.status(200).json({
@@ -518,12 +582,11 @@ const getProductsByCategory = async (req, res) => {
             });
         }
 
-        const products = await Product.find({
-            category: category._id,
-            isActive: true
-        })
+        const publicQuery = await getPublicProductQuery({ category: category._id });
+
+        const products = await Product.find(publicQuery)
             .populate('category', 'name slug')
-            .populate('shop', 'name slug logo')
+            .populate('shop', 'name slug logo isActive status')
             .sort(sort)
             .skip((page - 1) * limit)
             .limit(parseInt(limit))
@@ -531,10 +594,7 @@ const getProductsByCategory = async (req, res) => {
 
         await attachPricing(products);
 
-        const total = await Product.countDocuments({
-            category: category._id,
-            isActive: true
-        });
+        const total = await Product.countDocuments(publicQuery);
 
         res.status(200).json({
             success: true,
@@ -565,9 +625,9 @@ const getBestSellers = async (req, res) => {
     try {
         const { limit = 10 } = req.query;
 
-        const products = await Product.find({ isActive: true })
+        const products = await Product.find(await getPublicProductQuery())
             .populate('category', 'name')
-            .populate('shop', 'name slug logo')
+            .populate('shop', 'name slug logo isActive status')
             .sort({ sold: -1 })
             .limit(parseInt(limit))
             .lean();
@@ -593,13 +653,38 @@ const getBestSellers = async (req, res) => {
 const getTrendingProducts = async (req, res) => {
     try {
         const { limit = 10 } = req.query;
+        const publicQuery = await getPublicProductQuery();
 
-        const products = await Product.find({ isActive: true })
-            .populate('category', 'name')
-            .populate('shop', 'name slug logo')
-            .sort({ views: -1 })
-            .limit(parseInt(limit))
-            .lean();
+        const products = await Product.aggregate([
+            { $match: publicQuery },
+            {
+                $lookup: {
+                    from: User.collection.name,
+                    localField: '_id',
+                    foreignField: 'wishlist',
+                    as: 'wishlistedBy'
+                }
+            },
+            {
+                $addFields: {
+                    wishlistCount: { $size: '$wishlistedBy' },
+                    trendScore: {
+                        $add: [
+                            { $ifNull: ['$views', 0] },
+                            { $multiply: [{ $size: '$wishlistedBy' }, 5] }
+                        ]
+                    }
+                }
+            },
+            { $sort: { trendScore: -1, views: -1, wishlistCount: -1, createdAt: -1 } },
+            { $limit: parseInt(limit) },
+            { $project: { wishlistedBy: 0 } }
+        ]);
+
+        await Product.populate(products, [
+            { path: 'category', select: 'name' },
+            { path: 'shop', select: 'name slug logo isActive status' }
+        ]);
 
         await attachPricing(products);
 

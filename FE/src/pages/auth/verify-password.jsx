@@ -8,7 +8,7 @@ import { AuthContext } from '../../components/context/authContext';
 const VerifyPasswordPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setAuth } = useContext(AuthContext);
+  const { setAuth, setToken } = useContext(AuthContext);
   
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
@@ -79,6 +79,7 @@ const VerifyPasswordPage = () => {
 
           if (token) {
             localStorage.setItem('access_token', token);
+            setToken(token);
             setAuth({
               isAuthenticated: true,
               user: { ...user },

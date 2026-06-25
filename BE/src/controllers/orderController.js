@@ -5,6 +5,69 @@ const Shop = require('../models/Shop');
 const Notification = require('../models/notification');
 const { ORDER_STATUS } = require('../models/order');
 const payoutService = require('../services/payoutService');
+const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
+
+const pickCheckoutItems = (cart, selectedProductIds = [], selectedProducts = []) => {
+    if (Array.isArray(selectedProducts) && selectedProducts.length > 0) {
+        const quantityByProduct = new Map(
+            selectedProducts
+                .filter((item) => item?.productId && Number(item.quantity) > 0)
+                .map((item) => [item.productId.toString(), Number(item.quantity)])
+        );
+
+        return cart.products
+            .filter((item) => quantityByProduct.has(item.product.toString()))
+            .map((item) => {
+                const checkoutQuantity = quantityByProduct.get(item.product.toString());
+                const plainItem = item.toObject ? item.toObject() : { ...item };
+                return {
+                    ...plainItem,
+                    product: item.product,
+                    quantity: Math.min(checkoutQuantity, item.quantity)
+                };
+            });
+    }
+
+    if (!Array.isArray(selectedProductIds) || selectedProductIds.length === 0) {
+        return cart.products;
+    }
+    const selected = new Set(selectedProductIds.map((id) => id.toString()));
+    return cart.products.filter((item) => selected.has(item.product.toString()));
+};
+
+const getProductImage = (product) => {
+    const firstImage = Array.isArray(product.images) ? product.images[0] : null;
+    return firstImage?.url || firstImage || product.image || null;
+};
+
+const removeCheckoutItemsFromCart = async (cart, checkoutItems, selectedProducts = [], selectedProductIds = []) => {
+    if (Array.isArray(selectedProducts) && selectedProducts.length > 0) {
+        const purchasedByProduct = new Map(
+            checkoutItems.map((item) => [item.product.toString(), Number(item.quantity) || 0])
+        );
+
+        cart.products = cart.products
+            .map((item) => {
+                const purchasedQuantity = purchasedByProduct.get(item.product.toString()) || 0;
+                if (purchasedQuantity <= 0) return item;
+                item.quantity = Math.max(0, item.quantity - purchasedQuantity);
+                return item;
+            })
+            .filter((item) => item.quantity > 0);
+
+        await cart.save();
+        return;
+    }
+
+    if (Array.isArray(selectedProductIds) && selectedProductIds.length > 0) {
+        const selected = new Set(checkoutItems.map((item) => item.product.toString()));
+        cart.products = cart.products.filter((item) => !selected.has(item.product.toString()));
+        await cart.save();
+        return;
+    }
+
+    await Cart.findByIdAndDelete(cart._id);
+};
 
 // Gửi thông báo "đơn mới" tới vendor của từng shop có trong đơn
 const notifyVendorsNewOrder = async (order) => {
@@ -31,11 +94,12 @@ const notifyVendorsNewOrder = async (order) => {
 // @access  Private
 const createOrder = async (req, res) => {
     try {
-        const { shippingAddress, paymentMethod = 'COD', note } = req.body;
+        const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null } = req.body;
+        const isBuyNow = Boolean(buyNowProduct?.productId && Number(buyNowProduct.quantity) > 0);
 
         // Lấy cart của user
-        const cart = await Cart.findOne({ user: req.user._id });
-        if (!cart || cart.products.length === 0) {
+        const cart = isBuyNow ? null : await Cart.findOne({ user: req.user._id });
+        if (!isBuyNow && (!cart || cart.products.length === 0)) {
             return res.status(400).json({
                 success: false,
                 message: 'Giỏ hàng trống!'
@@ -43,13 +107,34 @@ const createOrder = async (req, res) => {
         }
 
         // Kiểm tra tồn kho + thu thập thông tin shop của từng sản phẩm
+        const checkoutItems = isBuyNow
+            ? [{
+                product: buyNowProduct.productId,
+                quantity: Math.max(1, Number(buyNowProduct.quantity) || 1)
+            }]
+            : pickCheckoutItems(cart, selectedProductIds, selectedProducts);
+        if (checkoutItems.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Không có sản phẩm hợp lệ để thanh toán!'
+            });
+        }
+
         const productMap = {};
-        for (const item of cart.products) {
-            const product = await Product.findById(item.product).populate('shop', 'name code');
+        for (const item of checkoutItems) {
+            const product = await Product.findById(item.product).populate('shop', 'name code status isActive');
             if (!product) {
                 return res.status(400).json({
                     success: false,
                     message: `Sản phẩm không tồn tại!`
+                });
+            }
+            if (!product.isActive || !PUBLIC_PRODUCT_STATUSES.includes(product.status) || (product.shop && (product.shop.status !== 'approved' || product.shop.isActive === false))) {
+                return res.status(400).json({
+                    success: false,
+                    message: product.shop?.isActive === false
+                        ? `Shop của sản phẩm "${product.name}" đang tạm nghỉ, chưa thể thanh toán!`
+                        : `Sản phẩm "${product.name}" hiện chưa thể mua!`
                 });
             }
             if (product.quantity < item.quantity) {
@@ -58,12 +143,22 @@ const createOrder = async (req, res) => {
                     message: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!`
                 });
             }
+            if (isBuyNow) {
+                const productDiscount = product.discount || 0;
+                item.price = productDiscount > 0
+                    ? Math.round(product.price * (1 - productDiscount / 100))
+                    : product.price;
+                item.originalPrice = product.price;
+                item.discount = productDiscount;
+                item.name = product.name;
+                item.image = getProductImage(product);
+            }
             productMap[item.product.toString()] = product;
         }
 
         // Nhóm sản phẩm theo shop (multi-vendor: tách đơn)
         const shopGroups = {};
-        for (const item of cart.products) {
+        for (const item of checkoutItems) {
             const product = productMap[item.product.toString()];
             const shopId = product.shop?._id?.toString() || 'no-shop';
             
@@ -145,8 +240,10 @@ const createOrder = async (req, res) => {
             createdOrders.push(order);
         }
 
-        // Xóa giỏ hàng sau khi đặt thành công
-        await Cart.findByIdAndDelete(cart._id);
+        // Xóa khỏi giỏ các sản phẩm vừa thanh toán, giữ lại item chưa chọn.
+        if (!isBuyNow) {
+            await removeCheckoutItemsFromCart(cart, checkoutItems, selectedProducts, selectedProductIds);
+        }
 
         // Gửi thông báo cho vendors
         for (const order of createdOrders) {

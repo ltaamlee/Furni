@@ -12,7 +12,7 @@ const loginApi = (usernameOrEmail, password) => {
 }
 
 const getUserApi = () => {
-    const URL_API = "/user/profile";
+    const URL_API = "/user/me";
     return axios.get(URL_API);
 }
 

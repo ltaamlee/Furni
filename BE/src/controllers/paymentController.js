@@ -15,6 +15,69 @@ const payoutService = require('../services/payoutService');
 const PayOS = require('@payos/node');
 
 let payosInstance = null;
+const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
+
+const pickCheckoutItems = (cart, selectedProductIds = [], selectedProducts = []) => {
+    if (Array.isArray(selectedProducts) && selectedProducts.length > 0) {
+        const quantityByProduct = new Map(
+            selectedProducts
+                .filter((item) => item?.productId && Number(item.quantity) > 0)
+                .map((item) => [item.productId.toString(), Number(item.quantity)])
+        );
+
+        return cart.products
+            .filter((item) => quantityByProduct.has(item.product.toString()))
+            .map((item) => {
+                const checkoutQuantity = quantityByProduct.get(item.product.toString());
+                const plainItem = item.toObject ? item.toObject() : { ...item };
+                return {
+                    ...plainItem,
+                    product: item.product,
+                    quantity: Math.min(checkoutQuantity, item.quantity)
+                };
+            });
+    }
+
+    if (!Array.isArray(selectedProductIds) || selectedProductIds.length === 0) {
+        return cart.products;
+    }
+    const selected = new Set(selectedProductIds.map((id) => id.toString()));
+    return cart.products.filter((item) => selected.has(item.product.toString()));
+};
+
+const getProductImage = (product) => {
+    const firstImage = Array.isArray(product.images) ? product.images[0] : null;
+    return firstImage?.url || firstImage || product.image || null;
+};
+
+const removeCheckoutItemsFromCart = async (cart, checkoutItems, selectedProducts = [], selectedProductIds = []) => {
+    if (Array.isArray(selectedProducts) && selectedProducts.length > 0) {
+        const purchasedByProduct = new Map(
+            checkoutItems.map((item) => [item.product.toString(), Number(item.quantity) || 0])
+        );
+
+        cart.products = cart.products
+            .map((item) => {
+                const purchasedQuantity = purchasedByProduct.get(item.product.toString()) || 0;
+                if (purchasedQuantity <= 0) return item;
+                item.quantity = Math.max(0, item.quantity - purchasedQuantity);
+                return item;
+            })
+            .filter((item) => item.quantity > 0);
+
+        await cart.save();
+        return;
+    }
+
+    if (Array.isArray(selectedProductIds) && selectedProductIds.length > 0) {
+        const selected = new Set(checkoutItems.map((item) => item.product.toString()));
+        cart.products = cart.products.filter((item) => !selected.has(item.product.toString()));
+        await cart.save();
+        return;
+    }
+
+    await Cart.findByIdAndDelete(cart._id);
+};
 
 const getPayOSInstance = () => {
     if (!payosInstance && payosConfig.isConfigured()) {
@@ -151,7 +214,8 @@ const createPayOSPayment = async (req, res) => {
  */
 const createPayOSPaymentWithCart = async (req, res) => {
     try {
-        const { shippingAddress, shippingProvider, shippingFee, note } = req.body;
+        const { shippingAddress, shippingProvider, shippingFee, note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null } = req.body;
+        const isBuyNow = Boolean(buyNowProduct?.productId && Number(buyNowProduct.quantity) > 0);
 
         // Kiểm tra PayOS đã được cấu hình chưa
         if (!payosConfig.isConfigured()) {
@@ -162,8 +226,8 @@ const createPayOSPaymentWithCart = async (req, res) => {
         }
 
         // Lấy cart của user
-        const cart = await Cart.findOne({ user: req.user._id });
-        if (!cart || cart.products.length === 0) {
+        const cart = isBuyNow ? null : await Cart.findOne({ user: req.user._id });
+        if (!isBuyNow && (!cart || cart.products.length === 0)) {
             return res.status(400).json({
                 success: false,
                 message: 'Giỏ hàng trống!'
@@ -171,13 +235,34 @@ const createPayOSPaymentWithCart = async (req, res) => {
         }
 
         // Kiểm tra tồn kho
+        const checkoutItems = isBuyNow
+            ? [{
+                product: buyNowProduct.productId,
+                quantity: Math.max(1, Number(buyNowProduct.quantity) || 1)
+            }]
+            : pickCheckoutItems(cart, selectedProductIds, selectedProducts);
+        if (checkoutItems.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Không có sản phẩm hợp lệ để thanh toán!'
+            });
+        }
+
         const productMap = {};
-        for (const item of cart.products) {
-            const product = await Product.findById(item.product).populate('shop', 'name code');
+        for (const item of checkoutItems) {
+            const product = await Product.findById(item.product).populate('shop', 'name code status isActive');
             if (!product) {
                 return res.status(400).json({
                     success: false,
                     message: `Sản phẩm không tồn tại!`
+                });
+            }
+            if (!product.isActive || !PUBLIC_PRODUCT_STATUSES.includes(product.status) || (product.shop && (product.shop.status !== 'approved' || product.shop.isActive === false))) {
+                return res.status(400).json({
+                    success: false,
+                    message: product.shop?.isActive === false
+                        ? `Shop của sản phẩm "${product.name}" đang tạm nghỉ, chưa thể thanh toán!`
+                        : `Sản phẩm "${product.name}" hiện chưa thể mua!`
                 });
             }
             if (product.quantity < item.quantity) {
@@ -186,16 +271,26 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     message: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!`
                 });
             }
+            if (isBuyNow) {
+                const productDiscount = product.discount || 0;
+                item.price = productDiscount > 0
+                    ? Math.round(product.price * (1 - productDiscount / 100))
+                    : product.price;
+                item.originalPrice = product.price;
+                item.discount = productDiscount;
+                item.name = product.name;
+                item.image = getProductImage(product);
+            }
             productMap[item.product.toString()] = product;
         }
 
-        const subtotal = cart.totalPrice;
+        const subtotal = checkoutItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const totalPrice = subtotal + (shippingFee || 0);
 
         // Tạo đơn hàng
         const order = new Order({
             user: req.user._id,
-            products: cart.products.map(item => {
+            products: checkoutItems.map(item => {
                 const product = productMap[item.product.toString()];
                 return {
                     product: item.product,
@@ -217,7 +312,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
             subtotal,
             shippingFee: shippingFee || 0,
             totalPrice,
-            totalQuantity: cart.totalQuantity,
+            totalQuantity: checkoutItems.reduce((sum, item) => sum + item.quantity, 0),
             orderedAt: new Date(),
             estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
         });
@@ -254,8 +349,10 @@ const createPayOSPaymentWithCart = async (req, res) => {
         const response = await payos.createPaymentLink(paymentData);
 
         if (response.data && response.data.checkoutUrl) {
-            // Xóa giỏ hàng sau khi tạo đơn hàng thành công
-            await Cart.findByIdAndDelete(cart._id);
+            // Xóa khỏi giỏ các sản phẩm vừa tạo thanh toán, giữ lại item chưa chọn.
+            if (!isBuyNow) {
+                await removeCheckoutItemsFromCart(cart, checkoutItems, selectedProducts, selectedProductIds);
+            }
 
             return res.status(200).json({
                 success: true,

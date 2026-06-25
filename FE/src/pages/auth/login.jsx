@@ -66,7 +66,7 @@ const Divider = ({ label }) => (
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { setAuth } = useContext(AuthContext);
+  const { setAuth, setToken } = useContext(AuthContext);
 
   const [form, setForm] = useState({ usernameOrEmail: '', password: '', rememberMe: false });
   const [errors, setErrors] = useState({});
@@ -80,6 +80,7 @@ const LoginPage = () => {
 
     if (token) {
       localStorage.setItem('access_token', token);
+      setToken(token);
       setAlert({ type: 'success', message: 'Đăng nhập Google thành công! Đang tải...' });
       window.history.replaceState({}, document.title, "/login");
 
@@ -128,6 +129,7 @@ const LoginPage = () => {
 
       if (data.success) {
         localStorage.setItem('access_token', data.data.token);
+        setToken(data.data.token);
 
         setAuth({
           isAuthenticated: true,

@@ -75,10 +75,32 @@ const AdminCustomersPage = () => {
         }
     };
 
-    const handleResetFilters = () => {
+    const handleResetFilters = async () => {
         setSearch("");
         setRole("");
         setStatus("");
+
+        setLoading(true);
+        try {
+            const params = {
+                page: 1,
+                limit: pagination.limit, 
+                search: "",
+                role: "",
+                status: ""
+            };
+
+            const response = await getAdminUsersApi(params);
+            if (response && response.success) {
+                setUsers(response.data.users);
+                setPagination(response.data.pagination);
+            }
+        } catch (error) {
+            console.error("Lỗi khi tải lại danh sách user:", error);
+            showToast("error", "Không thể tải lại danh sách. Vui lòng thử lại!");
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleOpenBlockModal = (userId, userFullName, currentStatus) => {

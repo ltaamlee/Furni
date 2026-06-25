@@ -43,8 +43,9 @@ const CartPage = () => {
 
     useEffect(() => {
         // Update select all when all items are selected
-        if (cart?.products?.length > 0) {
-            const allSelected = cart.products.every(item => 
+        const availableProducts = cart?.products?.filter(item => item.shopIsActive !== false) || [];
+        if (availableProducts.length > 0) {
+            const allSelected = availableProducts.every(item => 
                 selectedItems.has(item.product._id || item.product)
             );
             setSelectAll(allSelected);
@@ -59,7 +60,9 @@ const CartPage = () => {
                 const newCart = res.data;
                 setCart(newCart);
                 // Preserve selection: remove IDs that no longer exist in cart
-                const currentIds = new Set((newCart.products || []).map(item => item.product._id || item.product));
+                const currentIds = new Set((newCart.products || [])
+                    .filter(item => item.shopIsActive !== false)
+                    .map(item => item.product._id || item.product));
                 setSelectedItems((prev) => {
                     const kept = [...prev].filter(id => currentIds.has(id));
                     // If all cart items are in the kept selection, keep selectAll = true
@@ -166,7 +169,9 @@ const CartPage = () => {
         if (selectAll) {
             setSelectedItems(new Set());
         } else {
-            const allIds = cart.products.map(item => item.product._id || item.product);
+            const allIds = cart.products
+                .filter(item => item.shopIsActive !== false)
+                .map(item => item.product._id || item.product);
             setSelectedItems(new Set(allIds));
         }
         setSelectAll(!selectAll);
@@ -174,7 +179,7 @@ const CartPage = () => {
 
     const handleSelectShop = (shopId) => {
         const shopItems = cart.products.filter(item => 
-            (item.shop?._id || item.shop) === shopId
+            (item.shop?._id || item.shop) === shopId && item.shopIsActive !== false
         );
         const shopItemIds = shopItems.map(item => item.product._id || item.product);
         const allSelected = shopItemIds.every(id => selectedItems.has(id));
@@ -299,7 +304,7 @@ const CartPage = () => {
     // Calculate selected items total
     const selectedItemsData = useMemo(() => {
         const items = cart?.products?.filter(item =>
-            selectedItems.has(item.product._id || item.product)
+            selectedItems.has(item.product._id || item.product) && item.shopIsActive !== false
         ) || [];
 
         const subtotal = items.reduce((sum, item) => {
@@ -559,7 +564,7 @@ const CartPage = () => {
                                                             )}
                                                             {isUnavailable && (
                                                                 <div className="absolute inset-0 bg-black/30 rounded-xl flex items-center justify-center">
-                                                                    <span className="text-white text-xs font-bold bg-red-500 px-2 py-1 rounded">Hết hàng</span>
+                                                                    <span className="text-white text-xs font-bold bg-amber-600 px-2 py-1 rounded">Tạm nghỉ</span>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -574,7 +579,7 @@ const CartPage = () => {
                                                             </h3>
                                                             
                                                             {isUnavailable && (
-                                                                <p className="text-xs text-red-500 mt-1 font-medium">Cửa hàng đã ngừng hoạt động</p>
+                                                                <p className="text-xs text-amber-600 mt-1 font-medium">Shop đang tạm nghỉ, sản phẩm chưa thể thanh toán</p>
                                                             )}
                                                             
                                                             {/* Price Section - Shopee Style */}

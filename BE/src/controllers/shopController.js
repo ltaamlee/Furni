@@ -6,6 +6,7 @@ const Category = require('../models/category');
 const Notification = require('../models/notification');
 const Coupon = require('../models/Coupon');
 const { attachPricing } = require('../utils/pricing');
+const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
 // @desc    Lấy thông tin công khai của 1 shop (theo id hoặc slug)
 // @route   GET /api/shops/:idOrSlug
@@ -26,7 +27,12 @@ const getShop = async (req, res) => {
         }
 
         const [productCount, soldAgg] = await Promise.all([
-            Product.countDocuments({ shop: shop._id, isActive: true }),
+            Product.countDocuments({
+                shop: shop._id,
+                isActive: true,
+                status: { $in: PUBLIC_PRODUCT_STATUSES },
+                ...(shop.status === Shop.STATUS.APPROVED ? {} : { _id: null })
+            }),
             Product.aggregate([
                 { $match: { shop: shop._id } },
                 { $group: { _id: null, totalSold: { $sum: '$sold' } } }
@@ -68,7 +74,12 @@ const getShopProducts = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Không tìm thấy cửa hàng' });
         }
 
-        const query = { shop: shop._id, isActive: true };
+        const query = {
+            shop: shop._id,
+            isActive: true,
+            status: { $in: PUBLIC_PRODUCT_STATUSES },
+            ...(shop.status === Shop.STATUS.APPROVED ? {} : { _id: null })
+        };
         if (category) query.category = category;
         if (search) {
             query.$or = [

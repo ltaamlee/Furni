@@ -9,30 +9,30 @@ import { useContext } from "react";
 import { AuthContext } from "./components/context/authContext";
 
 import HomePage from "./pages/home";
-import ProductsPage from "./pages/user/Products";
+import ProductsPage from "./pages/user/products";
 import ProductDetailPage from "./pages/user/productDetail";
-import CartPage from "./pages/user/Cart";
-import CheckoutPage from "./pages/user/Checkout";
-import OrderSuccessPage from "./pages/user/OrderSuccess";
-import OrderHistoryPage from "./pages/user/OrderHistory";
-import OrderDetailPage from "./pages/user/OrderDetail";
-import ProductByCategoryPage from "./pages/user/ProductByCategory";
-import BestSellersPage from "./pages/user/BestSellers";
-import ShopPage from "./pages/user/Shop";
+import CartPage from "./pages/user/cart";
+import CheckoutPage from "./pages/user/checkout";
+import OrderSuccessPage from "./pages/user/orderSuccess";
+import OrderHistoryPage from "./pages/user/orderHistory";
+import OrderDetailPage from "./pages/user/orderDetail";
+import ProductByCategoryPage from "./pages/user/productByCategory";
+import BestSellersPage from "./pages/user/bestSellers";
+import ShopPage from "./pages/user/shop";
 import LoginPage from "./pages/auth/login";
 import RegisterPage from "./pages/auth/register";
 import VerifyPasswordPage from "./pages/auth/verify-password";
 import ForgotPasswordPage from "./pages/auth/forgot-password";
 import ResetPasswordPage from "./pages/auth/reset-password";
-import ProfilePage from "./pages/user/Profile";
+import ProfilePage from "./pages/user/profile";
 import WishlistPage from "./components/common/WishlistPage";
 import LoyaltyPointsPage from "./components/common/LoyaltyPointsPage";
-import MyReviewsPage from "./pages/user/MyReviews";
+import MyReviewsPage from "./pages/user/myReviews";
 import CouponList from "./components/common/CouponList";
 import RecentlyViewedPage from "./components/common/RecentlyViewedPage";
 import PayOSReturnPage from "./pages/user/payosReturn";
-import ChangePasswordPage from "./pages/user/ChangePassword";
-import AddressesPage from "./pages/user/Addresses";
+import ChangePasswordPage from "./pages/user/changePassword";
+import AddressesPage from "./pages/user/addresses";
 import BlogPage from "./pages/user/Blog";
 
 //admin
@@ -90,6 +90,7 @@ function App() {
                     <Route path="/blog" element={<BlogPage />} />
                     <Route path="/blog/:idOrSlug" element={<BlogPage />} />
                     <Route path="/products" element={<ProductsPage />} />
+                    <Route path="/best-sellers" element={<BestSellersPage />} />
                     <Route path="/product/:slug" element={<ProductDetailPage />} />
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/checkout" element={<CheckoutPage />} />

@@ -19,6 +19,7 @@ const sortOptions = [
     { value: "price", label: "Giá: Thấp → Cao" },
     { value: "-price", label: "Giá: Cao → Thấp" },
     { value: "-sold", label: "Bán chạy nhất" },
+    { value: "-wishlistCount", label: "Được yêu thích nhất" },
     { value: "-averageRating", label: "Đánh giá cao" }
 ];
 
@@ -161,7 +162,7 @@ const ProductsPage = () => {
         window.dispatchEvent(new Event("cart-updated"));
     };
 
-    const hasActiveFilters = search || (category && category !== "all") || (priceRange && priceRange !== "all");
+    const hasActiveFilters = search || (category && category !== "all") || (priceRange && priceRange !== "all") || sort !== "-createdAt";
 
     const getPageNumbers = () => {
         const pages = [];
@@ -235,6 +236,12 @@ const ProductsPage = () => {
                                 <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#B86B05]/10 text-[#B86B05] rounded-full text-xs font-medium">
                                     {priceRanges.find(p => p.value === priceRange)?.label}
                                     <button onClick={() => updateFilter("price", "all")} className="hover:text-[#95520B]">×</button>
+                                </span>
+                            )}
+                            {sort !== "-createdAt" && (
+                                <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#B86B05]/10 text-[#B86B05] rounded-full text-xs font-medium">
+                                    {sortOptions.find((opt) => opt.value === sort)?.label || "Sắp xếp"}
+                                    <button onClick={() => updateFilter("sort", "-createdAt")} className="hover:text-[#95520B]">×</button>
                                 </span>
                             )}
                             <button onClick={clearFilters} className="text-xs text-[#BF4343] hover:text-red-700 font-medium transition-colors">

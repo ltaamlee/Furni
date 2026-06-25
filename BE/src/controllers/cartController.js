@@ -3,13 +3,15 @@ const Product = require('../models/product');
 const Shop = require('../models/Shop');
 const { currentSalePrice } = require('../utils/pricing');
 
+const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
+
 // @desc    Get user's cart with shop and promotion info
 // @route   GET /api/cart
 // @access  Private
 const getCart = async (req, res) => {
     try {
         const cart = await Cart.findOne({ user: req.user._id })
-            .populate('products.product', 'name images price discount shop promotion');
+            .populate('products.product', 'name images price discount shop promotion status isActive');
 
         if (!cart) {
             return res.status(200).json({
@@ -23,8 +25,11 @@ const getCart = async (req, res) => {
         }
 
         // Transform cart items to include shop info and calculate discount
-        const transformedProducts = await Promise.all(cart.products.map(async (item) => {
+        const transformedProducts = (await Promise.all(cart.products.map(async (item) => {
             const product = item.product;
+            if (!product || product.isActive === false || !PUBLIC_PRODUCT_STATUSES.includes(product.status)) {
+                return null;
+            }
             const discount = product?.discount || 0;
             const originalPrice = product?.price || item.price;
             const discountedPrice = discount > 0 
@@ -41,15 +46,14 @@ const getCart = async (req, res) => {
 
             if (product?.shop) {
                 try {
-                    const shop = await Shop.findById(product.shop).select('name avatar status');
-                    if (shop) {
-                        shopInfo = {
-                            _id: shop._id,
-                            name: shop.name,
-                            avatar: shop.avatar,
-                            isActive: shop.status === 'approved' && product?.isActive !== false
-                        };
-                    }
+                    const shop = await Shop.findById(product.shop).select('name avatar logo status isActive');
+                    if (!shop || shop.status !== 'approved') return null;
+                    shopInfo = {
+                        _id: shop._id,
+                        name: shop.name,
+                        avatar: shop.avatar || shop.logo,
+                        isActive: shop.status === 'approved' && shop.isActive !== false && product?.isActive !== false
+                    };
                 } catch (e) {
                     // Keep default shop info
                 }
@@ -69,7 +73,7 @@ const getCart = async (req, res) => {
                 shopIsActive: shopInfo.isActive,
                 addedAt: item.addedAt || cart.createdAt
             };
-        }));
+        }))).filter(Boolean);
 
         // Recalculate totals
         const totalQuantity = transformedProducts.reduce((sum, item) => sum + item.quantity, 0);
@@ -103,7 +107,7 @@ const addToCart = async (req, res) => {
     try {
         const { productId, quantity = 1 } = req.body;
 
-        const product = await Product.findById(productId).populate('shop', 'name avatar status');
+        const product = await Product.findById(productId).populate('shop', 'name avatar logo status isActive');
         if (!product) {
             return res.status(404).json({
                 success: false,
@@ -118,11 +122,20 @@ const addToCart = async (req, res) => {
             });
         }
 
-        // Check if shop is active
-        if (product.shop && product.shop.status !== 'approved') {
+        if (!PUBLIC_PRODUCT_STATUSES.includes(product.status)) {
             return res.status(400).json({
                 success: false,
-                message: 'Cửa hàng đã ngừng hoạt động'
+                message: 'Sản phẩm hiện không được mở bán'
+            });
+        }
+
+        // Check if shop is active
+        if (product.shop && (product.shop.status !== 'approved' || product.shop.isActive === false)) {
+            return res.status(400).json({
+                success: false,
+                message: product.shop.isActive === false
+                    ? 'Shop đang tạm nghỉ, sản phẩm hiện chưa thể mua'
+                    : 'Cửa hàng đã ngừng hoạt động'
             });
         }
 
@@ -144,7 +157,7 @@ const addToCart = async (req, res) => {
         const shopInfo = product.shop ? {
             _id: product.shop._id,
             name: product.shop.name,
-            avatar: product.shop.avatar
+            avatar: product.shop.avatar || product.shop.logo
         } : null;
         // Giá tại thời điểm thêm giỏ = đã trừ khuyến mãi đang chạy (nếu có)
         const salePrice = await currentSalePrice(product);

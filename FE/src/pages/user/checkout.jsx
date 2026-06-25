@@ -9,6 +9,7 @@ import {
   createPayOSPaymentWithCartApi,
   getUserWalletApi,
   getAddressesApi,
+  getProductByIdApi,
 } from "../../utils/api";
 
 const CheckoutPage = () => {
@@ -25,6 +26,8 @@ const CheckoutPage = () => {
   const [walletAccounts, setWalletAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [selectedItemIds, setSelectedItemIds] = useState(new Set());
+  const [buyNowItem, setBuyNowItem] = useState(null);
+  const [buyNowProduct, setBuyNowProduct] = useState(null);
 
   // Saved addresses
   const [addresses, setAddresses] = useState([]);
@@ -56,20 +59,55 @@ const CheckoutPage = () => {
     return new Intl.NumberFormat("vi-VN").format(price) + " đ";
   };
 
-  useEffect(() => {
-    fetchCart();
-    fetchProviders();
-    fetchWalletAccounts();
-    fetchAddresses();
+  const selectedCartProducts =
+    cart?.products?.filter((item) => selectedItemIds.has(item.product._id || item.product) && item.shopIsActive !== false) || [];
+  const blockedSelectedProducts =
+    cart?.products?.filter((item) => selectedItemIds.has(item.product._id || item.product) && item.shopIsActive === false) || [];
+  const buyNowQuantity = Math.max(1, Number(buyNowItem?.quantity) || 1);
+  const buyNowCartItem = buyNowItem
+    ? selectedCartProducts.find((item) => (item.product._id || item.product) === buyNowItem.productId)
+    : null;
+  const buyNowVirtualItem = buyNowProduct ? {
+    product: buyNowProduct,
+    quantity: buyNowQuantity,
+    checkoutQuantity: buyNowQuantity,
+    price: buyNowProduct.discount > 0
+      ? Math.round(buyNowProduct.price * (1 - buyNowProduct.discount / 100))
+      : buyNowProduct.price,
+    originalPrice: buyNowProduct.price,
+    discount: buyNowProduct.discount || 0,
+    name: buyNowProduct.name,
+    image: buyNowProduct.images?.[0]?.url || buyNowProduct.images?.[0] || buyNowProduct.image || "/placeholder.png",
+    shopIsActive: buyNowProduct.shop?.isActive,
+  } : null;
 
+  const selectedCheckoutProducts = isBuyNow
+    ? (
+      buyNowCartItem
+        ? [{ ...buyNowCartItem, checkoutQuantity: buyNowQuantity }]
+        : (buyNowVirtualItem ? [buyNowVirtualItem] : [])
+    )
+    : selectedCartProducts.map((item) => ({ ...item, checkoutQuantity: item.quantity }));
+
+  const selectedSubtotal = selectedCheckoutProducts.reduce((sum, item) => sum + item.price * item.checkoutQuantity, 0);
+  const selectedTotalQuantity = selectedCheckoutProducts.reduce((sum, item) => sum + item.checkoutQuantity, 0);
+
+  useEffect(() => {
     // Handle "mua ngay" flow
     const buyNowRaw = localStorage.getItem("buy_now");
+    let buyNowMode = false;
     if (buyNowRaw) {
       try {
         const buyNow = JSON.parse(buyNowRaw);
         // Expire after 30 minutes
         if (Date.now() - buyNow.timestamp < 30 * 60 * 1000) {
+          buyNowMode = true;
           setIsBuyNow(true);
+          setBuyNowItem({
+            productId: buyNow.productId,
+            quantity: Math.max(1, Number(buyNow.quantity) || 1),
+          });
+          fetchBuyNowProduct(buyNow.productId);
           setSelectedItemIds(new Set([buyNow.productId]));
           localStorage.setItem("checkout_selected_items", JSON.stringify([buyNow.productId]));
         }
@@ -89,6 +127,11 @@ const CheckoutPage = () => {
         }
       }
     }
+
+    fetchCart(buyNowMode);
+    fetchProviders();
+    fetchWalletAccounts();
+    fetchAddresses();
   }, []);
 
   // Auto-select default address and pre-fill customer info
@@ -124,25 +167,35 @@ const CheckoutPage = () => {
 
   // Fetch shipping fees when province changes
   useEffect(() => {
-    if (shippingInfo.provinceCode && cart?.totalPrice) {
+    if (shippingInfo.provinceCode && selectedSubtotal > 0) {
       fetchShippingFees();
     }
-  }, [shippingInfo.provinceCode, cart?.totalPrice]);
+  }, [shippingInfo.provinceCode, shippingInfo.districtCode, selectedSubtotal]);
 
-  const fetchCart = async () => {
+  const fetchCart = async (buyNowMode = false) => {
     try {
       const res = await getCartApi();
       if (res.success && res.data.products?.length > 0) {
         setCart(res.data);
-      } else if (!isBuyNow) {
+      } else if (!buyNowMode) {
         // Only navigate to cart for normal checkout; buy_now can proceed with empty/pre-loaded cart
         navigate("/cart");
       }
     } catch (error) {
-      if (!isBuyNow) navigate("/cart");
-      if (!isBuyNow) navigate("/cart");
+      if (!buyNowMode) navigate("/cart");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchBuyNowProduct = async (productId) => {
+    try {
+      const res = await getProductByIdApi(productId);
+      if (res.success) {
+        setBuyNowProduct(res.data?.product || res.data);
+      }
+    } catch (error) {
+      console.error("Error fetching buy now product:", error);
     }
   };
 
@@ -193,7 +246,7 @@ const CheckoutPage = () => {
       const res = await calculateShippingFeesApi({
         provinceCode: shippingInfo.provinceCode,
         districtCode: shippingInfo.districtCode,
-        orderTotal: cart?.totalPrice || 0,
+        orderTotal: selectedSubtotal || 0,
       });
       if (res.success) {
         setShippingFees(res.data.fees || []);
@@ -247,6 +300,12 @@ const CheckoutPage = () => {
       const selectedProviderData = shippingFees.find(
         (f) => f.provider.code === shippingInfo.selectedProvider
       );
+      const buyNowPayload = isBuyNow && buyNowItem
+        ? {
+          productId: buyNowItem.productId,
+          quantity: buyNowQuantity,
+        }
+        : null;
 
       const orderData = {
         shippingAddress: {
@@ -264,7 +323,19 @@ const CheckoutPage = () => {
         paymentMethod: paymentMethod,
         shippingProvider: shippingInfo.selectedProvider,
         shippingFee: selectedProviderData?.fee || 0,
+        buyNowProduct: buyNowPayload,
+        selectedProductIds: buyNowPayload ? [] : selectedCartProducts.map((item) => item.product._id || item.product),
+        selectedProducts: buyNowPayload ? [] : selectedCheckoutProducts.map((item) => ({
+          productId: item.product._id || item.product,
+          quantity: item.checkoutQuantity,
+        })),
       };
+
+      if (selectedCheckoutProducts.length === 0) {
+        alert("Không có sản phẩm hợp lệ để thanh toán. Vui lòng quay lại giỏ hàng.");
+        setSubmitting(false);
+        return;
+      }
 
       if (paymentMethod === "COD") {
         const res = await createOrderApi(orderData);
@@ -317,12 +388,6 @@ const CheckoutPage = () => {
       </div>
     );
   }
-
-  const selectedCartProducts =
-    cart?.products?.filter((item) => selectedItemIds.has(item.product._id || item.product)) || [];
-
-  const selectedSubtotal = selectedCartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const selectedTotalQuantity = selectedCartProducts.reduce((sum, item) => sum + item.quantity, 0);
 
   const selectedProviderData = shippingFees.find((f) => f.provider.code === shippingInfo.selectedProvider);
   const subtotal = selectedSubtotal;
@@ -799,7 +864,7 @@ const CheckoutPage = () => {
                     <div className="p-4 bg-[#FAF7F4] rounded-2xl">
                       <h4 className="font-semibold text-sm text-[#1C1108] mb-3 flex items-center gap-2">🛒 Sản phẩm ({selectedTotalQuantity})</h4>
                       <div className="space-y-2.5 max-h-60 overflow-y-auto">
-                        {selectedCartProducts.map((item) => (
+                        {selectedCheckoutProducts.map((item) => (
                           <div key={item.product._id || item.product} className="flex gap-3 items-center">
                             <img src={item.image || "/placeholder.png"} alt={item.name} className="w-14 h-14 object-cover rounded-xl" />
                             <div className="flex-1 min-w-0">
@@ -814,15 +879,27 @@ const CheckoutPage = () => {
                                 ) : (
                                   <span className="text-xs font-semibold text-[#B86B05]">{formatPrice(item.price)}</span>
                                 )}
-                                <span className="text-xs text-[#A8896A] ml-auto">x{item.quantity}</span>
+                                <span className="text-xs text-[#A8896A] ml-auto">x{item.checkoutQuantity}</span>
                               </div>
                             </div>
-                            <p className="font-bold text-sm text-[#1C1108]">{formatPrice(item.price * item.quantity)}</p>
+                            <p className="font-bold text-sm text-[#1C1108]">{formatPrice(item.price * item.checkoutQuantity)}</p>
                           </div>
                         ))}
                       </div>
-                      {selectedCartProducts.length === 0 && (
+                      {selectedCheckoutProducts.length === 0 && (
                         <p className="text-sm text-[#A8896A] text-center py-4">Không có sản phẩm nào được chọn</p>
+                      )}
+                      {blockedSelectedProducts.length > 0 && (
+                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <p className="text-xs font-semibold text-amber-700">Một số sản phẩm thuộc shop tạm nghỉ nên không thể thanh toán.</p>
+                          <div className="mt-2 space-y-1">
+                            {blockedSelectedProducts.map((item) => (
+                              <p key={item.product._id || item.product} className="text-xs text-amber-700 line-clamp-1">
+                                {item.name}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </div>
 
@@ -836,7 +913,7 @@ const CheckoutPage = () => {
                       </button>
                       <button
                         onClick={handlePlaceOrder}
-                        disabled={submitting}
+                        disabled={submitting || selectedCheckoutProducts.length === 0}
                         className="flex-1 bg-[#B86B05] hover:bg-[#9a5a04] text-white font-semibold py-3.5 rounded-xl transition-all shadow-lg shadow-[#B86B05]/20 hover:shadow-xl hover:shadow-[#B86B05]/30 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {submitting ? "Đang xử lý..." : paymentMethod === "PAYOS" ? "Thanh toán ngay" : "Đặt hàng"}
