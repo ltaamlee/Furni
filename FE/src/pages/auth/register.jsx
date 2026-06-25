@@ -178,7 +178,7 @@ const RegisterPage = () => {
           {/* Brand */}
           <div className="text-center select-none">
             <h1 className="text-3xl font-black tracking-tight text-amber-900" style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}>
-              NTSorature
+              Sora
             </h1>
             <p className="mt-1 text-xs font-semibold tracking-[0.2em] uppercase text-stone-400">
               Đăng ký tài khoản

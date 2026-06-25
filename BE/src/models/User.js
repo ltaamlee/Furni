@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-const validator = require('validator')
+const validator = require('validator');
 
 const userSchema = new mongoose.Schema({
     fullName: {
@@ -22,24 +22,28 @@ const userSchema = new mongoose.Schema({
     },
     phone: {
       type: String,
-      required: [true, 'Vui lòng nhập số điện thoại!'],
+      // Đã bỏ required để hỗ trợ Google Login
       validate: {
-        validator: (v) => validator.isMobilePhone(v, 'vi-VN'),
+        validator: function(v) {
+          if (!v) return true; // Nếu không nhập thì bỏ qua kiểm tra
+          return validator.isMobilePhone(v, 'vi-VN');
+        },
         message: 'Vui lòng nhập số điện thoại Việt Nam hợp lệ! (gồm 10 số)'
       }
     },
     username: {
       type: String,
-      required: [true, 'Vui lòng nhập tên đăng nhập!'],
+      // Đã bỏ required để hỗ trợ Google Login
       unique: true,
+      sparse: true, // Cho phép nhiều tài khoản Google có username null ban đầu
       index: true,
       minlength: [3, 'Tên đăng nhập phải có ít nhất 3 ký tự!'],
       maxlength: [50, 'Tên đăng nhập không được vượt quá 50 ký tự'],
-      match: [/^[a-zA-Z0-9_]+$/, 'Tên đăng nhập chỉ được chứa chữ cái, số và dấu gạch dưới!']
+      match: [/^[a-zA-Z0-9_]*$/, 'Tên đăng nhập chỉ được chứa chữ cái, số và dấu gạch dưới!']
     },
     password: {
       type: String,
-      required: [true, 'Vui lòng nhập mật khẩu!'],
+      // Đã bỏ required để hỗ trợ Google Login
       minlength: [6, 'Mật khẩu phải có ít nhất 6 ký tự!'],
       select: false 
     },
@@ -47,6 +51,16 @@ const userSchema = new mongoose.Schema({
       type: String,
       enum: ['customer', 'admin', 'vendor'],
       default: 'customer'
+    },
+    // MỚI: Dùng để phân biệt đăng nhập thường và đăng nhập Google
+    authProvider: {
+      type: String,
+      enum: ['local', 'google'],
+      default: 'local'
+    },
+    googleId: {
+      type: String,
+      default: null
     },
     addresses: [{
       type: mongoose.Schema.Types.ObjectId,
@@ -84,14 +98,12 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Virtual for account lock
 userSchema.virtual('isLocked').get(function() {
     return !!(this.lockUntil && this.lockUntil > Date.now());
 });
 
-// Pre-save middleware to hash password
 userSchema.pre('save', async function(next) {
-    if (!this.isModified('password')) return next();
+    if (!this.isModified('password') || !this.password) return next();
 
     try {
       const salt = await bcrypt.genSalt(12);
@@ -102,12 +114,11 @@ userSchema.pre('save', async function(next) {
     }
 });
 
-// Method to compare password
 userSchema.methods.comparePassword = async function(candidatePassword) {
+    if (!this.password) return false; // Tránh lỗi nếu tài khoản Google (không pass) cố tình đăng nhập tay
     return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Method to increment login attempts
 userSchema.methods.incLoginAttempts = function() {
     if (this.lockUntil && this.lockUntil < Date.now()) {
       return this.updateOne({
@@ -115,19 +126,15 @@ userSchema.methods.incLoginAttempts = function() {
         $set: { loginAttempts: 1 }
       });
     }
-
     const updates = { $inc: { loginAttempts: 1 } };
-
     if (this.loginAttempts + 1 >= 5 && !this.isLocked) {
       updates.$set = {
-        lockUntil: Date.now() + 60 * 60 * 1000 // 1 hour lock
+        lockUntil: Date.now() + 60 * 60 * 1000 
       };
     }
-
     return this.updateOne(updates);
 };
 
-// Method to reset login attempts
 userSchema.methods.resetLoginAttempts = function() {
     return this.updateOne({
       $set: { loginAttempts: 0 },
@@ -135,17 +142,15 @@ userSchema.methods.resetLoginAttempts = function() {
     });
 };
 
-// Method to generate OTP
 userSchema.methods.generateOTP = function() {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     this.otp = {
       code: otp,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000) 
     };
     return otp;
 };
 
-// Method to verify OTP
 userSchema.methods.verifyOTP = function(otp) {
     if (!this.otp || !this.otp.code || this.otp.expiresAt < Date.now()) {
       return false;
@@ -153,8 +158,6 @@ userSchema.methods.verifyOTP = function(otp) {
     return this.otp.code === otp;
 };
 
-const User =
-  mongoose.models.User ||
-  mongoose.model('User', userSchema);
+const User = mongoose.models.User || mongoose.model('User', userSchema);
 
 module.exports = User;
