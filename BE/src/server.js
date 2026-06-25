@@ -26,6 +26,7 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const platformRoutes = require('./routes/platformRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const locationRoutes = require('./routes/locationRoutes');
+const voucherRoutes = require('./routes/voucherRoutes');
 const { errorHandler } = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -70,6 +71,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/wallets', walletRoutes);
 app.use('/api/admin/platform', platformRoutes);
 app.use('/api/locations', locationRoutes);
+app.use('/api/vouchers', voucherRoutes);
 // Health check
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Server is running' });
@@ -91,36 +93,12 @@ const seedShippingProviders = async () => {
     if (count === 0) {
       const providers = [
         {
-          name: 'Giao Hàng Tiết Kiệm',
-          code: 'GHTK',
-          baseFee: 25000,
-          feePerKm: 0,
-          freeThreshold: 500000,
-          estimatedDays: { min: 2, max: 4 }
-        },
-        {
           name: 'Giao Hàng Nhanh',
           code: 'GHN',
           baseFee: 30000,
           feePerKm: 0,
           freeThreshold: 500000,
           estimatedDays: { min: 1, max: 3 }
-        },
-        {
-          name: 'Viettel Post',
-          code: 'VTPOST',
-          baseFee: 20000,
-          feePerKm: 0,
-          freeThreshold: 500000,
-          estimatedDays: { min: 3, max: 7 }
-        },
-        {
-          name: 'VNPost',
-          code: 'VNPOST',
-          baseFee: 18000,
-          feePerKm: 0,
-          freeThreshold: 500000,
-          estimatedDays: { min: 4, max: 10 }
         }
       ];
 

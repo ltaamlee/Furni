@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { getOrderByIdApi } from "../../utils/api";
+import { getOrderByNumberApi } from "../../utils/api";
 
 const OrderSuccessPage = () => {
-    const { id } = useParams();
+    const { id } = useParams(); // id now contains orderNumber slug
     const navigate = useNavigate();
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -14,7 +14,11 @@ const OrderSuccessPage = () => {
 
     const fetchOrder = async () => {
         try {
-            const res = await getOrderByIdApi(id);
+            if (!id) {
+                navigate("/");
+                return;
+            }
+            const res = await getOrderByNumberApi(id);
             if (res.success) {
                 setOrder(res.data);
             } else {
@@ -94,18 +98,39 @@ const OrderSuccessPage = () => {
                         <h3 className="text-xs font-semibold text-[#A8896A] mb-1">Địa chỉ giao hàng</h3>
                         <p className="font-semibold text-sm text-[#1C1108]">{order?.shippingAddress?.fullName}</p>
                         <p className="text-sm text-[#6B5C4C]">{order?.shippingAddress?.phone}</p>
-                        <p className="text-sm text-[#6B5C4C]">{order?.shippingAddress?.address}, {order?.shippingAddress?.city}</p>
+                        <p className="text-sm text-[#6B5C4C]">
+                            {[order?.shippingAddress?.address,
+                              order?.shippingAddress?.wardName,
+                              order?.shippingAddress?.districtName,
+                              order?.shippingAddress?.provinceName].filter(Boolean).join(", ")}
+                        </p>
                     </div>
 
                     <div>
                         <h3 className="text-xs font-semibold text-[#A8896A] mb-3">Sản phẩm đã đặt</h3>
                         <div className="space-y-3">
-                            {order?.products.map((item, idx) => (
+                            {order?.products?.map((item, idx) => (
                                 <div key={idx} className="flex gap-3 items-center">
-                                    <img src={item.image || "/placeholder.png"} alt={item.name} className="w-14 h-14 object-cover rounded-lg" />
+                                    <img
+                                        src={item.image || "/placeholder.png"}
+                                        alt={item.name}
+                                        className="w-14 h-14 object-cover rounded-lg border border-[#EDE8E0]"
+                                    />
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-medium text-[#1C1108] line-clamp-1">{item.name}</p>
-                                        <p className="text-xs text-[#A8896A]">x{item.quantity}</p>
+                                        {/* Price: giá gốc + giảm */}
+                                        <div className="flex items-center flex-wrap gap-1.5 mt-0.5">
+                                            {item.originalPrice && item.discount > 0 ? (
+                                                <>
+                                                    <span className="text-xs font-bold text-[#B86B05]">{formatPrice(item.price)}</span>
+                                                    <span className="text-xs text-[#A8896A] line-through">{formatPrice(item.originalPrice)}</span>
+                                                    <span className="px-1 py-0.5 bg-red-50 text-red-500 text-[10px] font-bold rounded">-{item.discount}%</span>
+                                                </>
+                                            ) : (
+                                                <span className="text-xs font-semibold text-[#B86B05]">{formatPrice(item.price)}</span>
+                                            )}
+                                            <span className="text-xs text-[#A8896A] ml-auto">x{item.quantity}</span>
+                                        </div>
                                     </div>
                                     <p className="font-bold text-sm text-[#1C1108]">{formatPrice(item.price * item.quantity)}</p>
                                 </div>
@@ -128,14 +153,26 @@ const OrderSuccessPage = () => {
                                 {order?.shippingFee === 0 ? <span className="text-green-600">Miễn phí</span> : formatPrice(order?.shippingFee)}
                             </span>
                         </div>
-                        <div className="flex justify-between border-t border-[#EDE8E0] pt-2">
+                        <div className="flex justify-between items-center pt-2 border-t border-[#EDE8E0]">
                             <span className="font-bold text-[#1C1108]">Tổng cộng</span>
                             <span className="font-extrabold text-xl text-[#B86B05]">{formatPrice(order?.totalPrice)}</span>
                         </div>
                         <div className="flex justify-between pt-2 border-t border-[#EDE8E0]">
                             <span className="text-[#6B5C4C]">Phương thức</span>
-                            <span className="font-semibold text-sm text-[#1C1108]">💵 {order?.paymentMethod}</span>
+                            <span className="font-semibold text-sm text-[#1C1108]">
+                                {order?.paymentMethod === "COD" ? "💵 COD — Thanh toán khi nhận hàng" :
+                                 order?.paymentMethod === "PAYOS" ? "💳 PayOS — Thanh toán online" :
+                                 order?.paymentMethod === "VNPAY" ? "🔵 VNPay" :
+                                 order?.paymentMethod === "WALLET" ? "👛 Ví SORA" :
+                                 `💵 ${order?.paymentMethod}`}
+                            </span>
                         </div>
+                        {order?.paymentStatus === "paid" && (
+                            <div className="flex justify-between">
+                                <span className="text-[#6B5C4C]">Trạng thái thanh toán</span>
+                                <span className="font-semibold text-sm text-green-600">✓ Đã thanh toán</span>
+                            </div>
+                        )}
                     </div>
                 </div>
 

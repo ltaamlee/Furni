@@ -12,13 +12,20 @@ const loginApi = (usernameOrEmail, password) => {
 }
 
 const getUserApi = () => {
-    const URL_API = "/user/me";
+    const URL_API = "/user/profile";
     return axios.get(URL_API);
 }
 
 const updateUserApi = (data) => {
-    const URL_API = "/user/me";
+    const URL_API = "/user/profile";
     return axios.put(URL_API, data);
+}
+
+const uploadAvatarApi = (formData) => {
+    const URL_API = "/user/avatar";
+    return axios.post(URL_API, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+    });
 }
 
 const updatePasswordApi = (currentPassword, newPassword) => {
@@ -35,6 +42,16 @@ const getDefaultAddressApi = () => {
 const getAddressesApi = () => {
     const URL_API = "/user/addresses";
     return axios.get(URL_API);
+}
+
+const createAddressApi = (data) => {
+    const URL_API = "/user/addresses";
+    return axios.post(URL_API, data);
+}
+
+const setDefaultAddressApi = (addressId) => {
+    const URL_API = `/user/addresses/${addressId}/default`;
+    return axios.put(URL_API);
 }
 
 // Cart APIs
@@ -79,9 +96,19 @@ const getOrderByIdApi = (orderId) => {
     return axios.get(URL_API);
 }
 
+const getOrderByNumberApi = (orderNumber) => {
+    const URL_API = `/orders/number/${orderNumber}`;
+    return axios.get(URL_API);
+}
+
 const cancelOrderApi = (orderId, reason) => {
     const URL_API = `/orders/${orderId}/cancel`;
     return axios.put(URL_API, { reason });
+}
+
+const confirmReceivedApi = (orderId) => {
+    const URL_API = `/orders/${orderId}/confirm-received`;
+    return axios.put(URL_API);
 }
 
 // Product APIs
@@ -274,6 +301,16 @@ const trackShipmentApi = (trackingNumber) => {
 
 // Public shop (storefront)
 const getShopApi = (idOrSlug) => axios.get(`/shops/${idOrSlug}`);
+const getShopVouchersApi = (idOrSlug) => axios.get(`/shops/${idOrSlug}/vouchers`);
+
+// Voucher wallet APIs
+const claimVoucherApi = (couponId) => axios.post("/vouchers/claim", { couponId });
+const getMyVouchersApi = (params = {}) => axios.get("/vouchers/wallet", { params });
+const getVoucherCountApi = () => axios.get("/vouchers/count");
+const getAvailableVouchersApi = () => axios.get("/vouchers/available");
+const applyVoucherApi = (voucherWalletId, orderId) =>
+    axios.post("/vouchers/apply", { voucherWalletId, orderId });
+const getAllVouchersApi = () => axios.get("/vouchers/all");
 const getShopProductsApi = (id, params = {}) => axios.get(`/shops/${id}/products`, { params });
 const registerShopApi = (data) => axios.post("/shops/register", data);
 const getMyShopRegistrationApi = () => axios.get("/shops/my-registration");
@@ -291,6 +328,7 @@ const updateShopStatusApi = (id, status, statusNote) => axios.put(`/admin/shops/
 // Vendor APIs (role: vendor) — shop-scoped
 const getMyShopApi = () => axios.get("/vendor/shop");
 const updateMyShopApi = (data) => axios.put("/vendor/shop", data);
+const updateShippingConfigApi = (data) => axios.put("/vendor/shop/shipping-config", data);
 const getVendorDashboardApi = () => axios.get("/vendor/dashboard");
 const getVendorReportsApi = (params = {}) => axios.get("/vendor/reports", { params });
 
@@ -466,9 +504,12 @@ export {
     loginApi,
     getUserApi,
     updateUserApi,
+    uploadAvatarApi,
     updatePasswordApi,
     getDefaultAddressApi,
     getAddressesApi,
+    createAddressApi,
+    setDefaultAddressApi,
     getCartApi,
     addToCartApi,
     updateCartItemApi,
@@ -477,7 +518,9 @@ export {
     createOrderApi,
     getUserOrdersApi,
     getOrderByIdApi,
+    getOrderByNumberApi,
     cancelOrderApi,
+    confirmReceivedApi,
     getProductsApi,
     getProductByIdApi,
     incrementProductViewApi,
@@ -515,6 +558,13 @@ export {
     getWardsApi,
     getWardsByProvinceApi,
     getShopApi,
+    getShopVouchersApi,
+    claimVoucherApi,
+    getMyVouchersApi,
+    getVoucherCountApi,
+    getAvailableVouchersApi,
+    getAllVouchersApi,
+    applyVoucherApi,
     getShopProductsApi,
     registerShopApi,
     uploadShopImagesApi,
@@ -524,6 +574,7 @@ export {
     updateShopStatusApi,
     getMyShopApi,
     updateMyShopApi,
+    updateShippingConfigApi,
     getVendorDashboardApi,
     getVendorReportsApi,
     getVendorWalletApi,

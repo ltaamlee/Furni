@@ -93,6 +93,24 @@ const ShopSchema = new mongoose.Schema({
         default: 2, // Mặc định thu 2% phí sàn
         min: 0,
         max: 100
+    },
+    // Token API vận chuyển riêng của từng shop
+    // Nếu không set sẽ dùng token mặc định của platform
+    shippingProviders: {
+        GHN: {
+            token: {
+                type: String,
+                default: ''
+            },
+            shopId: {
+                type: String,
+                default: ''
+            },
+            fromDistrictId: {
+                type: String,
+                default: ''
+            }
+        }
     }
 }, { timestamps: true });
 

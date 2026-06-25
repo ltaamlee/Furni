@@ -303,51 +303,41 @@ export default function Header() {
                           </div>
                         )}
                       </div>
-                      <Link to="/profile" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#6B5C4C" strokeWidth="1.5" className="w-4.5 h-4.5">
-                          <path d="M10 9H5a1 1 0 00-1 1v9a1 1 0 001 1h5m6-1v-4a1 1 0 00-1-1h-3m4 4h-1m1-4h.01M17 3H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V5a2 2 0 00-2-2z" />
-                        </svg>
-                        <span className="text-sm text-[#1C1108]">Hồ sơ</span>
-                      </Link>
-                      <Link to="/orders" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#6B5C4C" strokeWidth="1.5" className="w-4.5 h-4.5">
-                          <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                        </svg>
-                        <span className="text-sm text-[#1C1108]">Đơn hàng</span>
-                      </Link>
-                      <Link to="/wishlist" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#6B5C4C" strokeWidth="1.5" className="w-4.5 h-4.5">
-                          <path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                        </svg>
-                        <span className="text-sm text-[#1C1108]">Yêu thích</span>
-                      </Link>
-                      <Link to="/my-reviews" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
-                        <svg viewBox="0 0 24 24" fill="#F59E0B" stroke="#F59E0B" strokeWidth="1.5" className="w-4.5 h-4.5">
-                          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                        </svg>
-                        <span className="text-sm text-[#1C1108]">Đánh giá</span>
-                      </Link>
-                      <Link to="/loyalty" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" strokeWidth="1.5" className="w-4.5 h-4.5">
-                          <path d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
-                        </svg>
-                        <span className="text-sm text-[#1C1108]">Tích điểm</span>
-                      </Link>
-                      <Link to="/coupons" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#EA580C" strokeWidth="1.5" className="w-4.5 h-4.5">
-                          <path d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                        </svg>
-                        <span className="text-sm text-[#1C1108]">Mã giảm giá</span>
-                      </Link>
-
-                      <div className="border-t border-[#EDE8E0] my-1" />
                       {user.role === "customer" && (
-                        <Link to="/vendor/register" className="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 " onClick={() => setOpen(false)}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5 text-green-600">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.004 3.004 0 0 1-.621-4.72L4.318 3.44A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72m-13.5 8.65h3.75a.75.75 0 0 0 .75-.75V13.5a.75.75 0 0 0-.75-.75H6.75a.75.75 0 0 0-.75.75v3.75c0 .415.336.75.75.75z" />
-                          </svg>
-                          Đăng ký bán hàng
-                        </Link>
+                        <>
+                          <Link to="/profile" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#6B5C4C" strokeWidth="1.5" className="w-4.5 h-4.5">
+                              <path d="M10 9H5a1 1 0 00-1 1v9a1 1 0 001 1h5m6-1v-4a1 1 0 00-1-1h-3m4 4h-1m1-4h.01M17 3H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V5a2 2 0 00-2-2z" />
+                            </svg>
+                            <span className="text-sm text-[#1C1108]">Hồ sơ</span>
+                          </Link>
+                          <Link to="/orders" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#6B5C4C" strokeWidth="1.5" className="w-4.5 h-4.5">
+                              <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                            </svg>
+                            <span className="text-sm text-[#1C1108]">Đơn hàng</span>
+                          </Link>
+                          <Link to="/wishlist" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#6B5C4C" strokeWidth="1.5" className="w-4.5 h-4.5">
+                              <path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                            </svg>
+                            <span className="text-sm text-[#1C1108]">Yêu thích</span>
+                          </Link>
+                          <Link to="/my-reviews" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>
+                            <svg viewBox="0 0 24 24" fill="#F59E0B" stroke="#F59E0B" strokeWidth="1.5" className="w-4.5 h-4.5">
+                              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                            </svg>
+                            <span className="text-sm text-[#1C1108]">Đánh giá</span>
+                          </Link>
+
+                          <div className="border-t border-[#EDE8E0] my-1" />
+                          <Link to="/vendor/register" className="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 " onClick={() => setOpen(false)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5 text-green-600">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.004 3.004 0 0 1-.621-4.72L4.318 3.44A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72m-13.5 8.65h3.75a.75.75 0 0 0 .75-.75V13.5a.75.75 0 0 0-.75-.75H6.75a.75.75 0 0 0-.75.75v3.75c0 .415.336.75.75.75z" />
+                            </svg>
+                            Đăng ký bán hàng
+                          </Link>
+                        </>
                       )}
                       {user.role === "vendor" && (
                         <Link to="/vendor/dashboard" className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FAF7F4] transition-colors" onClick={() => setOpen(false)}>

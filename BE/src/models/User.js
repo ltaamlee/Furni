@@ -79,6 +79,15 @@ const userSchema = new mongoose.Schema({
     lockUntil: {
       type: Date,
       default: null
+    },
+    gender: {
+      type: String,
+      enum: ['male', 'female', 'other', ''],
+      default: ''
+    },
+    dateOfBirth: {
+      type: Date,
+      default: null
     }
 }, {
   timestamps: true

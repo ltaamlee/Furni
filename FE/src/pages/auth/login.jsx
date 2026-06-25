@@ -126,10 +126,11 @@ const LoginPage = () => {
 
         setTimeout(() => {
           if (userRole === 'admin') {
-            navigate('/admin'); 
-          } 
-          else {
-            navigate('/'); 
+            navigate('/admin');
+          } else if (userRole === 'vendor') {
+            navigate('/vendor/dashboard');
+          } else {
+            navigate('/');
           }
         }, 800);
       } else {

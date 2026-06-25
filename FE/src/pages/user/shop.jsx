@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { useParams, Link } from "react-router-dom";
-import { getShopApi, getShopProductsApi } from "../../utils/api";
+import { getShopApi, getShopProductsApi, getShopVouchersApi, claimVoucherApi } from "../../utils/api";
+import { AuthContext } from "../../components/context/authContext";
+import { useToast } from "../../components/context/ToastContext";
 import ProductCard from "../../components/common/productCard";
 
 const sortOptions = [
@@ -13,6 +15,9 @@ const sortOptions = [
 
 const ShopPage = () => {
     const { id } = useParams();
+    const { auth } = useContext(AuthContext);
+    const { showToast } = useToast();
+    const shopId = id;
     const [shop, setShop] = useState(null);
     const [stats, setStats] = useState({ productCount: 0, totalSold: 0 });
     const [products, setProducts] = useState([]);
@@ -22,6 +27,9 @@ const ShopPage = () => {
     const [page, setPage] = useState(1);
     const [pages, setPages] = useState(1);
     const [total, setTotal] = useState(0);
+    const [vouchers, setVouchers] = useState([]);
+    const [loadingVouchers, setLoadingVouchers] = useState(false);
+    const [claimingId, setClaimingId] = useState(null);
 
     useEffect(() => {
         let active = true;
@@ -43,8 +51,27 @@ const ShopPage = () => {
         return () => { active = false; };
     }, [id]);
 
-    // Tải sản phẩm theo _id thật của shop (hỗ trợ URL là slug hoặc id)
-    const shopId = shop?._id;
+    // Fetch shop vouchers
+    useEffect(() => {
+        if (!shopId) return;
+        let active = true;
+        const fetchVouchers = async () => {
+            try {
+                setLoadingVouchers(true);
+                // Pass idOrSlug — can be slug or _id
+                const res = await getShopVouchersApi(id || shopId);
+                if (active && res.success) {
+                    setVouchers(res.data || []);
+                }
+            } catch {
+                // silent fail
+            } finally {
+                if (active) setLoadingVouchers(false);
+            }
+        };
+        fetchVouchers();
+        return () => { active = false; };
+    }, [shopId, id]);
     useEffect(() => {
         if (!shopId) return;
         let active = true;
@@ -66,6 +93,42 @@ const ShopPage = () => {
         fetchProducts();
         return () => { active = false; };
     }, [shopId, page, sort]);
+
+    const handleClaimVoucher = async (couponId) => {
+        if (!auth.isAuthenticated) {
+            showToast("Vui lòng đăng nhập để nhận voucher!", "error");
+            return;
+        }
+        try {
+            setClaimingId(couponId);
+            const res = await claimVoucherApi(couponId);
+            if (res.success) {
+                showToast("Nhận voucher thành công! Vào Kho Voucher để xem.", "success");
+                // Update local voucher list: mark as "claimed" (remove from public list)
+                setVouchers((prev) => prev.map((v) =>
+                    v._id === couponId ? { ...v, _claimed: true } : v
+                ));
+            } else {
+                showToast(res.message || "Nhận voucher thất bại!", "error");
+            }
+        } catch (error) {
+            showToast(error?.response?.data?.message || error.message || "Có lỗi xảy ra!", "error");
+        } finally {
+            setClaimingId(null);
+        }
+    };
+
+    const formatDiscount = (voucher) => {
+        if (voucher.discountType === 'freeship') return 'Freeship';
+        if (voucher.discountType === 'fixed') return `-${Number(voucher.value).toLocaleString('vi-VN')}đ`;
+        return `-${voucher.value}%`;
+    };
+
+    const getVoucherBorderColor = (voucher) => {
+        if (voucher.discountType === 'freeship') return 'border-blue-400';
+        if (voucher.discountType === 'fixed') return 'border-orange-400';
+        return 'border-[#B86B05]';
+    };
 
     if (loading) {
         return (
@@ -160,6 +223,94 @@ const ShopPage = () => {
                         )}
                     </div>
                 </div>
+
+                {/* Voucher Section — all shops */}
+                {vouchers.length > 0 && (() => {
+                    // Group vouchers by shop
+                    const grouped = vouchers.reduce((acc, v) => {
+                        const shopId = v.shop?._id || 'global';
+                        if (!acc[shopId]) {
+                            acc[shopId] = {
+                                name: v.shop?.name || 'Voucher toàn sàn',
+                                slug: v.shop?.slug || null,
+                                logo: v.shop?.logo || null,
+                                items: [],
+                            };
+                        }
+                        acc[shopId].items.push(v);
+                        return acc;
+                    }, {});
+
+                    return (
+                        <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6">
+                            <div className="flex items-center gap-2 mb-5">
+                                <span className="text-xl">🎟️</span>
+                                <h2 className="text-base font-bold text-[#1C1108]">Voucher của Shop</h2>
+                            </div>
+
+                            {Object.entries(grouped).map(([shopId, group]) => (
+                                <div key={shopId} className="mb-6 last:mb-0">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        {group.logo ? (
+                                            <img src={group.logo} alt={group.name} className="w-6 h-6 rounded-md object-cover" />
+                                        ) : (
+                                            <span className="w-6 h-6 rounded-md bg-[#B86B05] text-white text-xs flex items-center justify-center font-bold">
+                                                {group.name.charAt(0)}
+                                            </span>
+                                        )}
+                                        <span className="text-sm font-semibold text-[#1C1108]">{group.name}</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                        {group.items.map((voucher) => (
+                                            <div
+                                                key={voucher._id}
+                                                className={`rounded-xl border-2 ${getVoucherBorderColor(voucher)} bg-white shadow-sm overflow-hidden`}
+                                            >
+                                                <div className="p-3 text-center">
+                                                    <div className="text-xl font-black text-[#B86B05] mb-1">
+                                                        {formatDiscount(voucher)}
+                                                    </div>
+                                                    <div className="text-xs text-[#6B5C4C] line-clamp-2">
+                                                        {voucher.description || 'Giảm giá đặc biệt'}
+                                                    </div>
+                                                    {voucher.maxDiscount > 0 && (
+                                                        <div className="text-[10px] text-[#A8896A] mt-0.5">
+                                                            Tối đa {Number(voucher.maxDiscount).toLocaleString('vi-VN')}đ
+                                                        </div>
+                                                    )}
+                                                    {voucher.minOrderValue > 0 && (
+                                                        <div className="text-[10px] text-[#A8896A]">
+                                                            Đơn từ {Number(voucher.minOrderValue).toLocaleString('vi-VN')}đ
+                                                        </div>
+                                                    )}
+                                                    {voucher.remaining !== null && voucher.remaining !== undefined && (
+                                                        <div className="text-[10px] text-[#A8896A]">
+                                                            Còn {voucher.remaining} lượt
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="border-t border-dashed border-[#EDE8E0]" />
+                                                <div className="p-2">
+                                                    <button
+                                                        onClick={() => handleClaimVoucher(voucher._id)}
+                                                        disabled={claimingId === voucher._id || voucher._claimed}
+                                                        className={`w-full py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                                                            voucher._claimed
+                                                                ? 'bg-green-100 text-green-600 cursor-default'
+                                                                : 'bg-[#B86B05] text-white hover:bg-[#9a5a04]'
+                                                        } disabled:opacity-60`}
+                                                    >
+                                                        {claimingId === voucher._id ? 'Đang nhận...' : voucher._claimed ? '✓ Đã nhận' : 'Nhận Voucher'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })()}
 
                 {/* Products */}
                 <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6">

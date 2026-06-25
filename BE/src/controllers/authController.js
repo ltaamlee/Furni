@@ -195,7 +195,6 @@ const login = async (req, res) => {
     // Reset login attempts on successful login
     await user.resetLoginAttempts();
 
-    // Auto-verify if not verified (for accounts created before verification was required)
     if (!user.isVerified) {
       user.isVerified = true;
       await user.save();
@@ -293,9 +292,8 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    // Update password
     user.password = newPassword;
-    user.otp = undefined; // Clear OTP
+    user.otp = undefined; 
     await user.save();
 
     res.status(200).json({
@@ -315,7 +313,7 @@ const resetPassword = async (req, res) => {
 // @access  Public
 const resendOTP = async (req, res) => {
   try {
-    const { email, type } = req.body; // type: 'registration' or 'reset'
+    const { email, type } = req.body; 
 
     const user = await User.findOne({ email });
 
@@ -355,6 +353,26 @@ const resendOTP = async (req, res) => {
     });
   }
 };
+// @desc    Kiểm tra OTP khôi phục mật khẩu 
+// @route   POST /api/auth/check-reset-otp
+// @access  Public
+const checkResetOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy tài khoản với email này' });
+    }
+
+    if (!user.verifyOTP(otp)) {
+      return res.status(400).json({ success: false, message: 'Mã OTP không chính xác hoặc đã hết hạn' });
+    }
+    res.status(200).json({ success: true, message: 'Mã OTP hợp lệ' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi khi kiểm tra OTP' });
+  }
+};
 
 module.exports = {
   register,
@@ -362,5 +380,6 @@ module.exports = {
   login,
   forgotPassword,
   resetPassword,
-  resendOTP
+  resendOTP,
+  checkResetOTP
 };

@@ -7,7 +7,8 @@ import {
     removeFromCartApi,
     getAvailableCouponsApi,
     validateCouponApi,
-    getMyPointsApi
+    getMyPointsApi,
+    getShopVouchersApi,
 } from "../../utils/api";
 import { useToast } from "../../components/context/ToastContext";
 
@@ -26,6 +27,7 @@ const CartPage = () => {
     const [couponDiscount, setCouponDiscount] = useState(0);
     const [loyaltyPoints, setLoyaltyPoints] = useState(0);
     const [usePoints, setUsePoints] = useState(false);
+    const [shopVouchers, setShopVouchers] = useState({}); // keyed by shopId
     
     // Selection state
     const [selectedItems, setSelectedItems] = useState(new Set());
@@ -54,10 +56,20 @@ const CartPage = () => {
             setLoading(true);
             const res = await getCartApi();
             if (res.success) {
-                setCart(res.data);
-                // Reset selection when cart is fetched
-                setSelectedItems(new Set());
-                setSelectAll(false);
+                const newCart = res.data;
+                setCart(newCart);
+                // Preserve selection: remove IDs that no longer exist in cart
+                const currentIds = new Set((newCart.products || []).map(item => item.product._id || item.product));
+                setSelectedItems((prev) => {
+                    const kept = [...prev].filter(id => currentIds.has(id));
+                    // If all cart items are in the kept selection, keep selectAll = true
+                    if (kept.length === currentIds.size && currentIds.size > 0) {
+                        setSelectAll(true);
+                    } else {
+                        setSelectAll(false);
+                    }
+                    return new Set(kept);
+                });
             }
         } catch (error) {
             console.error("Error fetching cart:", error);
@@ -88,12 +100,30 @@ const CartPage = () => {
         }
     };
 
+    const fetchShopVouchers = async (shopId) => {
+        try {
+            const res = await getShopVouchersApi(shopId);
+            if (res.success) {
+                setShopVouchers(prev => ({ ...prev, [shopId]: res.data || [] }));
+            }
+        } catch (error) {
+            console.error("Error fetching shop vouchers:", error);
+        }
+    };
+
     const handleUpdateQuantity = async (productId, newQuantity) => {
         if (newQuantity < 1) return;
         try {
             setUpdating(productId);
             await updateCartItemApi(productId, newQuantity);
+            window.dispatchEvent(new Event("cart-updated"));
             await fetchCart();
+            // Restore selection for the updated item
+            setSelectedItems((prev) => {
+                const next = new Set(prev);
+                next.add(productId);
+                return next;
+            });
         } catch (error) {
             showToast(error.message || "Cập nhật thất bại", "error");
         } finally {
@@ -168,9 +198,17 @@ const CartPage = () => {
 
         try {
             setApplyingCoupon(true);
+            // Compute subtotal using original prices for coupon validation
+            const selectedCartProducts = cart?.products?.filter(item =>
+                selectedItems.has(item.product._id || item.product)
+            ) || [];
+            const originalSubtotal = selectedCartProducts.reduce((sum, item) => {
+                const op = item.originalPrice || item.price;
+                return sum + (op * item.quantity);
+            }, 0);
             const res = await validateCouponApi({
                 code: couponCode,
-                orderTotal: subtotal
+                orderTotal: originalSubtotal
             });
             if (res.success) {
                 setSelectedCoupon(res.data.coupon);
@@ -189,9 +227,17 @@ const CartPage = () => {
     const handleSelectCoupon = async (coupon) => {
         try {
             setApplyingCoupon(true);
+            // Compute subtotal using original prices for coupon validation
+            const selectedCartProducts = cart?.products?.filter(item =>
+                selectedItems.has(item.product._id || item.product)
+            ) || [];
+            const originalSubtotal = selectedCartProducts.reduce((sum, item) => {
+                const op = item.originalPrice || item.price;
+                return sum + (op * item.quantity);
+            }, 0);
             const res = await validateCouponApi({
                 code: coupon.code,
-                orderTotal: subtotal
+                orderTotal: originalSubtotal
             });
             if (res.success) {
                 setSelectedCoupon(res.data.coupon);
@@ -252,20 +298,25 @@ const CartPage = () => {
 
     // Calculate selected items total
     const selectedItemsData = useMemo(() => {
-        const items = cart?.products?.filter(item => 
+        const items = cart?.products?.filter(item =>
             selectedItems.has(item.product._id || item.product)
         ) || [];
-        
-        const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+        const subtotal = items.reduce((sum, item) => {
+            const originalPrice = item.originalPrice || item.price;
+            return sum + (originalPrice * item.quantity);
+        }, 0);
+        const itemsTotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const totalDiscount = items.reduce((sum, item) => {
             if (item.discount > 0) {
-                return sum + (item.price * item.quantity * item.discount / 100);
+                const originalPrice = item.originalPrice || item.price;
+                return sum + ((originalPrice - item.price) * item.quantity);
             }
             return sum;
         }, 0);
         const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
         
-        return { items, subtotal, totalDiscount, totalQuantity };
+        return { items, subtotal, itemsTotal, totalDiscount, totalQuantity };
     }, [selectedItems, cart]);
 
     if (loading) {
@@ -277,12 +328,13 @@ const CartPage = () => {
     }
 
     const products = cart?.products || [];
-    const subtotal = selectedItemsData.subtotal;
+    const originalSubtotal = selectedItemsData.subtotal; // giá gốc tổng (để hiển thị tiết kiệm)
+    const itemsTotal = selectedItemsData.itemsTotal; // giá sau giảm tổng
     const totalDiscount = selectedItemsData.totalDiscount;
-    const shippingFee = subtotal >= 500000 ? 0 : 30000;
-    const pointsDiscount = usePoints ? Math.min(loyaltyPoints, subtotal) : 0;
+    const shippingFee = originalSubtotal >= 500000 ? 0 : 30000;
+    const pointsDiscount = usePoints ? Math.min(loyaltyPoints, itemsTotal) : 0;
     const discount = couponDiscount + pointsDiscount;
-    const total = Math.max(0, subtotal + shippingFee - discount);
+    const total = Math.max(0, itemsTotal + shippingFee - discount);
     const selectedCount = selectedItems.size;
 
     return (
@@ -362,7 +414,7 @@ const CartPage = () => {
                                         {/* Shop Header */}
                                         <div className="bg-[#FAF7F4] px-4 py-3 border-b border-[#EDE8E0]">
                                             <div className="flex items-center gap-3">
-                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                <label className="flex items-center gap-2 cursor-pointer flex-1">
                                                     <div className="relative">
                                                         <input
                                                             type="checkbox"
@@ -371,8 +423,8 @@ const CartPage = () => {
                                                             className="sr-only"
                                                         />
                                                         <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                                                            shopAllSelected 
-                                                                ? 'bg-[#B86B05] border-[#B86B05]' 
+                                                            shopAllSelected
+                                                                ? 'bg-[#B86B05] border-[#B86B05]'
                                                                 : shopPartialSelected
                                                                     ? 'bg-[#B86B05]/50 border-[#B86B05]'
                                                                     : 'border-[#D5C9BC] bg-white'
@@ -400,7 +452,57 @@ const CartPage = () => {
                                                         <span className="font-semibold text-[#1C1108] text-sm">{shop.shopName}</span>
                                                     </div>
                                                 </label>
+
+                                                {/* Shop actions */}
+                                                <div className="flex items-center gap-2 flex-shrink-0">
+                                                    <Link
+                                                        to={`/shop/${shop.shopId}`}
+                                                        className="text-xs text-[#B86B05] hover:text-[#95520B] font-medium flex items-center gap-1 transition-colors"
+                                                    >
+                                                        Xem shop
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
+                                                            <path d="M9 5l7 7-7 7" />
+                                                        </svg>
+                                                    </Link>
+                                                    <button
+                                                        onClick={() => {
+                                                            if (!shopVouchers[shop.shopId]) {
+                                                                fetchShopVouchers(shop.shopId);
+                                                            }
+                                                        }}
+                                                        className="text-xs px-2.5 py-1 bg-[#B86B05] text-white rounded-lg font-semibold hover:bg-[#95520B] transition-colors"
+                                                    >
+                                                        🎟️ Thu thập voucher
+                                                    </button>
+                                                </div>
                                             </div>
+
+                                            {/* Voucher panel */}
+                                            {shopVouchers[shop.shopId] && shopVouchers[shop.shopId].length > 0 && (
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                    {shopVouchers[shop.shopId].map((voucher) => (
+                                                        <div key={voucher._id} className="flex items-center gap-1.5 bg-white border border-[#B86B05] rounded-lg px-3 py-1.5">
+                                                            <span className="text-xs font-bold text-[#B86B05]">
+                                                                {voucher.discountType === 'percent' ? `-${voucher.value}%` : `-${new Intl.NumberFormat('vi-VN').format(voucher.value)}đ`}
+                                                            </span>
+                                                            <span className="text-[10px] text-[#6B5C4C]">|</span>
+                                                            <span className="text-[10px] text-[#6B5C4C]">{voucher.minOrderValue > 0 ? `Đơn từ ${new Intl.NumberFormat('vi-VN').format(voucher.minOrderValue)}đ` : 'Không giới hạn'}</span>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setCouponCode(voucher.code);
+                                                                    handleApplyCoupon();
+                                                                }}
+                                                                className="ml-1 text-[10px] text-[#B86B05] font-semibold hover:underline"
+                                                            >
+                                                                Lưu
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {shopVouchers[shop.shopId] && shopVouchers[shop.shopId].length === 0 && (
+                                                <p className="mt-1 text-[10px] text-[#A8896A]">Hiện không có voucher nào khả dụng</p>
+                                            )}
                                         </div>
 
                                         {/* Shop Items */}
@@ -642,12 +744,12 @@ const CartPage = () => {
                                 <div className="space-y-3 text-sm">
                                     <div className="flex justify-between">
                                         <span className="text-[#6B5C4C]">Tạm tính ({selectedCount > 0 ? selectedCount : cart.totalQuantity} sản phẩm)</span>
-                                        <span className="font-semibold text-[#1C1108]">{formatPrice(subtotal)}</span>
+                                        <span className="font-semibold text-[#1C1108]">{formatPrice(originalSubtotal)}</span>
                                     </div>
-                                    
+
                                     {totalDiscount > 0 && selectedCount > 0 && (
                                         <div className="flex justify-between text-[#BF4343]">
-                                            <span>Giảm giá sản phẩm</span>
+                                            <span>Tiết kiệm</span>
                                             <span className="font-semibold">-{formatPrice(totalDiscount)}</span>
                                         </div>
                                     )}
@@ -676,7 +778,7 @@ const CartPage = () => {
                                     </div>
                                     {shippingFee > 0 && selectedCount > 0 && (
                                         <p className="text-xs text-green-600 bg-green-50 rounded-lg px-3 py-2">
-                                            Mua thêm {formatPrice(500000 - subtotal)} để được miễn phí ship!
+                                            Mua thêm {formatPrice(500000 - originalSubtotal)} để được miễn phí ship!
                                         </p>
                                     )}
                                     

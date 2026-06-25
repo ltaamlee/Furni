@@ -20,7 +20,9 @@ const getProfile = async (req, res) => {
           role: user.role,
           profileImage: user.profileImage,
           isVerified: user.isVerified,
-          createdAt: user.createdAt
+          createdAt: user.createdAt,
+          gender: user.gender,
+          dateOfBirth: user.dateOfBirth
         }
       }
     });
@@ -37,7 +39,7 @@ const getProfile = async (req, res) => {
 // @access  Private
 const updateProfile = async (req, res) => {
   try {
-    const { fullName, email, phone, address, profileImage } = req.body;
+    const { fullName, email, phone, address, profileImage, gender, dateOfBirth } = req.body;
 
     // Check if email is being changed and if it's already taken
     if (email && email !== req.user.email) {
@@ -56,6 +58,10 @@ const updateProfile = async (req, res) => {
     if (phone !== undefined) updateData.phone = phone;
     if (address !== undefined) updateData.address = address;
     if (profileImage !== undefined) updateData.profileImage = profileImage;
+    if (gender !== undefined) updateData.gender = gender;
+    if (dateOfBirth !== undefined) {
+      updateData.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : null;
+    }
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
@@ -76,7 +82,9 @@ const updateProfile = async (req, res) => {
           username: user.username,
           role: user.role,
           profileImage: user.profileImage,
-          isVerified: user.isVerified
+          isVerified: user.isVerified,
+          gender: user.gender,
+          dateOfBirth: user.dateOfBirth
         }
       }
     });

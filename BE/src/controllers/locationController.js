@@ -1,17 +1,20 @@
-const {
-    getProvinces,
-    getDistricts: getDistrictsFromPkg,
-    getWards: getWardsFromPkg,
-} = require('vn-provinces');
+const axios = require('axios');
 
-// Proxy: List all provinces (served from local package, no external call)
+const EXTERNAL_API = 'https://provinces.open-api.vn/api';
+
+// Proxy: List all provinces
 const getProvincesHandler = async (req, res) => {
     try {
-        const data = getProvinces();
-        res.status(200).json({ success: true, data });
+        const response = await axios.get(`${EXTERNAL_API}/`, {
+            timeout: 10000,
+        });
+        res.status(200).json({
+            success: true,
+            data: response.data,
+        });
     } catch (error) {
-        console.error('Error serving provinces:', error.message);
-        res.status(500).json({
+        console.error('Error fetching provinces:', error.message);
+        res.status(502).json({
             success: false,
             message: 'Không thể lấy danh sách tỉnh/thành phố',
             error: error.message,
@@ -29,10 +32,12 @@ const getDistrictsHandler = async (req, res) => {
                 message: 'Thiếu mã tỉnh/thành phố',
             });
         }
-        const districtsData = getDistrictsFromPkg(provinceCode);
+        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}`, {
+            timeout: 10000,
+        });
         res.status(200).json({
             success: true,
-            data: districtsData || [],
+            data: response.data.districts || [],
         });
     } catch (error) {
         console.error('Error fetching districts:', error.message);
@@ -54,10 +59,12 @@ const getWardsHandler = async (req, res) => {
                 message: 'Thiếu mã quận/huyện',
             });
         }
-        const wardsData = getWardsFromPkg(districtCode);
+        const response = await axios.get(`${EXTERNAL_API}/d/${districtCode}`, {
+            timeout: 10000,
+        });
         res.status(200).json({
             success: true,
-            data: wardsData || [],
+            data: response.data.wards || [],
         });
     } catch (error) {
         console.error('Error fetching wards:', error.message);
@@ -69,7 +76,7 @@ const getWardsHandler = async (req, res) => {
     }
 };
 
-// Proxy: Get all wards of a province (flattened from all districts)
+// Proxy: Get all wards of a province (flattened from all districts — for new 2-level structure)
 const getWardsByProvinceHandler = async (req, res) => {
     try {
         const { provinceCode } = req.params;
@@ -79,17 +86,16 @@ const getWardsByProvinceHandler = async (req, res) => {
                 message: 'Thiếu mã tỉnh/thành phố',
             });
         }
-        const {
-            getDistrictsByProvinceCode,
-            getWardsByDistrictCode,
-        } = require('vn-provinces');
-
-        const districts = getDistrictsByProvinceCode(provinceCode) || [];
-        const allWards = districts.flatMap((d) => {
-            const wards = getWardsByDistrictCode(d.code);
-            return Array.isArray(wards) ? wards : [];
+        const response = await axios.get(`${EXTERNAL_API}/p/${provinceCode}`, {
+            timeout: 15000,
         });
-        res.status(200).json({ success: true, data: allWards });
+        const province = response.data;
+        // Flatten all wards from all districts (new 2-level structure: province → wards)
+        const allWards = (province.districts || []).flatMap((d) => d.wards || []);
+        res.status(200).json({
+            success: true,
+            data: allWards,
+        });
     } catch (error) {
         console.error('Error fetching wards by province:', error.message);
         res.status(502).json({

@@ -44,11 +44,28 @@ const ForgotPasswordPage = () => {
     }
 
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_BE_URL}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setAlert({ type: 'success', message: `Mã xác nhận OTP đã được gửi tới ${email}.` });
+        setTimeout(() => {
+          navigate('/verify-password', { state: { email: email.trim(), type: 'reset' } });
+        }, 1500);
+      } else {
+        setAlert({ type: 'error', message: data.message || 'Yêu cầu thất bại!' });
+      }
+    } catch (err) {
+      setAlert({ type: 'error', message: 'Lỗi server, vui lòng thử lại sau!' });
+    } finally {
       setLoading(false);
-      setAlert({ type: 'success', message: `Mã xác nhận đã được gửi tới ${email}.` });
-      navigate('/verify-password', { state: { email } });
-    }, 800);
+    }
   };
 
   return (
@@ -84,7 +101,7 @@ const ForgotPasswordPage = () => {
               />
 
               <p className="text-sm text-stone-500">
-                Nhập email để nhận mã xác nhận. Sau đó bạn sẽ được chuyển đến trang xác thực mã.
+                Nhập email để nhận mã xác nhận.
               </p>
 
               <Button type="submit" variant="primary" fullWidth loading={loading}>

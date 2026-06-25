@@ -18,7 +18,25 @@ const getAllCategories = async (req, res) => {
 const createCategory = async (req, res) => {
     try {
         const { name, description, parentCategory } = req.body;
-        const category = await Category.create({ name, description, parentCategory });
+
+        if (name) {
+            const existingCategory = await Category.findOne({
+                name: { $regex: new RegExp(`^${name.trim()}$`, 'i') }
+            });
+            
+            if (existingCategory) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Tên danh mục này đã tồn tại, vui lòng chọn tên khác!' 
+                });
+            }
+        }
+
+        const category = await Category.create({ 
+            name: name ? name.trim() : name, 
+            description, 
+            parentCategory 
+        });
         res.status(201).json({ success: true, data: category });
     } catch (error) {
         if (error.code === 11000 || (error.message && error.message.includes('E11000'))) {
@@ -52,9 +70,28 @@ const getCategory = async (req, res) => {
 const updateCategory = async (req, res) => {
     try {
         const { name, description, parentCategory } = req.body;
+
+        if (name) {
+            const existingCategory = await Category.findOne({
+                name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
+                _id: { $ne: req.params.id } 
+            });
+            
+            if (existingCategory) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Tên danh mục này đã tồn tại, vui lòng chọn tên khác!' 
+                });
+            }
+        }
+
         const category = await Category.findByIdAndUpdate(
             req.params.id,
-            { name, description, parentCategory },
+            { 
+                name: name ? name.trim() : name, 
+                description, 
+                parentCategory 
+            },
             { new: true, runValidators: true }
         );  
         if (!category) {

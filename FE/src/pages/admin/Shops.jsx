@@ -8,9 +8,14 @@ const AdminShops = () => {
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("");
     
+    // Quản lý Modal Từ Chối
     const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
     const [selectedShopId, setSelectedShopId] = useState(null);
     const [rejectNote, setRejectNote] = useState("");
+
+    // Quản lý Modal Khóa Shop 
+    const [isSuspendModalOpen, setIsSuspendModalOpen] = useState(false);
+    const [suspendNote, setSuspendNote] = useState("");
 
     useEffect(() => {
         fetchShops();
@@ -38,6 +43,7 @@ const AdminShops = () => {
             if (res && res.success) {
                 fetchShops(); 
                 if (status === 'rejected') closeRejectModal();
+                if (status === 'suspended') closeSuspendModal();
             } else {
                 alert(res?.message || "Cập nhật thất bại!");
             }
@@ -46,34 +52,23 @@ const AdminShops = () => {
         }
     };
 
-    const openRejectModal = (id) => {
-        setSelectedShopId(id);
-        setIsRejectModalOpen(true);
-    };
+    // Hàm cho Modal Từ chối
+    const openRejectModal = (id) => { setSelectedShopId(id); setIsRejectModalOpen(true); };
+    const closeRejectModal = () => { setIsRejectModalOpen(false); setSelectedShopId(null); setRejectNote(""); };
 
-    const closeRejectModal = () => {
-        setIsRejectModalOpen(false);
-        setSelectedShopId(null);
-        setRejectNote("");
-    };
+    // Hàm cho Modal Khóa Shop
+    const openSuspendModal = (id) => { setSelectedShopId(id); setIsSuspendModalOpen(true); };
+    const closeSuspendModal = () => { setIsSuspendModalOpen(false); setSelectedShopId(null); setSuspendNote(""); };
 
-    const handleResetFilters = () => {
-        setSearch("");
-        setStatusFilter("");
-    };
+    const handleResetFilters = () => { setSearch(""); setStatusFilter(""); };
 
     const renderBadge = (status) => {
         switch (status) {
-            case 'approved':
-                return <span className="inline-block px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#e6f4ea] text-[#1e8e3e]">Đã duyệt</span>;
-            case 'pending':
-                return <span className="inline-block px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#fef7e0] text-[#b08a00]">Chờ duyệt</span>;
-            case 'suspended':
-                return <span className="inline-block px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#fce8e6] text-[#d93025]">Tạm ngưng</span>;
-            case 'rejected':
-                return <span className="inline-block px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#f2f2f2] text-[#666666] border border-[#d9d9d9]">Đã từ chối</span>;
-            default:
-                return null;
+            case 'approved': return <span className="inline-block px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#e6f4ea] text-[#1e8e3e]">Đã duyệt</span>;
+            case 'pending': return <span className="inline-block px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#fef7e0] text-[#b08a00]">Chờ duyệt</span>;
+            case 'suspended': return <span className="inline-block px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#fce8e6] text-[#d93025]">Tạm khóa</span>;
+            case 'rejected': return <span className="inline-block px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#f2f2f2] text-[#666666] border border-[#d9d9d9]">Đã từ chối</span>;
+            default: return null;
         }
     };
 
@@ -113,7 +108,7 @@ const AdminShops = () => {
                         <option value="">Tất cả Trạng thái</option>
                         <option value="pending">Chờ duyệt</option>
                         <option value="approved">Đã duyệt</option>
-                        <option value="suspended">Tạm ngưng</option>
+                        <option value="suspended">Tạm khóa</option>
                         <option value="rejected">Đã từ chối</option>
                     </select>
                     
@@ -188,7 +183,7 @@ const AdminShops = () => {
                                             </Link>
 
                                             {shop.status === 'approved' && (
-                                                <button onClick={() => handleUpdateStatus(shop._id, 'suspended', 'Tạm ngưng do vi phạm nội quy')} title="Tạm ngưng shop" className="w-[32px] h-[32px] rounded-[6px] border border-[#e2d8d0] bg-white text-[#777] flex items-center justify-center cursor-pointer transition-all duration-200 hover:border-[#d93025] hover:text-[#d93025] hover:bg-[#fce8e6]">
+                                                <button onClick={() => openSuspendModal(shop._id)} title="Tạm khóa shop" className="w-[32px] h-[32px] rounded-[6px] border border-[#e2d8d0] bg-white text-[#777] flex items-center justify-center cursor-pointer transition-all duration-200 hover:border-[#d93025] hover:text-[#d93025] hover:bg-[#fce8e6]">
                                                     <IconPause />
                                                 </button>
                                             )}
@@ -229,6 +224,35 @@ const AdminShops = () => {
                         <div className="flex justify-end gap-[10px]">
                             <button onClick={closeRejectModal} className="px-[15px] py-[8px] border border-[#e2d8d0] bg-white rounded-[6px] text-[#333333] font-medium cursor-pointer hover:bg-[#faf7f5]">Hủy</button>
                             <button onClick={() => handleUpdateStatus(selectedShopId, 'rejected', rejectNote)} className="px-[15px] py-[8px] border-none bg-[#d93025] text-white rounded-[6px] font-medium cursor-pointer hover:bg-[#b71c1c]">Xác nhận từ chối</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL KHÓA SHOP */}
+            {isSuspendModalOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000] animate-[fadeIn_0.3s_ease]">
+                    <div className="bg-white w-[400px] rounded-[8px] p-[25px] shadow-[0_15px_30px_rgba(0,0,0,0.2)]">
+                        <div className="text-[18px] font-semibold text-[#d93025] mb-[15px] flex justify-between items-center">
+                            <span className="flex items-center gap-2">
+                                <IconPause /> Khóa gian hàng
+                            </span>
+                            <div className="cursor-pointer text-[#777] hover:text-[#d93025]" onClick={closeSuspendModal}>
+                                <IconX />
+                            </div>
+                        </div>
+                        <div className="mb-[20px]">
+                            <p className="text-[13px] text-[#555] mt-0 mb-[10px]">Vui lòng nhập lý do khóa shop. Lý do này sẽ được gửi vào hệ thống thông báo của cửa hàng:</p>
+                            <textarea 
+                                value={suspendNote}
+                                onChange={(e) => setSuspendNote(e.target.value)}
+                                placeholder="Ví dụ: Bán hàng giả, không xử lý đơn hàng..."
+                                className="w-full h-[100px] p-[10px] border border-[#e2d8d0] bg-white rounded-[6px] text-[14px] text-[#333333] resize-none outline-none focus:border-[#853D12]"
+                            ></textarea>
+                        </div>
+                        <div className="flex justify-end gap-[10px]">
+                            <button onClick={closeSuspendModal} className="px-[15px] py-[8px] border border-[#e2d8d0] bg-white rounded-[6px] text-[#333333] font-medium cursor-pointer hover:bg-[#faf7f5]">Hủy</button>
+                            <button onClick={() => handleUpdateStatus(selectedShopId, 'suspended', suspendNote)} className="px-[15px] py-[8px] border-none bg-[#d93025] text-white rounded-[6px] font-medium cursor-pointer hover:bg-[#b71c1c]">Xác nhận Khóa</button>
                         </div>
                     </div>
                 </div>

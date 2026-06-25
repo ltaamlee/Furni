@@ -1,5 +1,5 @@
 const Promotion = require('../models/promotion');
-const Coupon = require('../models/coupon');
+const Coupon = require('../models/Coupon');
 
 const updateStatusByDate = (promo) => {
     const now = new Date();

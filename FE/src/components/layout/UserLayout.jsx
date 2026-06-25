@@ -1,4 +1,4 @@
-import React, { useState, useContext } from "react";
+import React, { useState, useContext, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/authContext";
 import { Outlet } from "react-router-dom"
@@ -9,6 +9,15 @@ const UserLayout = ({ children }) => {
     const navigate = useNavigate();
     const { user } = auth;
     const [expandedMenu, setExpandedMenu] = useState(null);
+
+    // Chặn vendor/admin truy cập trang user — redirect về dashboard phù hợp
+    useEffect(() => {
+        if (user?.role === 'vendor') {
+            navigate('/vendor/dashboard', { replace: true });
+        } else if (user?.role === 'admin') {
+            navigate('/admin', { replace: true });
+        }
+    }, [user?.role, navigate]);
 
     const handleLogout = () => {
         if (confirm("Bạn có chắc muốn đăng xuất?")) {
@@ -21,6 +30,7 @@ const UserLayout = ({ children }) => {
         return ["/profile", "/change-password", "/addresses"].includes(path);
     };
 
+    // Menu chỉ hiển thị cho customer
     const menuItems = [
         {
             id: "account",

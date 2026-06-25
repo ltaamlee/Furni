@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const slugify = require('slugify');
 
 const ORDER_STATUS = {
     PENDING: 'pending',                    // 1. Đơn hàng mới
@@ -85,6 +86,17 @@ const orderSchema = new mongoose.Schema({
         price: {
             type: Number,
             required: true,
+            min: 0
+        },
+        // Giá gốc (trước giảm) — snapshot tại thời điểm đặt
+        originalPrice: {
+            type: Number,
+            default: null
+        },
+        // % giảm giá tại thời điểm đặt
+        discount: {
+            type: Number,
+            default: 0,
             min: 0
         },
         name: {
@@ -249,32 +261,41 @@ orderSchema.index({ 'products.shopOrderCode': 1 });
 // Tạo mã đơn hàng tự động
 orderSchema.pre('save', async function(next) {
     if (!this.orderNumber) {
-        const count = await mongoose.model('Order').countDocuments();
         const timestamp = Date.now().toString(36).toUpperCase();
         const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-        this.orderNumber = `ORD-${timestamp}-${random}`;
+
+        if (this.isChildOrder) {
+            // Child order: {shopCode}-{timestamp}-{random}
+            const shopCode = (this.shopCode || this.products?.[0]?.shopCode || 'SHOP');
+            this.orderNumber = `${shopCode}-${timestamp}-${random}`;
+        } else {
+            // Parent order (multi-vendor hoặc single shop không có shopCode)
+            this.orderNumber = `ORD-${timestamp}-${random}`;
+        }
+    }
+
+    // Tạo shopCode ở level order nếu chưa có (từ products đầu tiên)
+    if (!this.shopCode && this.products?.length > 0) {
+        this.shopCode = this.products[0].shopCode || '';
     }
 
     // Tạo mã đơn riêng cho từng shop trong đơn (multi-vendor)
     if (this.isNew) {
         const shopOrderCounts = {};
-        
+
         for (const item of this.products) {
             const shopId = item.shop?.toString() || 'default';
-            
-            // Đếm số đơn của shop này trong đơn hàng hiện tại
+
             if (!shopOrderCounts[shopId]) {
                 shopOrderCounts[shopId] = await mongoose.model('Order').countDocuments({
                     'products.shop': item.shop
                 });
             }
-            
-            // Tạo mã đơn riêng cho shop
-            // Format: {shopCode}-{timestamp}-{sequence}
+
             const shopCode = item.shopCode || 'SHOP';
             const timestamp = Date.now().toString(36).toUpperCase().slice(-6);
             const sequence = String(shopOrderCounts[shopId] + 1).padStart(4, '0');
-            
+
             item.shopOrderCode = `${shopCode}-${timestamp}-${sequence}`;
             shopOrderCounts[shopId]++;
         }
@@ -287,7 +308,6 @@ orderSchema.pre('save', async function(next) {
             timestamp: new Date()
         });
 
-        // Cập nhật thời gian tương ứng
         if (this.status === ORDER_STATUS.CONFIRMED) {
             this.confirmedAt = new Date();
         } else if (this.status === ORDER_STATUS.DELIVERED) {

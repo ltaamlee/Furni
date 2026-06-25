@@ -3,15 +3,16 @@ import { Link, useNavigate } from "react-router-dom";
 import { addToCartApi, addToWishlistApi, removeFromWishlistApi, checkWishlistApi } from "../../utils/api";
 import { useToast } from "../../components/context/ToastContext";
 
-const StarRating = ({ rating = 5 }) => {
+const StarRating = ({ rating }) => {
+    const filled = rating != null ? Math.floor(rating) : 0;
     return (
         <div className="flex items-center gap-0.5">
             {[...Array(5)].map((_, i) => (
                 <svg
                     key={i}
                     viewBox="0 0 24 24"
-                    fill={i < Math.floor(rating) ? "#F59E0B" : "none"}
-                    stroke={i < Math.floor(rating) ? "#F59E0B" : "#D1D5DB"}
+                    fill={i < filled ? "#F59E0B" : "none"}
+                    stroke={i < filled ? "#F59E0B" : "#D1D5DB"}
                     strokeWidth="1.5"
                     className="w-3 h-3"
                 >
@@ -110,9 +111,9 @@ const ProductCard = ({ product, onAddToCart, wishlist = [] }) => {
                 
                 {/* Badges */}
                 <div className="absolute top-3 left-3 flex flex-col gap-2">
-                    {product.salePrice != null && product.salePrice < product.price && (
+                    {(product.discountPercent > 0 || (product.discount > 0 && product.salePrice != null)) && (
                         <span className="bg-[#B86B05] text-white text-xs px-2 py-1 rounded-full font-semibold">
-                            -{Math.round((1 - product.salePrice / product.price) * 100)}%
+                            -{product.discountPercent || product.discount}%
                         </span>
                     )}
                     {product.sold > 10 && (
@@ -175,9 +176,9 @@ const ProductCard = ({ product, onAddToCart, wishlist = [] }) => {
 
             {/* Info */}
             <div className="p-4">
-                {/* Rating */}
+                {/* Rating — always show 5 stars (gray when no rating, yellow when rated) */}
                 <div className="flex items-center gap-1.5 mb-2">
-                    <StarRating rating={product.averageRating || 5} />
+                    <StarRating rating={product.averageRating} />
                     <span className="text-[10px] text-[#A8896A]">({product.reviewCount || 0})</span>
                 </div>
 
@@ -189,9 +190,16 @@ const ProductCard = ({ product, onAddToCart, wishlist = [] }) => {
                 {/* Price */}
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-col">
-                        {product.salePrice != null && product.salePrice < product.price ? (
+                        {(product.salePrice != null && product.originalPrice != null) ? (
                             <>
                                 <span className="text-lg font-bold text-[#E53E3E]">{formatPrice(product.salePrice)}</span>
+                                <span className="text-xs text-gray-400 line-through">{formatPrice(product.originalPrice)}</span>
+                            </>
+                        ) : product.discount > 0 ? (
+                            <>
+                                <span className="text-lg font-bold text-[#E53E3E]">
+                                    {formatPrice(Math.round(product.price * (1 - product.discount / 100)))}
+                                </span>
                                 <span className="text-xs text-gray-400 line-through">{formatPrice(product.price)}</span>
                             </>
                         ) : (

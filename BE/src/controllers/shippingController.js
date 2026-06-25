@@ -1,5 +1,7 @@
 const { ShippingProvider, ShippingOrder, SHIPPING_STATUS } = require('../models/shipping');
 const Order = require('../models/Order');
+const { GHNService, PROVINCE_TO_GHN_DISTRICT, calculateFallbackFee, getShopShippingConfig, getGhnDistrictId } = require('../services/shippingService');
+const { protect, authorize } = require('../middleware/authMiddleware');
 
 // @desc    Get all shipping providers
 // @route   GET /api/shipping/providers
@@ -7,11 +9,7 @@ const Order = require('../models/Order');
 const getProviders = async (req, res) => {
     try {
         const providers = await ShippingProvider.find({ isActive: true });
-
-        res.status(200).json({
-            success: true,
-            data: { providers }
-        });
+        res.status(200).json({ success: true, data: { providers } });
     } catch (error) {
         res.status(500).json({
             success: false,
@@ -21,32 +19,59 @@ const getProviders = async (req, res) => {
     }
 };
 
-// @desc    Calculate shipping fee
+// @desc    Calculate shipping fee for a specific provider (GHN only in this version)
 // @route   GET /api/shipping/calculate
 // @access  Public
 const calculateFee = async (req, res) => {
     try {
-        const { providerCode, city, orderTotal } = req.query;
+        const { provinceCode, districtCode, orderTotal } = req.query;
 
-        if (!providerCode || !city) {
+        if (!provinceCode) {
             return res.status(400).json({
                 success: false,
-                message: 'Vui lòng cung cấp mã đơn vị vận chuyển và thành phố'
+                message: 'Vui lòng cung cấp tỉnh/thành phố'
             });
         }
 
-        const result = await ShippingOrder.calculateFee(providerCode, city, Number(orderTotal) || 0);
+        const provCode = Number(provinceCode);
+        const distCode = districtCode ? Number(districtCode) : null;
+        const total = Number(orderTotal) || 0;
 
-        if (!result.success) {
-            return res.status(400).json({
-                success: false,
-                message: result.message
-            });
+        const ghnProvider = await ShippingProvider.findOne({ code: 'GHN', isActive: true });
+        if (!ghnProvider) {
+            return res.status(400).json({ success: false, message: 'GHN chưa được kích hoạt' });
         }
+
+        const { GHN: ghnConfig } = await getShopShippingConfig(null);
+        let result = null;
+
+        if (distCode) {
+            const ghnDistrictId = await getGhnDistrictId(provCode, distCode, ghnConfig);
+            if (ghnDistrictId) {
+                result = await GHNService.calculateFee(ghnDistrictId, 1000, ghnConfig);
+            }
+        }
+
+        if (!result?.success) {
+            const defaultDistrict = PROVINCE_TO_GHN_DISTRICT[provCode];
+            if (defaultDistrict) {
+                result = await GHNService.calculateFee(defaultDistrict.district_id, 1000, ghnConfig);
+            }
+        }
+
+        if (!result?.success) {
+            result = calculateFallbackFee(ghnProvider.baseFee, provCode, ghnProvider.freeThreshold);
+        }
+
+        const isFree = total >= ghnProvider.freeThreshold;
 
         res.status(200).json({
             success: true,
-            data: result.data
+            data: {
+                fee: isFree ? 0 : (result?.data?.fee || ghnProvider.baseFee),
+                estimatedDays: result?.data?.estimatedDaysRange || ghnProvider.estimatedDays,
+                isFree,
+            }
         });
     } catch (error) {
         res.status(500).json({
@@ -57,38 +82,71 @@ const calculateFee = async (req, res) => {
     }
 };
 
-// @desc    Calculate all providers fees
+// @desc    Calculate shipping fee (GHN only, per-shop config)
 // @route   GET /api/shipping/calculate-all
 // @access  Public
 const calculateAllFees = async (req, res) => {
     try {
-        const { provinceCode, city, orderTotal } = req.query;
+        const { provinceCode, districtCode, orderTotal } = req.query;
 
-        const province = provinceCode || city;
-        if (!province) {
+        if (!provinceCode) {
             return res.status(400).json({
                 success: false,
                 message: 'Vui lòng cung cấp tỉnh/thành phố'
             });
         }
 
-        const providers = await ShippingProvider.find({ isActive: true });
-        const fees = [];
+        const provCode = Number(provinceCode);
+        const distCode = districtCode ? Number(districtCode) : null;
+        const total = Number(orderTotal) || 0;
 
-        for (const provider of providers) {
-            const result = await ShippingOrder.calculateFee(
-                provider.code,
-                Number(provinceCode) || province,
-                Number(orderTotal) || 0
-            );
-            if (result.success && result.data) {
-                fees.push(result.data);
+        // Chỉ tính GHN
+        const ghnProvider = await ShippingProvider.findOne({ code: 'GHN', isActive: true });
+        if (!ghnProvider) {
+            return res.status(200).json({ success: true, data: { fees: [] } });
+        }
+
+        const { GHN: ghnConfig } = await getShopShippingConfig(null);
+        let feeData = null;
+
+        if (distCode) {
+            // Tra cứu GHN district từ VN district code
+            const ghnDistrictId = await getGhnDistrictId(provCode, distCode, ghnConfig);
+            if (ghnDistrictId) {
+                feeData = await GHNService.calculateFee(ghnDistrictId, 1000, ghnConfig);
             }
         }
 
+        // Fallback: dùng district_id mặc định của tỉnh
+        if (!feeData?.success) {
+            const defaultDistrict = PROVINCE_TO_GHN_DISTRICT[provCode];
+            if (defaultDistrict) {
+                feeData = await GHNService.calculateFee(defaultDistrict.district_id, 1000, ghnConfig);
+            }
+        }
+
+        // Final fallback: baseFee của provider
+        if (!feeData?.success) {
+            feeData = calculateFallbackFee(ghnProvider.baseFee, provCode, ghnProvider.freeThreshold);
+        }
+
+        const isFree = total >= ghnProvider.freeThreshold;
+
         res.status(200).json({
             success: true,
-            data: { fees }
+            data: {
+                fees: [{
+                    provider: {
+                        _id: ghnProvider._id,
+                        name: ghnProvider.name,
+                        code: ghnProvider.code,
+                        logo: ghnProvider.logo,
+                    },
+                    fee: isFree ? 0 : (feeData?.data?.fee || ghnProvider.baseFee),
+                    estimatedDays: feeData?.data?.estimatedDaysRange || ghnProvider.estimatedDays,
+                    isFree,
+                }]
+            }
         });
     } catch (error) {
         res.status(500).json({
@@ -129,10 +187,8 @@ const createShippingOrder = async (req, res) => {
             });
         }
 
-        // Calculate fee
         const feeResult = await ShippingOrder.calculateFee(providerCode, order.shippingAddress.city, order.totalPrice);
 
-        // Estimated delivery
         const estimatedDays = provider.estimatedDays.max;
         const estimatedDelivery = new Date();
         estimatedDelivery.setDate(estimatedDelivery.getDate() + estimatedDays);
@@ -142,7 +198,7 @@ const createShippingOrder = async (req, res) => {
             provider: provider._id,
             providerCode: provider.code,
             shippingAddress: order.shippingAddress,
-            shippingFee: feeResult.data.fee,
+            shippingFee: feeResult.data?.fee || 0,
             estimatedDelivery,
             codAmount: order.paymentMethod === 'COD' ? order.totalPrice : 0
         });
@@ -184,7 +240,6 @@ const getShippingByOrderId = async (req, res) => {
             });
         }
 
-        // Verify ownership
         const order = await Order.findById(orderId);
         if (order.user.toString() !== req.user._id.toString()) {
             return res.status(403).json({
@@ -243,9 +298,9 @@ const trackShipment = async (req, res) => {
     }
 };
 
-// @desc    Admin: Update shipping status
+// @desc    Update shipping status (Admin/Vendor)
 // @route   PUT /api/shipping/orders/:id/status
-// @access  Private (Admin)
+// @access  Private (Admin/Vendor)
 const updateShippingStatus = async (req, res) => {
     try {
         const { status, note, location } = req.body;
@@ -258,7 +313,6 @@ const updateShippingStatus = async (req, res) => {
             });
         }
 
-        // Validate status transition
         const validStatuses = Object.values(SHIPPING_STATUS);
         if (!validStatuses.includes(status)) {
             return res.status(400).json({
@@ -286,7 +340,6 @@ const updateShippingStatus = async (req, res) => {
 
         await shippingOrder.save();
 
-        // Update order status if needed
         const order = await Order.findById(shippingOrder.order);
         if (order) {
             if (status === SHIPPING_STATUS.DELIVERED) {
@@ -317,45 +370,15 @@ const seedProviders = async (req, res) => {
     try {
         const providers = [
             {
-                name: 'Giao Hàng Tiết Kiệm',
-                code: 'GHTK',
-                logo: '/icons/ghtk.png',
-                description: 'Dịch vụ giao hàng tiết kiệm, phổ biến nhất Việt Nam',
-                baseFee: 25000,
-                feePerKm: 0,
-                freeThreshold: 500000,
-                estimatedDays: { min: 2, max: 4 }
-            },
-            {
                 name: 'Giao Hàng Nhanh',
                 code: 'GHN',
                 logo: '/icons/ghn.png',
-                description: 'Giao hàng nhanh trong 24h tại các thành phố lớn',
-                baseFee: 30000,
+                description: 'Giao hàng nhanh trong 1-3 ngày tại các thành phố lớn',
+                baseFee: 25000,
                 feePerKm: 0,
                 freeThreshold: 500000,
                 estimatedDays: { min: 1, max: 3 }
             },
-            {
-                name: 'Viettel Post',
-                code: 'VTPOST',
-                logo: '/icons/vtpost.png',
-                description: 'Bưu chính Viettel - Phủ sóng toàn quốc',
-                baseFee: 20000,
-                feePerKm: 0,
-                freeThreshold: 500000,
-                estimatedDays: { min: 3, max: 7 }
-            },
-            {
-                name: 'VNPost',
-                code: 'VNPOST',
-                logo: '/icons/vnpost.png',
-                description: 'Bưu chính quốc gia - Dịch vụ đáng tin cậy',
-                baseFee: 18000,
-                feePerKm: 0,
-                freeThreshold: 500000,
-                estimatedDays: { min: 4, max: 10 }
-            }
         ];
 
         for (const provider of providers) {
@@ -368,7 +391,7 @@ const seedProviders = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            message: 'Đã tạo các đơn vị vận chuyển mặc định'
+            message: 'Đã tạo GHN làm đơn vị vận chuyển mặc định'
         });
     } catch (error) {
         res.status(500).json({

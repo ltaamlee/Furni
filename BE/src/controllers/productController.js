@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Product = require('../models/product');
 const Category = require('../models/category');
-const Shop = require('../models/shop');
+const Shop = require('../models/Shop');
 const PlatformConfig = require('../models/platformConfig');
 const { attachPricing } = require('../utils/pricing');
 
@@ -357,9 +357,13 @@ const filterProducts = async (req, res) => {
     // Query
     const products = await Product.find(formatQuery)
       .populate('category', 'name')
+      .populate('shop', 'name slug logo')
       .sort(sortBy)
       .skip(skip)
       .limit(limit)
+      .lean();
+
+    await attachPricing(products);
 
     const count = await Product.countDocuments(formatQuery)
     const totalPages = Math.ceil(count / limit);
@@ -592,8 +596,12 @@ const getTrendingProducts = async (req, res) => {
 
         const products = await Product.find({ isActive: true })
             .populate('category', 'name')
+            .populate('shop', 'name slug logo')
             .sort({ views: -1 })
-            .limit(parseInt(limit));
+            .limit(parseInt(limit))
+            .lean();
+
+        await attachPricing(products);
 
         res.status(200).json({
             success: true,

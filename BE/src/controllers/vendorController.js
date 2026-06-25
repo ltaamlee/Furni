@@ -1,9 +1,10 @@
 const mongoose = require('mongoose');
 const ExcelJS = require('exceljs');
-const Shop = require('../models/shop');
+const Shop = require('../models/Shop');
 const Product = require('../models/product');
 const Category = require('../models/category');
 const Promotion = require('../models/promotion');
+const Coupon = require('../models/Coupon');
 const Order = require('../models/order');
 const { ORDER_STATUS } = require('../models/order');
 const Wallet = require('../models/wallet');
@@ -162,7 +163,7 @@ const getDashboardSummary = async (req, res) => {
         }
 
         const base = { shop: shop._id };
-        const orderBase = { 'products.shop': shop._id };
+        const orderBase = { shop: shop._id };
         const todayStart = startOfDay(new Date());
 
         await Promotion.syncLifecycleStatuses(base);
@@ -192,8 +193,8 @@ const getDashboardSummary = async (req, res) => {
         ]);
 
         const recentOrders = recentOrdersRaw.map((o) => {
-            const { shopSubtotal } = shopSliceOfOrder(o, shop._id);
-            return { orderNumber: o.orderNumber, customer: o.shippingAddress?.fullName || o.user?.fullName || '—', total: shopSubtotal, status: o.status };
+            const total = o.subtotal || 0;
+            return { orderNumber: o.orderNumber, customer: o.shippingAddress?.fullName || o.user?.fullName || '—', total, status: o.status };
         });
 
         const completedTotal = deliveredCount + cancelledCount;
@@ -337,6 +338,31 @@ const createPromotion = async (req, res) => {
 
         let promotion = await Promotion.create(data);
         promotion = await populatePromotion(Promotion.findById(promotion._id));
+
+        // Tự động tạo Coupon khi vendor tạo khuyến mãi loại "coupon" (Shopee-style)
+        // User nhận coupon → lưu vào kho voucher → áp dụng khi checkout
+        if (data.type === 'coupon') {
+            // Sinh mã coupon: SORA + 4 ký tự random
+            const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+            const couponCode = `SORA${randomCode}`;
+
+            // Nếu có promotion thì gắn vào coupon để quản lý liên kết
+            await Coupon.create({
+                code: couponCode,
+                promotion: promotion._id,
+                shop: shop._id,
+                description: data.description || data.name,
+                discountType: data.discountType || 'percent',
+                value: data.value || 0,
+                maxDiscount: data.maxDiscount || 0,
+                minOrderValue: data.minOrderValue || 0,
+                startDate: data.startDate || new Date(),
+                endDate: data.endDate,
+                usageLimit: data.maxUsage || 0,
+                isActive: true,
+            });
+        }
+
         res.status(201).json({ success: true, message: 'Tạo khuyến mãi thành công', data: { promotion } });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message || 'Lỗi khi tạo khuyến mãi' });
@@ -502,15 +528,14 @@ const getMyOrders = async (req, res) => {
         }
 
         const { status, search, page = 1, limit = 10 } = req.query;
-        // Đơn con thuộc về shop này
-        const query = { shop: shop._id, isChildOrder: true };
+        // Đơn độc lập thuộc về shop này
+        const query = { shop: shop._id };
         if (status && status !== 'all') query.status = status;
         if (search) {
             query.$or = [
                 { orderNumber: { $regex: search, $options: 'i' } },
                 { 'shippingAddress.fullName': { $regex: search, $options: 'i' } },
-                { 'shippingAddress.phone': { $regex: search, $options: 'i' } },
-                { 'products.shopOrderCode': { $regex: search, $options: 'i' } }
+                { 'shippingAddress.phone': { $regex: search, $options: 'i' } }
             ];
         }
 
@@ -521,7 +546,7 @@ const getMyOrders = async (req, res) => {
         ]);
 
         // Số đếm theo trạng thái (đơn của shop)
-        const sb = { shop: shop._id, isChildOrder: true };
+        const sb = { shop: shop._id };
         const statuses = ['pending', 'confirmed', 'preparing', 'shipping', 'delivered', 'cancelled'];
         const counts = { all: await Order.countDocuments(sb) };
         await Promise.all(statuses.map(async (s) => { counts[s] = await Order.countDocuments({ ...sb, status: s }); }));
@@ -549,22 +574,14 @@ const getMyOrderDetail = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
         }
 
-        const order = await Order.findById(req.params.id).populate('user', 'fullName email phone');
+        const order = await Order.findOne({ _id: req.params.id, shop: shop._id })
+            .populate('user', 'fullName email phone')
+            .populate('products.product', 'name images slug');
         if (!order) {
             return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
         }
 
-        const slice = shopSliceOfOrder(order, shop._id);
-        if (slice.shopItems.length === 0) {
-            return res.status(403).json({ success: false, message: 'Đơn hàng này không có sản phẩm của cửa hàng bạn' });
-        }
-
-        const obj = order.toObject();
-        obj.products = slice.shopItems;
-        obj.shopSubtotal = slice.shopSubtotal;
-        obj.shopQuantity = slice.shopQuantity;
-
-        res.status(200).json({ success: true, data: { order: obj } });
+        res.status(200).json({ success: true, data: { order } });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi khi lấy chi tiết đơn hàng', error: error.message });
     }
@@ -581,24 +598,19 @@ const updateMyOrderStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
         }
 
-        const order = await Order.findById(req.params.id);
+        // Đơn độc lập: chỉ cần đúng shop là được quyền
+        const order = await Order.findOne({ _id: req.params.id, shop: shop._id });
         if (!order) {
             return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
-        }
-
-        // Quyền: đơn phải chứa sản phẩm của shop
-        const { shopItems } = shopSliceOfOrder(order, shop._id);
-        if (shopItems.length === 0) {
-            return res.status(403).json({ success: false, message: 'Bạn không có quyền với đơn hàng này' });
         }
 
         if (!ORDER_TRANSITIONS[order.status]?.includes(status)) {
             return res.status(400).json({ success: false, message: 'Không thể chuyển sang trạng thái này!' });
         }
 
-        // Nếu huỷ: hoàn tồn kho cho các sản phẩm của shop
-        if (status === ORDER_STATUS.CANCELLED) {
-            await Promise.all(shopItems.map((it) =>
+        // Nếu huỷ: hoàn tồn kho cho các sản phẩm trong đơn
+        if (status === ORDER_STATUS.CANCELLED && order.products) {
+            await Promise.all(order.products.map((it) =>
                 Product.findByIdAndUpdate(it.product, { $inc: { quantity: it.quantity, sold: -it.quantity } })
             ));
         }
@@ -959,6 +971,18 @@ const updateMyShop = async (req, res) => {
 
         SHOP_FIELDS.forEach((f) => { if (req.body[f] !== undefined) shop[f] = req.body[f]; });
         if (req.body.slug) shop.slug = req.body.slug; // setter tự slugify
+
+        // Cập nhật cấu hình nhà vận chuyển (GHN token riêng của shop)
+        if (req.body.shippingProviders) {
+            const sp = req.body.shippingProviders;
+            if (!shop.shippingProviders) {
+                shop.shippingProviders = {};
+            }
+            if (sp.GHN) {
+                shop.shippingProviders.GHN = { ...shop.shippingProviders.GHN, ...sp.GHN };
+            }
+        }
+
         await shop.save();
 
         res.status(200).json({ success: true, message: 'Cập nhật cửa hàng thành công', data: { shop } });

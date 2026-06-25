@@ -1,4 +1,4 @@
-const Shop = require('../models/shop');
+const Shop = require('../models/Shop');
 const Order = require('../models/order');
 const { ORDER_STATUS } = require('../models/order');
 const Notification = require('../models/notification');

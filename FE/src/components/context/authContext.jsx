@@ -10,6 +10,9 @@ export const AuthContext = createContext({
         phone: "",
         role: "",
         username: "",
+        gender: "",
+        dateOfBirth: "",
+        avatar: "",
     },
     token: null,
     appLoading: true,
@@ -25,6 +28,9 @@ export const AuthWrapper = ({ children }) => {
             phone: "",
             role: "",
             username: "",
+            gender: "",
+            dateOfBirth: "",
+            avatar: "",
         }
     });
 
@@ -43,6 +49,9 @@ export const AuthWrapper = ({ children }) => {
                 phone: "",
                 role: "",
                 username: "",
+                gender: "",
+                dateOfBirth: "",
+                avatar: "",
             }
         });
     };
@@ -66,13 +75,16 @@ export const AuthWrapper = ({ children }) => {
                                 phone: userData?.phone || "",
                                 role: userData?.role || "",
                                 username: userData?.username || "",
+                                gender: userData?.gender || "",
+                                dateOfBirth: userData?.dateOfBirth || "",
+                                avatar: userData?.profileImage || userData?.avatar || "",
                             }
                         });
                     } else if (localStorage.getItem("capture_mode") === "true") {
                         // Bypass auth for Figma capture mode
                         setAuth({
                             isAuthenticated: true,
-                            user: { id: "1", email: "demo@furni.com", fullName: "Demo User", phone: "0909123456", role: "customer", username: "demo" }
+                            user: { id: "1", email: "demo@furni.com", fullName: "Demo User", phone: "0909123456", role: "customer", username: "demo", gender: "", dateOfBirth: "", avatar: "" }
                         });
                     } else {
                         logout();
@@ -81,7 +93,7 @@ export const AuthWrapper = ({ children }) => {
                     if (localStorage.getItem("capture_mode") === "true") {
                         setAuth({
                             isAuthenticated: true,
-                            user: { id: "1", email: "demo@furni.com", fullName: "Demo User", phone: "0909123456", role: "customer", username: "demo" }
+                            user: { id: "1", email: "demo@furni.com", fullName: "Demo User", phone: "0909123456", role: "customer", username: "demo", gender: "", dateOfBirth: "", avatar: "" }
                         });
                     } else {
                         logout();

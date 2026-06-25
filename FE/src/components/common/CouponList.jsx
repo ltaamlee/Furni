@@ -1,169 +1,227 @@
 import { useState, useEffect } from "react";
-import { getAvailableCouponsApi } from "../../utils/api";
+import { getMyVouchersApi, getVoucherCountApi } from "../../utils/api";
 import { useToast } from "../context/ToastContext";
 
 const CouponList = () => {
     const { showToast } = useToast();
-    const [coupons, setCoupons] = useState([]);
+    const [vouchers, setVouchers] = useState([]);
+    const [counts, setCounts] = useState({ active: 0, used: 0, expired: 0, total: 0 });
     const [loading, setLoading] = useState(true);
-    const [filter, setFilter] = useState("available");
+    const [tab, setTab] = useState("active"); // active | used | expired
 
     useEffect(() => {
-        fetchCoupons();
-    }, [filter]);
+        fetchVouchers();
+        fetchCounts();
+    }, [tab]);
 
-    const fetchCoupons = async () => {
+    const fetchVouchers = async () => {
         try {
             setLoading(true);
-            const res = await getAvailableCouponsApi();
+            const res = await getMyVouchersApi({ status: tab === 'active' ? undefined : tab });
             if (res.success) {
-                setCoupons(res.data.coupons);
+                setVouchers(res.data || []);
             }
         } catch (error) {
-            console.error("Error fetching coupons:", error);
+            console.error("Error fetching vouchers:", error);
         } finally {
             setLoading(false);
         }
     };
 
-    const copyToClipboard = (code) => {
-        navigator.clipboard.writeText(code);
-        showToast(`Đã sao chép mã: ${code}`, "success");
+    const fetchCounts = async () => {
+        try {
+            const res = await getVoucherCountApi();
+            if (res.success) {
+                setCounts(res.data);
+            }
+        } catch (error) {
+            console.error("Error fetching voucher counts:", error);
+        }
     };
 
     const formatPrice = (price) => new Intl.NumberFormat("vi-VN").format(price) + " đ";
 
     const formatDate = (dateString) => {
+        if (!dateString) return "Không giới hạn";
         return new Date(dateString).toLocaleDateString("vi-VN", {
-            day: "numeric",
-            month: "short",
-            year: "numeric"
+            day: "numeric", month: "short", year: "numeric"
         });
     };
 
-    const getCouponTypeLabel = (type, value) => {
-        switch (type) {
-            case "percent":
-                return `Giảm ${value}%`;
-            case "fixed":
-                return `Giảm ${formatPrice(value)}`;
-            case "free_shipping":
-                return "Miễn phí vận chuyển";
-            default:
-                return `${type} - ${value}`;
-        }
+    const isExpired = (endDate) => {
+        if (!endDate) return false;
+        return new Date(endDate) < new Date();
     };
 
-    const isExpired = (endDate) => new Date(endDate) < new Date();
+    const formatDiscount = (v) => {
+        if (v.discountType === 'freeship') return 'Freeship';
+        if (v.discountType === 'fixed') return `-${Number(v.value).toLocaleString('vi-VN')}đ`;
+        return `-${v.value}%`;
+    };
 
-    const filteredCoupons = coupons.filter((coupon) => {
-        if (filter === "available") return !isExpired(coupon.endDate) && coupon.canUse;
-        if (filter === "expired") return isExpired(coupon.endDate);
-        return true;
-    });
+    const getBorderColor = (v) => {
+        if (v.discountType === 'freeship') return 'border-blue-400';
+        if (v.discountType === 'fixed') return 'border-orange-400';
+        if (isExpired(v.endDate)) return 'border-gray-200';
+        return 'border-[#B86B05]';
+    };
 
-    if (loading) {
+    const getTabBadge = (tabKey, label, icon) => {
+        const countMap = {
+            active: counts.active,
+            used: counts.used,
+            expired: counts.expired,
+        };
+        const count = countMap[tabKey] ?? 0;
         return (
-            <div className="flex justify-center py-8">
-                <div className="w-8 h-8 border-4 border-gray-200 border-t-[#8B4513] rounded-full animate-spin"></div>
-            </div>
+            <button
+                onClick={() => setTab(tabKey)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                    tab === tabKey
+                        ? "bg-[#B86B05] text-white shadow-md shadow-[#B86B05]/20"
+                        : "bg-white border border-[#EDE8E0] text-[#6B5C4C] hover:border-[#D5C9BC] hover:text-[#1C1108]"
+                }`}
+            >
+                <span>{icon}</span>
+                <span>{label}</span>
+                {count > 0 && (
+                    <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        tab === tabKey ? "bg-white/20 text-white" : "bg-[#FAF7F4] text-[#A8896A]"
+                    }`}>
+                        {count}
+                    </span>
+                )}
+            </button>
         );
-    }
+    };
 
     return (
         <div className="space-y-4">
-            {/* Filter Tabs */}
-            <div className="flex gap-2">
-                {[
-                    { id: "available", label: "Có thể dùng" },
-                    { id: "expired", label: "Đã hết hạn" },
-                    { id: "all", label: "Tất cả" }
-                ].map((tab) => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setFilter(tab.id)}
-                        className={`px-4 py-2 rounded-full text-sm font-medium transition ${
-                            filter === tab.id
-                                ? "bg-[#8B4513] text-white"
-                                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                        }`}
-                    >
-                        {tab.label}
-                    </button>
-                ))}
+            {/* Tabs */}
+            <div className="flex flex-wrap gap-2">
+                {getTabBadge("active", "Có thể dùng", "🎟️")}
+                {getTabBadge("used", "Đã sử dụng", "✅")}
+                {getTabBadge("expired", "Hết hạn", "⏰")}
             </div>
 
-            {filteredCoupons.length === 0 ? (
-                <div className="bg-white rounded-2xl p-12 text-center">
-                    <div className="text-5xl mb-4">🎟️</div>
-                    <p className="text-gray-500">Không có mã giảm giá nào</p>
+            {/* Summary bar */}
+            {counts.total > 0 && (
+                <div className="bg-[#FAF7F4] rounded-xl p-3 flex items-center gap-4 text-xs text-[#6B5C4C]">
+                    <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 bg-green-500 rounded-full" />
+                        Có thể dùng: <strong className="text-[#1C1108]">{counts.active}</strong>
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 bg-gray-400 rounded-full" />
+                        Đã dùng: <strong className="text-[#1C1108]">{counts.used}</strong>
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 bg-red-400 rounded-full" />
+                        Hết hạn: <strong className="text-[#1C1108]">{counts.expired}</strong>
+                    </span>
+                </div>
+            )}
+
+            {/* Voucher list */}
+            {loading ? (
+                <div className="flex justify-center py-12">
+                    <div className="w-8 h-8 border-4 border-gray-200 border-t-[#B86B05] rounded-full animate-spin" />
+                </div>
+            ) : vouchers.length === 0 ? (
+                <div className="bg-white rounded-2xl p-12 text-center border border-[#EDE8E0]">
+                    <div className="text-5xl mb-4 select-none">
+                        {tab === "active" ? "🎟️" : tab === "used" ? "📦" : "⏰"}
+                    </div>
+                    <h3 className="text-lg font-bold text-[#1C1108] mb-2">
+                        {tab === "active" ? "Chưa có voucher nào" :
+                         tab === "used" ? "Chưa có voucher nào được sử dụng" :
+                         "Không có voucher hết hạn"}
+                    </h3>
+                    <p className="text-sm text-[#A8896A]">
+                        {tab === "active"
+                            ? "Nhận voucher từ các shop bạn yêu thích để tiết kiệm hơn!"
+                            : "Hãy tiếp tục mua sắm để sử dụng voucher nhé!"}
+                    </p>
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {filteredCoupons.map((coupon) => (
-                        <div
-                            key={coupon._id}
-                            className={`bg-white rounded-xl border-2 overflow-hidden ${
-                                isExpired(coupon.endDate) ? "border-gray-200 opacity-60" : "border-[#8B4513]"
-                            }`}
-                        >
-                            <div className="flex">
-                                {/* Discount Value */}
-                                <div className="w-28 bg-gradient-to-br from-[#8B4513] to-[#A0522D] flex flex-col items-center justify-center p-4 text-white">
-                                    <span className="text-2xl font-bold">
-                                        {getCouponTypeLabel(coupon.type, coupon.value)}
-                                    </span>
-                                    {coupon.maxDiscount && (
-                                        <span className="text-xs mt-1 opacity-80">
-                                            Tối đa {formatPrice(coupon.maxDiscount)}
+                    {vouchers.map((v) => {
+                        const expired = isExpired(v.endDate);
+                        const used = v.status === 'used';
+                        return (
+                            <div
+                                key={v._id}
+                                className={`bg-white rounded-2xl border-2 overflow-hidden flex ${getBorderColor(v)} ${
+                                    (expired || used) ? "opacity-60" : ""
+                                }`}
+                            >
+                                {/* Left: discount value */}
+                                <div className={`w-32 flex-shrink-0 flex flex-col items-center justify-center p-4 text-center ${
+                                    v.discountType === 'freeship'
+                                        ? "bg-gradient-to-br from-blue-500 to-blue-700 text-white"
+                                        : v.discountType === 'fixed'
+                                        ? "bg-gradient-to-br from-orange-500 to-orange-700 text-white"
+                                        : "bg-gradient-to-br from-[#B86B05] to-[#95520B] text-white"
+                                }`}>
+                                    <span className="text-2xl font-black leading-tight">{formatDiscount(v)}</span>
+                                    {v.maxDiscount > 0 && (
+                                        <span className="text-[10px] mt-1 opacity-80">
+                                            Tối đa {formatPrice(v.maxDiscount)}
+                                        </span>
+                                    )}
+                                    {v.shopName && (
+                                        <span className="text-[10px] mt-1 opacity-70 truncate max-w-[96px]">
+                                            {v.shopName}
                                         </span>
                                     )}
                                 </div>
 
-                                {/* Info */}
-                                <div className="flex-1 p-4">
-                                    <div className="flex items-start justify-between">
-                                        <div>
-                                            <h3 className="font-bold text-gray-800">{coupon.name}</h3>
-                                            {coupon.description && (
-                                                <p className="text-sm text-gray-500 mt-1">{coupon.description}</p>
-                                            )}
-                                            {coupon.minOrderValue > 0 && (
-                                                <p className="text-xs text-orange-500 mt-1">
-                                                    Đơn tối thiểu: {formatPrice(coupon.minOrderValue)}
+                                {/* Right: info */}
+                                <div className="flex-1 p-4 flex flex-col justify-between min-w-0">
+                                    <div>
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="font-bold text-sm text-[#1C1108]">{v.code}</p>
+                                                <p className="text-xs text-[#6B5C4C] mt-0.5 line-clamp-2">
+                                                    {v.description || 'Voucher đặc biệt từ shop'}
                                                 </p>
-                                            )}
-                                            <p className="text-xs text-gray-400 mt-2">
-                                                HSD: {formatDate(coupon.endDate)}
-                                            </p>
+                                            </div>
+                                            <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                expired
+                                                    ? "bg-red-50 text-red-500"
+                                                    : used
+                                                    ? "bg-gray-100 text-gray-500"
+                                                    : "bg-green-50 text-green-600"
+                                            }`}>
+                                                {expired ? "Hết hạn" : used ? "Đã dùng" : "Còn hiệu lực"}
+                                            </span>
                                         </div>
 
-                                        {/* Copy Button */}
-                                        <button
-                                            onClick={() => copyToClipboard(coupon.code)}
-                                            disabled={isExpired(coupon.endDate)}
-                                            className="px-4 py-2 bg-[#8B4513] text-white rounded-lg text-sm font-medium hover:bg-[#A0522D] transition disabled:opacity-50"
-                                        >
-                                            {isExpired(coupon.endDate) ? "Đã hết hạn" : "Sao chép"}
-                                        </button>
+                                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#A8896A]">
+                                            {v.minOrderValue > 0 && (
+                                                <span>Đơn từ {formatPrice(v.minOrderValue)}</span>
+                                            )}
+                                            <span className={expired ? "text-red-400" : ""}>
+                                                HSD: {formatDate(v.endDate)}
+                                            </span>
+                                            {v.remaining !== null && (
+                                                <span>Còn {v.remaining} lượt</span>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    {/* Code */}
-                                    <div className="mt-3 flex items-center gap-2">
-                                        <code className="bg-gray-100 px-3 py-1 rounded font-mono text-sm">
-                                            {coupon.code}
-                                        </code>
-                                        {coupon.usedCount > 0 && (
-                                            <span className="text-xs text-gray-400">
-                                                Đã dùng: {coupon.usedCount}
-                                                {coupon.maxUses && `/${coupon.maxUses}`}
-                                            </span>
-                                        )}
-                                    </div>
+                                    {(expired || used) && (
+                                        <p className="text-[10px] text-[#A8896A] mt-1 italic">
+                                            {used
+                                                ? `Đã sử dụng ngày ${formatDate(v.usedAt)}`
+                                                : `Hết hạn ngày ${formatDate(v.endDate)}`
+                                            }
+                                        </p>
+                                    )}
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
         </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { getUserOrdersApi, cancelOrderApi } from "../../utils/api";
+import { getUserOrdersApi, cancelOrderApi, confirmReceivedApi } from "../../utils/api";
 import { useToast } from "../../components/context/ToastContext";
 
 const ORDER_TABS = [
@@ -19,11 +19,12 @@ const formatPrice = (price) =>
 const OrderHistoryPage = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const { showToast } = useToast();
-    
+
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState("all");
     const [cancellingId, setCancellingId] = useState(null);
+    const [confirmingId, setConfirmingId] = useState(null);
     const [error, setError] = useState(null);
 
     useEffect(() => {
@@ -36,9 +37,9 @@ const OrderHistoryPage = () => {
             setError(null);
             const params = {};
             if (status !== "all") params.status = status;
-            
+
             const res = await getUserOrdersApi(params);
-            
+
             if (res.success) {
                 const ordersData = res.data?.orders || res.data || res.data?.data || [];
                 setOrders(Array.isArray(ordersData) ? ordersData : []);
@@ -59,7 +60,7 @@ const OrderHistoryPage = () => {
 
     const handleCancelOrder = async (orderId) => {
         if (!confirm("Bạn có chắc muốn hủy đơn hàng này?")) return;
-        
+
         try {
             setCancellingId(orderId);
             const res = await cancelOrderApi(orderId, "Khách hàng hủy");
@@ -71,6 +72,25 @@ const OrderHistoryPage = () => {
             showToast(error.message || "Không thể hủy đơn hàng!", "error");
         } finally {
             setCancellingId(null);
+        }
+    };
+
+    const handleConfirmReceived = async (orderId) => {
+        if (!confirm("Bạn đã nhận được hàng và hài lòng với đơn hàng?")) return;
+
+        try {
+            setConfirmingId(orderId);
+            const res = await confirmReceivedApi(orderId);
+            if (res.success) {
+                showToast("Xác nhận nhận hàng thành công!", "success");
+                fetchOrders(activeTab);
+            } else {
+                showToast(res.message || "Xác nhận thất bại!", "error");
+            }
+        } catch (error) {
+            showToast(error.message || "Có lỗi xảy ra!", "error");
+        } finally {
+            setConfirmingId(null);
         }
     };
 
@@ -139,8 +159,8 @@ const OrderHistoryPage = () => {
                             </div>
                             <h3 className="text-lg font-semibold text-[#1C1108] mb-2">Chưa có đơn hàng</h3>
                             <p className="text-sm text-[#A8896A] mb-6">
-                                {activeTab === "all" 
-                                    ? "Bạn chưa có đơn hàng nào" 
+                                {activeTab === "all"
+                                    ? "Bạn chưa có đơn hàng nào"
                                     : `Không có đơn hàng ở trạng thái "${ORDER_TABS.find(t => t.key === activeTab)?.label}"`}
                             </p>
                             <Link
@@ -188,7 +208,7 @@ const OrderHistoryPage = () => {
                                         <div className="p-4 space-y-3">
                                             {order.products?.slice(0, 3).map((item, idx) => (
                                                 <div key={item._id || idx} className="flex gap-3">
-                                                    <Link to={`/product/${item.product?.slug || item.product?._id}`} className="shrink-0">
+                                                    <Link to={`/product/${item.product?.slug || item.product?._id || ''}`} className="shrink-0">
                                                         <img
                                                             src={item.product?.images?.[0] || item.image || "/placeholder.png"}
                                                             alt={item.product?.name || item.name}
@@ -197,25 +217,45 @@ const OrderHistoryPage = () => {
                                                     </Link>
                                                     <div className="flex-1 min-w-0">
                                                         <Link
-                                                            to={`/product/${item.product?.slug || item.product?._id}`}
+                                                            to={`/product/${item.product?.slug || item.product?._id || ''}`}
                                                             className="text-sm font-medium text-[#1C1108] line-clamp-2 hover:text-[#B86B05] transition-colors"
                                                         >
                                                             {item.product?.name || item.name || "Sản phẩm"}
                                                         </Link>
-                                                        <div className="flex items-center gap-2 mt-1">
-                                                            <span className="text-xs text-[#A8896A]">x{item.quantity}</span>
+
+                                                        {/* Price display: original + discounted */}
+                                                        <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                                                            {item.originalPrice && item.discount > 0 ? (
+                                                                <>
+                                                                    <span className="text-xs font-bold text-[#B86B05]">
+                                                                        {formatPrice(item.price)}
+                                                                    </span>
+                                                                    <span className="text-xs text-[#A8896A] line-through">
+                                                                        {formatPrice(item.originalPrice)}
+                                                                    </span>
+                                                                    <span className="px-1 py-0.5 bg-red-50 text-red-500 text-[10px] font-bold rounded">
+                                                                        -{item.discount}%
+                                                                    </span>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-xs font-semibold text-[#B86B05]">
+                                                                    {formatPrice(item.price)}
+                                                                </span>
+                                                            )}
+                                                            <span className="text-xs text-[#A8896A] ml-auto">x{item.quantity}</span>
                                                         </div>
-                                                        <p className="text-sm font-semibold text-[#B86B05] mt-1">
-                                                            {formatPrice(item.price)}
+                                                        <p className="text-xs font-semibold text-[#1C1108] mt-1 text-right">
+                                                            {formatPrice(item.price * item.quantity)}
                                                         </p>
                                                     </div>
+                                                    {/* Đánh giá — chỉ khi đã giao */}
                                                     {order.status === "delivered" && (
                                                         <div className="shrink-0">
                                                             <Link
-                                                                to={`/product/${item.product?.slug || item.product?._id}?write-review=true`}
+                                                                to={`/product/${item.product?.slug || item.product?._id || ''}?write-review=true`}
                                                                 className="text-xs text-[#B86B05] border border-[#B86B05] px-3 py-1.5 rounded-lg hover:bg-[#B86B05] hover:text-white transition-colors"
                                                             >
-                                                                Đánh giá
+                                                                ⭐ Đánh giá
                                                             </Link>
                                                         </div>
                                                     )}
@@ -229,7 +269,7 @@ const OrderHistoryPage = () => {
                                         </div>
 
                                         {/* Order Footer */}
-                                        <div className="px-4 py-3 bg-[#FAF7F4] border-t border-[#EDE8E0] flex items-center justify-between">
+                                        <div className="px-4 py-3 bg-[#FAF7F4] border-t border-[#EDE8E0] flex items-center justify-between gap-3">
                                             <div className="text-sm">
                                                 {order.products?.length > 0 && (
                                                     <span className="text-[#A8896A]">
@@ -237,14 +277,19 @@ const OrderHistoryPage = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="flex items-center gap-4">
-                                                <div className="text-right">
-                                                    <span className="text-sm text-[#A8896A]">Thành tiền: </span>
-                                                    <span className="text-lg font-bold text-[#B86B05]">
-                                                        {formatPrice(order.totalPrice)}
-                                                    </span>
-                                                </div>
-                                                {(order.status === "pending" || order.status === "confirmed") && (
+                                            <div className="flex items-center gap-3 flex-wrap justify-end">
+                                                {/* Nút Nhận hàng — khi đang giao */}
+                                                {order.status === "shipping" && (
+                                                    <button
+                                                        onClick={() => handleConfirmReceived(order._id)}
+                                                        disabled={confirmingId === order._id}
+                                                        className="px-4 py-2 text-sm font-bold text-white bg-green-600 border border-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-sm shadow-green-600/20 disabled:opacity-50"
+                                                    >
+                                                        {confirmingId === order._id ? "Đang xác nhận..." : "✓ Đã nhận được hàng"}
+                                                    </button>
+                                                )}
+                                                {/* Nút Hủy đơn */}
+                                                {order.canCancel && (
                                                     <button
                                                         onClick={() => handleCancelOrder(order._id)}
                                                         disabled={cancellingId === order._id}
@@ -253,6 +298,13 @@ const OrderHistoryPage = () => {
                                                         {cancellingId === order._id ? "Đang hủy..." : "Hủy đơn"}
                                                     </button>
                                                 )}
+                                                {/* Tổng tiền */}
+                                                <div className="text-right">
+                                                    <span className="text-xs text-[#A8896A]">Thành tiền: </span>
+                                                    <span className="text-lg font-bold text-[#B86B05]">
+                                                        {formatPrice(order.totalPrice)}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -260,7 +312,6 @@ const OrderHistoryPage = () => {
                                         <div className="px-4 py-2 border-t border-[#EDE8E0] flex items-center justify-between text-xs text-[#A8896A]">
                                             <div className="flex flex-col">
                                                 <span>Mã đơn: <span className="font-mono text-[#1C1108] font-medium">#{order.orderNumber}</span></span>
-                                                {/* Show shop order codes if available */}
                                                 {order.products?.some(p => p.shopOrderCode) && (
                                                     <span className="mt-0.5">
                                                         Mã shop: {order.products.filter(p => p.shopOrderCode).map(p => p.shopOrderCode).join(', ')}

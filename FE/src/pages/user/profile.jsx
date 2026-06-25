@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useContext, useRef } from "react";
 import { AuthContext } from "../../components/context/authContext";
-import { updateUserApi } from "../../utils/api";
+import { updateUserApi, uploadAvatarApi } from "../../utils/api";
 import { useToast } from "../../components/context/ToastContext";
 import { useLocation } from "react-router-dom";
 
 const UserProfile = () => {
-    const { auth } = useContext(AuthContext);
+    const { auth, setAuth } = useContext(AuthContext);
     const { showToast } = useToast();
     const location = useLocation();
     const walletRef = useRef(null);
@@ -19,6 +19,13 @@ const UserProfile = () => {
         dateOfBirth: ""
     });
 
+    // Avatar upload state
+    const fileInputRef = useRef(null);
+    const [previewUrl, setPreviewUrl] = useState(null);       // local preview URL
+    const [selectedFile, setSelectedFile] = useState(null);    // actual file object
+    const [uploadingAvatar, setUploadingAvatar] = useState(false);
+    const [showAvatarModal, setShowAvatarModal] = useState(false);
+
     // Wallet state
     const [wallets, setWallets] = useState([]);
     const [loadingWallets, setLoadingWallets] = useState(true);
@@ -30,6 +37,72 @@ const UserProfile = () => {
         bankName: ""
     });
     const [savingWallet, setSavingWallet] = useState(false);
+
+    // Avatar upload handlers
+    const handleAvatarFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Validate file type
+        const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+        if (!allowedTypes.includes(file.type)) {
+            showToast("Vui lòng chọn file ảnh (JPG, PNG, WEBP)!", "error");
+            return;
+        }
+
+        // Validate file size (1MB)
+        if (file.size > 1024 * 1024) {
+            showToast("Dung lượng ảnh không được vượt quá 1MB!", "error");
+            return;
+        }
+
+        setSelectedFile(file);
+        setPreviewUrl(URL.createObjectURL(file));
+        setShowAvatarModal(true);
+        // Reset file input so same file can be selected again
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+
+    const handleAvatarUpload = async () => {
+        if (!selectedFile) return;
+        try {
+            setUploadingAvatar(true);
+            const formData = new FormData();
+            formData.append("avatar", selectedFile);
+
+            const res = await uploadAvatarApi(formData);
+            if (res.success) {
+                // Update auth context with new avatar
+                setAuth((prev) => ({
+                    ...prev,
+                    user: { ...prev.user, avatar: res.data.avatar }
+                }));
+                showToast("Cập nhật ảnh đại diện thành công!", "success");
+                setShowAvatarModal(false);
+                setSelectedFile(null);
+            } else {
+                showToast(res.message || "Cập nhật ảnh thất bại!", "error");
+            }
+        } catch (error) {
+            showToast(error.message || "Có lỗi xảy ra!", "error");
+        } finally {
+            setUploadingAvatar(false);
+        }
+    };
+
+    const handleAvatarCancel = () => {
+        setShowAvatarModal(false);
+        setSelectedFile(null);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(null);
+    };
+
+    // Cleanup blob URL on unmount
+    useEffect(() => {
+        return () => {
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+        };
+    }, []);
 
     useEffect(() => {
         if (user) {
@@ -214,11 +287,29 @@ const UserProfile = () => {
                         {/* Avatar Section */}
                         <div className="flex flex-col items-center">
                             <div className="relative mb-4">
-                                <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#B86B05] to-[#95520B] flex items-center justify-center text-white text-4xl font-bold shadow-md">
-                                    {profile.fullName ? profile.fullName.charAt(0).toUpperCase() : "U"}
+                                {/* Current / Preview Avatar */}
+                                <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#B86B05] to-[#95520B] flex items-center justify-center text-white text-4xl font-bold shadow-md overflow-hidden">
+                                    {previewUrl ? (
+                                        <img
+                                            src={previewUrl}
+                                            alt="Avatar preview"
+                                            className="w-full h-full object-cover rounded-full"
+                                        />
+                                    ) : user?.avatar ? (
+                                        <img
+                                            src={user.avatar}
+                                            alt="Avatar"
+                                            className="w-full h-full object-cover rounded-full"
+                                        />
+                                    ) : (
+                                        profile.fullName?.charAt(0)?.toUpperCase() || "U"
+                                    )}
                                 </div>
-                                <button 
+
+                                {/* Camera button */}
+                                <button
                                     type="button"
+                                    onClick={() => fileInputRef.current?.click()}
                                     className="absolute bottom-0 right-0 w-10 h-10 bg-[#B86B05] rounded-full flex items-center justify-center text-white shadow-lg hover:bg-[#95520B] transition-colors"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -227,9 +318,17 @@ const UserProfile = () => {
                                     </svg>
                                 </button>
                             </div>
+                            {/* Hidden file input */}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/jpeg,image/jpg,image/png,image/webp"
+                                onChange={handleAvatarFileChange}
+                                className="hidden"
+                            />
                             <p className="text-sm text-[#A8896A] text-center">
-                                Dung lượng tối đa: 1 MB<br/>
-                                Định dạng: .JPG, .PNG
+                                Dung lượng tối đa: 1 MB<br />
+                                Định dạng: .JPG, .PNG, .WEBP
                             </p>
                         </div>
 
@@ -548,8 +647,64 @@ const UserProfile = () => {
                     </div>
                 </div>
             )}
+            {/* Avatar Preview / Confirmation Modal */}
+            {showAvatarModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl">
+                        {/* Header */}
+                        <div className="px-6 pt-6 pb-4">
+                            <h3 className="text-lg font-bold text-[#1C1108]">Xác nhận ảnh đại diện</h3>
+                            <p className="text-sm text-[#A8896A] mt-1">Đây là ảnh bạn sẽ sử dụng làm ảnh đại diện</p>
+                        </div>
+
+                        {/* Avatar Preview */}
+                        <div className="px-6 pb-6 flex flex-col items-center">
+                            <div className="w-48 h-48 rounded-full overflow-hidden shadow-lg mb-6 bg-[#FAF7F4]">
+                                {previewUrl && (
+                                    <img
+                                        src={previewUrl}
+                                        alt="Avatar preview"
+                                        className="w-full h-full object-cover rounded-full"
+                                    />
+                                )}
+                            </div>
+
+                            {/* Info */}
+                            {selectedFile && (
+                                <p className="text-xs text-[#A8896A] mb-1">
+                                    {selectedFile.name} • {(selectedFile.size / 1024).toFixed(1)} KB
+                                </p>
+                            )}
+
+                            {/* Actions */}
+                            <div className="flex gap-3 w-full mt-2">
+                                <button
+                                    type="button"
+                                    onClick={handleAvatarCancel}
+                                    disabled={uploadingAvatar}
+                                    className="flex-1 px-4 py-3 border-2 border-[#EDE8E0] text-[#6B5C4C] font-semibold rounded-2xl hover:bg-[#FAF7F4] transition-all disabled:opacity-50"
+                                >
+                                    Hủy
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleAvatarUpload}
+                                    disabled={uploadingAvatar}
+                                    className="flex-1 px-4 py-3 bg-[#B86B05] text-white font-semibold rounded-2xl hover:bg-[#9a5a04] transition-all shadow-md shadow-[#B86B05]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                    {uploadingAvatar ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            Đang tải...
+                                        </>
+                                    ) : "Xác nhận"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
-    );
-};
+)};
 
 export default UserProfile;

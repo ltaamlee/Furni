@@ -4,22 +4,28 @@ const {
     createOrder,
     getUserOrders,
     getOrderById,
+    getOrderByNumber,
     cancelOrder,
     confirmOrder,
     updateOrderStatus,
     getAllOrders,
     processCancelRequest,
     autoConfirmOrders,
+    confirmReceived,
     getOrderStats
 } = require('../controllers/orderController');
 
 const { protect, authorize } = require('../middleware/authMiddleware');
+
+// Public route: lookup order by orderNumber (for OrderSuccess page) — MUST be before /:id
+router.get('/number/:orderNumber', getOrderByNumber);
 
 // User routes - All authenticated users
 router.post('/', protect, createOrder);
 router.get('/', protect, getUserOrders);
 router.get('/:id', protect, getOrderById);
 router.put('/:id/cancel', protect, cancelOrder);
+router.put('/:id/confirm-received', protect, confirmReceived);
 
 // Admin/Vendor routes
 router.get('/admin/all', protect, authorize('admin', 'vendor'), getAllOrders);

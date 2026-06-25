@@ -198,11 +198,18 @@ const ProductDetailPage = () => {
         }
         try {
             setAdding(true);
+            // Add to cart first (needed for order creation)
             await addToCartApi(product._id, quantity);
             window.dispatchEvent(new Event("cart-updated"));
-            navigate("/cart");
+            // Store "mua ngay" flag so checkout knows to skip step 1
+            localStorage.setItem("buy_now", JSON.stringify({
+                productId: product._id,
+                quantity,
+                timestamp: Date.now()
+            }));
+            navigate("/checkout");
         } catch (error) {
-            showToast(error.message || "Thêm vào giỏ hàng thất bại!", "error");
+            showToast(error.message || "Có lỗi xảy ra!", "error");
         } finally {
             setAdding(false);
         }

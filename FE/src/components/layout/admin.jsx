@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import React, { useState, useEffect, useContext } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getAdminUnreadNotifCountApi } from "../../utils/api";
+import { AuthContext } from "../context/authContext"; 
 
 const AdminLayout = () => {
     const { pathname } = useLocation();
+    const navigate = useNavigate(); 
+    const { logout } = useContext(AuthContext); 
 
-    // STATE LƯU SỐ THÔNG BÁO CHƯA ĐỌC
     const [unreadCount, setUnreadCount] = useState(0);
 
-    // GỌI API LẤY SỐ LƯỢNG KHI VỪA VÀO TRANG QUẢN TRỊ HOẶC CHUYỂN TRANG
     useEffect(() => {
         const fetchUnreadCount = async () => {
             try {
@@ -40,10 +41,15 @@ const AdminLayout = () => {
         }
     };
 
-    // Danh sách Sidebar - ĐÃ ĐẢO VỊ TRÍ THEO ĐÚNG YÊU CẦU CỦA BẠN
+    // Hàm xử lý đăng xuất an toàn
+    const handleLogout = () => {
+        logout(); 
+        navigate('/login'); 
+    };
+
     const sidebarItems = [
         {
-            path: "/admin/revenue", // ĐƯA LÊN SỐ 1
+            path: "/admin/revenue",
             label: "Doanh Thu",
             icon: (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -97,7 +103,7 @@ const AdminLayout = () => {
             )
         },
         {
-            path: "/admin/notifications", // ĐƯA XUỐNG CUỐI CÙNG
+            path: "/admin/notifications",
             label: "Thông báo",
             icon: (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -109,7 +115,7 @@ const AdminLayout = () => {
 
     return (
         <div className="min-h-screen flex bg-[#f7f4f1] font-sans w-full">
-            {/* --- ASIDE SIDEBAR --- */}
+            {/* ASIDE SIDEBAR  */}
             <aside className="w-[260px] bg-[#2a160b] text-white flex flex-col fixed h-screen left-0 top-0 z-[100] border-none select-none">
                 {/* Sidebar Brand */}
                 <div className="p-[25px_20px] text-center border-b border-white/10">
@@ -151,9 +157,9 @@ const AdminLayout = () => {
 
                 {/* Sidebar Footer Logout */}
                 <div className="py-[15px] border-t border-white/10">
-                    <a 
-                        href="/logout" 
-                        className="flex items-center px-[25px] py-[12px] text-[#d4c5b9] hover:bg-[#3d2111] hover:text-[#fca5a5] text-[14px] font-medium transition-all no-underline"
+                    <button 
+                        onClick={handleLogout}
+                        className="w-full text-left bg-transparent border-none cursor-pointer flex items-center px-[25px] py-[12px] text-[#d4c5b9] hover:bg-[#3d2111] hover:text-[#fca5a5] text-[14px] font-medium transition-all no-underline outline-none"
                     >
                         <span className="text-[20px] mr-[12px] w-[24px] text-center flex items-center justify-center">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -161,11 +167,11 @@ const AdminLayout = () => {
                             </svg>
                         </span>
                         Đăng xuất
-                    </a>
+                    </button>
                 </div>
             </aside>
 
-            {/* --- MAIN CONTENT CONTAINER --- */}
+            {/* MAIN CONTENT CONTAINER */}
             <main className="flex-1 ml-[260px] flex flex-col min-h-screen">
                 {/* Topbar Header */}
                 <header className="bg-white h-[70px] px-[30px] flex items-center justify-between shadow-[0_2px_10px_rgba(0,0,0,0.05)] z-10 sticky top-0">

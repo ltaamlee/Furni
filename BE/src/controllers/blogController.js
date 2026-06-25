@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Blog = require('../models/blog');
 const BlogComment = require('../models/blogComment');
-const Shop = require('../models/shop');
+const Shop = require('../models/Shop');
 
 const { STATUS } = Blog;
 

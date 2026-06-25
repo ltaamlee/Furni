@@ -83,8 +83,6 @@ export const industryCategories = [
 /* ---- Settings: shipping carriers ---- */
 export const carriers = [
     { code: "GHN", name: "Giao Hàng Nhanh", note: "Giao 2–3 ngày · Hỗ trợ COD", enabled: true },
-    { code: "GHTK", name: "Giao Hàng Tiết Kiệm", note: "Giao 3–5 ngày · Hỗ trợ COD", enabled: true },
-    { code: "VTP", name: "Viettel Post", note: "Giao 2–4 ngày · Hỗ trợ COD", enabled: false },
 ];
 
 /* ============================================================

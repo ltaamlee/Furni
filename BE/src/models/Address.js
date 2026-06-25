@@ -27,7 +27,7 @@ const addressSchema = new mongoose.Schema({
     },
     // Province
     provinceCode: {
-        type: Number,
+        type: String,
         default: null
     },
     provinceName: {
@@ -36,7 +36,7 @@ const addressSchema = new mongoose.Schema({
     },
     // District
     districtCode: {
-        type: Number,
+        type: String,
         default: null
     },
     districtName: {
@@ -45,7 +45,7 @@ const addressSchema = new mongoose.Schema({
     },
     // Ward
     wardCode: {
-        type: Number,
+        type: String,
         default: null
     },
     wardName: {

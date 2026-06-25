@@ -10,6 +10,10 @@ const {
   deleteUser
 } = require('../controllers/userController');
 const {
+  uploadAvatarMiddleware,
+  uploadAvatar
+} = require('../controllers/uploadController');
+const {
   getAddresses,
   createAddress,
   updateAddress,
@@ -40,6 +44,9 @@ router.get('/addresses/default', authorize('customer'), getDefaultAddress);
 router.route('/profile')
   .get(authorize('customer'), getProfile)
   .put(authorize('customer'), validateUpdateProfile, updateProfile);
+
+// Upload avatar
+router.post('/avatar', authorize('customer'), uploadAvatarMiddleware, uploadAvatar);
 
 // Change password
 router.put('/change-password', authorize('customer'), changePassword);

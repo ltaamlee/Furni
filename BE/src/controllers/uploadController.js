@@ -28,6 +28,20 @@ const uploadImagesMiddleware = (req, res, next) => {
     });
 };
 
+// Middleware nhận 1 ảnh avatar ở field "avatar", có bắt lỗi của multer
+const uploadAvatarMiddleware = (req, res, next) => {
+    memoryUpload.single('avatar')(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            const msg = err.code === 'LIMIT_FILE_SIZE'
+                ? 'Kích thước ảnh quá lớn. Tối đa 5MB.'
+                : err.message;
+            return res.status(400).json({ success: false, message: msg });
+        }
+        if (err) return res.status(400).json({ success: false, message: err.message });
+        next();
+    });
+};
+
 // @desc    Upload ảnh sản phẩm lên Cloudinary
 // @route   POST /api/vendor/upload
 // @access  Private/Vendor
@@ -59,4 +73,35 @@ const uploadImages = async (req, res) => {
     }
 };
 
-module.exports = { uploadImagesMiddleware, uploadImages };
+// @desc    Upload avatar người dùng lên Cloudinary
+// @route   POST /api/user/avatar
+// @access  Private/Customer
+const uploadAvatar = async (req, res) => {
+    try {
+        if (!isConfigured()) {
+            return res.status(500).json({
+                success: false,
+                message: 'Cloudinary chưa được cấu hình.'
+            });
+        }
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'Vui lòng chọn một ảnh đại diện' });
+        }
+
+        const User = require('../models/user');
+        const result = await uploadBuffer(req.file.buffer, 'furni/avatars');
+
+        // Update avatar URL in database
+        await User.findByIdAndUpdate(req.user._id, { profileImage: result.url });
+
+        res.status(200).json({
+            success: true,
+            message: 'Cập nhật ảnh đại diện thành công',
+            data: { avatar: result.url }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi tải ảnh lên', error: error.message });
+    }
+};
+
+module.exports = { uploadImagesMiddleware, uploadImages, uploadAvatarMiddleware, uploadAvatar };

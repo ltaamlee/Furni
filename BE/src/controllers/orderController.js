@@ -1,7 +1,7 @@
 const Order = require('../models/order');
 const Cart = require('../models/cart');
 const Product = require('../models/product');
-const Shop = require('../models/shop');
+const Shop = require('../models/Shop');
 const Notification = require('../models/notification');
 const { ORDER_STATUS } = require('../models/order');
 const payoutService = require('../services/payoutService');
@@ -78,14 +78,21 @@ const createOrder = async (req, res) => {
                 };
             }
             
-            const discountedPrice = item.price;
+            const productPrice = product.price;
+            const productDiscount = product.discount || 0;
+            const discountedPrice = productDiscount > 0
+                ? Math.round(productPrice * (1 - productDiscount / 100))
+                : item.price;
+
             shopGroups[shopId].items.push({
                 product: item.product,
                 shop: product.shop?._id || null,
                 shopName: product.shop?.name || '',
                 shopCode: product.shop?.code || '',
                 quantity: item.quantity,
-                price: item.price,
+                price: discountedPrice,
+                originalPrice: productPrice,
+                discount: productDiscount,
                 name: item.name,
                 image: item.image
             });
@@ -96,38 +103,20 @@ const createOrder = async (req, res) => {
         const shopKeys = Object.keys(shopGroups);
         const isMultiVendor = shopKeys.length > 1;
 
-        // Tạo parent order (đơn gốc - không chứa sản phẩm, chỉ để tracking)
-        const parentOrder = new Order({
-            user: req.user._id,
-            shippingAddress: {
-                ...shippingAddress,
-                note: note || ''
-            },
-            paymentMethod,
-            subtotal: cart.totalPrice,
-            shippingFee: 0,
-            totalPrice: cart.totalPrice,
-            totalQuantity: cart.totalQuantity,
-            orderedAt: new Date(),
-            isChildOrder: false
-        });
-        await parentOrder.save();
-
-        // Tạo đơn hàng cho từng shop
-        const childOrders = [];
+        // Tạo 1 đơn hàng độc lập cho mỗi shop (không còn parent/child)
+        const createdOrders = [];
         for (const shopId of shopKeys) {
             const group = shopGroups[shopId];
-            
-            // Tính phí ship riêng cho mỗi shop (miễn phí nếu subtotal > 500k)
+
+            // Tính phí ship riêng cho mỗi shop (miễn phí nếu subtotal >= 500k)
             const shippingFee = group.subtotal >= 500000 ? 0 : 30000;
             const groupTotal = group.subtotal + shippingFee;
 
-            const childOrder = new Order({
+            const order = new Order({
                 user: req.user._id,
-                parentOrderId: parentOrder._id,
-                isChildOrder: true,
                 shop: group.shop,
                 shopName: group.shopName,
+                shopCode: group.shopCode,
                 products: group.items,
                 shippingAddress: {
                     ...shippingAddress,
@@ -145,40 +134,33 @@ const createOrder = async (req, res) => {
             // Trừ tồn kho cho sản phẩm của shop này
             for (const item of group.items) {
                 await Product.findByIdAndUpdate(item.product, {
-                    $inc: { 
+                    $inc: {
                         quantity: -item.quantity,
                         sold: item.quantity
                     }
                 });
             }
 
-            await childOrder.save();
-            childOrders.push(childOrder);
+            await order.save();
+            createdOrders.push(order);
         }
-
-        // Cập nhật parent order với thông tin các đơn con
-        parentOrder.subOrders = childOrders.map(o => o._id);
-        parentOrder.totalPrice = childOrders.reduce((sum, o) => sum + o.totalPrice, 0);
-        parentOrder.shippingFee = childOrders.reduce((sum, o) => sum + o.shippingFee, 0);
-        await parentOrder.save();
 
         // Xóa giỏ hàng sau khi đặt thành công
         await Cart.findByIdAndDelete(cart._id);
 
         // Gửi thông báo cho vendors
-        for (const order of childOrders) {
+        for (const order of createdOrders) {
             await notifyVendorsNewOrder(order);
         }
 
-        // Trả về đơn gốc và các đơn con
+        // Trả về danh sách đơn hàng đã tạo (luôn là mảng)
         res.status(201).json({
             success: true,
-            message: isMultiVendor 
-                ? `Đặt hàng thành công! Đơn hàng được chia thành ${childOrders.length} đơn theo cửa hàng.` 
+            message: isMultiVendor
+                ? `Đặt hàng thành công! Đơn hàng được chia thành ${createdOrders.length} đơn theo cửa hàng.`
                 : 'Đặt hàng thành công!',
             data: {
-                parentOrder,
-                childOrders,
+                orders: createdOrders,
                 isSplit: isMultiVendor
             }
         });
@@ -191,32 +173,42 @@ const createOrder = async (req, res) => {
     }
 };
 
-// @desc    Get user's orders
+// @desc    Get user's orders (tất cả đơn độc lập, mỗi shop = 1 đơn)
 // @route   GET /api/orders
 // @access  Private
 const getUserOrders = async (req, res) => {
     try {
         const { status, page = 1, limit = 10 } = req.query;
 
-        // Chỉ lấy đơn gốc (không lấy đơn con)
-        const query = { user: req.user._id, isChildOrder: { $ne: true } };
+        // Lấy tất cả đơn của user (không có isChildOrder nữa — mỗi đơn là độc lập)
+        const query = { user: req.user._id };
         if (status) {
             query.status = status;
         }
 
         const skip = (Number(page) - 1) * Number(limit);
         const orders = await Order.find(query)
-            .populate('subOrders')
+            .populate('shop', 'name code logo')
+            .populate('products.product', 'name images slug')
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(Number(limit));
 
         const total = await Order.countDocuments(query);
 
+        // Backward-compat: đơn cha cũ (rỗng) ← populate từ subOrders nếu vẫn còn
+        const ordersWithCanCancel = orders.map(order => {
+            const obj = order.toObject();
+            if (!obj.isChildOrder && (!obj.products || obj.products.length === 0) && obj.subOrders?.length > 0) {
+                obj.products = obj.subOrders.flatMap(sub => sub.products || []);
+            }
+            return { ...obj, canCancel: order.canCancel() };
+        });
+
         res.status(200).json({
             success: true,
             data: {
-                orders,
+                orders: ordersWithCanCancel,
                 pagination: {
                     total,
                     page: Number(page),
@@ -234,15 +226,16 @@ const getUserOrders = async (req, res) => {
     }
 };
 
-// @desc    Get single order
+// @desc    Get single order (đơn độc lập)
 // @route   GET /api/orders/:id
 // @access  Private
 const getOrderById = async (req, res) => {
     try {
-        const order = await Order.findOne({ 
-            _id: req.params.id, 
-            user: req.user._id 
-        }).populate('products.product').populate('subOrders');
+        const order = await Order.findOne({
+            _id: req.params.id,
+            user: req.user._id
+        }).populate('shop', 'name code logo')
+          .populate('products.product', 'name images slug');
 
         if (!order) {
             return res.status(404).json({
@@ -251,9 +244,53 @@ const getOrderById = async (req, res) => {
             });
         }
 
+        const obj = order.toObject();
+
+        // Backward-compat: đơn cha cũ (rỗng) ← populate từ subOrders nếu vẫn còn
+        if (!obj.isChildOrder && (!obj.products || obj.products.length === 0) && obj.subOrders?.length > 0) {
+            obj.products = obj.subOrders.flatMap(sub => sub.products || []);
+        }
+
         res.status(200).json({
             success: true,
-            data: order
+            data: { ...obj, canCancel: order.canCancel() }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi lấy thông tin đơn hàng',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get order by orderNumber (public, for OrderSuccess page)
+// @route   GET /api/orders/number/:orderNumber
+// @access  Public
+const getOrderByNumber = async (req, res) => {
+    try {
+        const { orderNumber } = req.params;
+        const order = await Order.findOne({ orderNumber })
+            .populate('shop', 'name code logo')
+            .populate('products.product', 'name images slug');
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Không tìm thấy đơn hàng'
+            });
+        }
+
+        const obj = order.toObject();
+
+        // Backward-compat: đơn cha cũ (rỗng) ← populate từ subOrders nếu vẫn còn
+        if (!obj.isChildOrder && (!obj.products || obj.products.length === 0) && obj.subOrders?.length > 0) {
+            obj.products = obj.subOrders.flatMap(sub => sub.products || []);
+        }
+
+        res.status(200).json({
+            success: true,
+            data: obj
         });
     } catch (error) {
         res.status(500).json({
@@ -308,11 +345,28 @@ const cancelOrder = async (req, res) => {
             });
         }
 
-        // Hoàn tồn kho
-        for (const item of order.products) {
-            await Product.findByIdAndUpdate(item.product, {
-                $inc: { quantity: item.quantity }
-            });
+        // Hoàn tồn kho: đơn đơn (new) hoặc đơn cha cũ (backward-compat)
+        if (order.products && order.products.length > 0) {
+            // Đơn độc lập mới hoặc đơn cha mới có sản phẩm
+            for (const item of order.products) {
+                await Product.findByIdAndUpdate(item.product, {
+                    $inc: { quantity: item.quantity }
+                });
+            }
+        } else if (!order.isChildOrder && order.subOrders && order.subOrders.length > 0) {
+            // Backward-compat: đơn cha cũ (rỗng) → hoàn tồn kho qua subOrders
+            const childOrders = await Order.find({ _id: { $in: order.subOrders } });
+            for (const child of childOrders) {
+                for (const item of child.products) {
+                    await Product.findByIdAndUpdate(item.product, {
+                        $inc: { quantity: item.quantity }
+                    });
+                }
+            }
+            await Order.updateMany(
+                { _id: { $in: order.subOrders } },
+                { status: ORDER_STATUS.CANCELLED, cancelledAt: new Date() }
+            );
         }
 
         order.status = ORDER_STATUS.CANCELLED;
@@ -324,17 +378,6 @@ const cancelOrder = async (req, res) => {
         });
 
         await order.save();
-
-        // Hoàn tiền cho vendor nếu đơn đã được chi trả
-        payoutService.reversePayoutForCancelledOrder(order._id)
-            .then(result => {
-                if (result.refunds && result.refunds.length > 0) {
-                    console.log(`[Payout] Đã hoàn tiền cho vendor khi hủy đơn ${order.orderNumber}`);
-                }
-            })
-            .catch(err => {
-                console.error(`[Payout] Lỗi hoàn tiền khi hủy đơn ${order._id}:`, err.message);
-            });
 
         res.status(200).json({
             success: true,
@@ -594,7 +637,7 @@ const autoConfirmOrders = async (req, res) => {
         const pendingOrders = await Order.find({
             status: ORDER_STATUS.PENDING,
             orderedAt: { $lte: thirtyMinutesAgo }
-        });
+        }).populate('subOrders');
 
         let count = 0;
         for (const order of pendingOrders) {
@@ -618,6 +661,54 @@ const autoConfirmOrders = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Lỗi khi tự động xác nhận đơn hàng',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Customer confirms receipt of order
+// @route   PUT /api/orders/:id/confirm-received
+// @access  Private (Customer only)
+const confirmReceived = async (req, res) => {
+    try {
+        const order = await Order.findOne({
+            _id: req.params.id,
+            user: req.user._id
+        });
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Không tìm thấy đơn hàng'
+            });
+        }
+
+        if (order.status !== ORDER_STATUS.SHIPPING) {
+            return res.status(400).json({
+                success: false,
+                message: 'Chỉ có thể xác nhận khi đơn đang trong trạng thái đang giao!'
+            });
+        }
+
+        order.status = ORDER_STATUS.DELIVERED;
+        order.deliveredAt = new Date();
+        order.statusHistory.push({
+            status: ORDER_STATUS.DELIVERED,
+            timestamp: new Date(),
+            note: 'Khách hàng xác nhận đã nhận hàng'
+        });
+
+        await order.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Xác nhận nhận hàng thành công!',
+            data: order
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi xác nhận nhận hàng',
             error: error.message
         });
     }
@@ -671,11 +762,13 @@ module.exports = {
     createOrder,
     getUserOrders,
     getOrderById,
+    getOrderByNumber,
     cancelOrder,
     confirmOrder,
     updateOrderStatus,
     getAllOrders,
     processCancelRequest,
     autoConfirmOrders,
+    confirmReceived,
     getOrderStats
 };

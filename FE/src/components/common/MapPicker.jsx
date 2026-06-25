@@ -124,7 +124,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
           (p) => p.name.toLowerCase() === formData._provinceNamePending.toLowerCase()
         );
         if (matched) {
-          setFormData((f) => ({ ...f, provinceCode: Number(matched.code), provinceName: matched.name, _provinceNamePending: undefined }));
+          setFormData((f) => ({ ...f, provinceCode: matched.code, provinceName: matched.name, _provinceNamePending: undefined }));
           fetchWardsByProvince(matched.code);
         } else {
           setFormData((f) => ({ ...f, provinceName: formData._provinceNamePending, _provinceNamePending: undefined }));
@@ -141,7 +141,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
           (w) => w.name.toLowerCase() === formData._wardNamePending.toLowerCase()
         );
         if (matched) {
-          setFormData((f) => ({ ...f, wardCode: Number(matched.code), wardName: matched.name, _wardNamePending: undefined }));
+          setFormData((f) => ({ ...f, wardCode: matched.code, wardName: matched.name, _wardNamePending: undefined }));
         } else {
           setFormData((f) => ({ ...f, wardName: formData._wardNamePending, _wardNamePending: undefined }));
         }
@@ -194,7 +194,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     );
     const updated = {
       ...formData,
-      provinceCode: province ? Number(province.code) : null,
+      provinceCode: province ? province.code : null,
       provinceName: province?.name || "",
       wardCode: null,
       wardName: "",
@@ -212,7 +212,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     const ward = wards.find((w) => String(w.code) === String(wardCode));
     const updated = {
       ...formData,
-      wardCode: ward ? Number(ward.code) : null,
+      wardCode: ward ? ward.code : null,
       wardName: ward?.name || "",
     };
     setFormData(updated);
@@ -345,7 +345,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
             (p) => p.name.toLowerCase() === provinceName.toLowerCase()
           );
           if (matched) {
-            setFormData((f) => ({ ...f, provinceCode: Number(matched.code), provinceName: matched.name, _provinceNamePending: undefined }));
+            setFormData((f) => ({ ...f, provinceCode: matched.code, provinceName: matched.name, _provinceNamePending: undefined }));
             fetchWardsByProvince(matched.code);
           } else if (provinces.length > 0) {
             setFormData((f) => ({ ...f, provinceName, _provinceNamePending: provinceName }));
@@ -413,7 +413,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
             (p) => p.name.toLowerCase() === provinceName.toLowerCase()
           );
           if (matched) {
-            setFormData((f) => ({ ...f, provinceCode: Number(matched.code), provinceName: matched.name, _provinceNamePending: undefined }));
+            setFormData((f) => ({ ...f, provinceCode: matched.code, provinceName: matched.name, _provinceNamePending: undefined }));
             fetchWardsByProvince(matched.code);
           } else if (provinces.length > 0) {
             setFormData((f) => ({ ...f, provinceName, _provinceNamePending: provinceName }));

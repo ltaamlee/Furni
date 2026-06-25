@@ -1,9 +1,10 @@
 const mongoose = require('mongoose');
-const Shop = require('../models/shop');
+const Shop = require('../models/Shop');
 const Product = require('../models/product');
 const User = require('../models/user');
 const Category = require('../models/category');
 const Notification = require('../models/notification');
+const Coupon = require('../models/Coupon');
 const { attachPricing } = require('../utils/pricing');
 
 // @desc    Lấy thông tin công khai của 1 shop (theo id hoặc slug)
@@ -55,7 +56,19 @@ const getShopProducts = async (req, res) => {
         const { id } = req.params;
         const { page = 1, limit = 12, sort = '-createdAt', search, category } = req.query;
 
-        const query = { shop: id, isActive: true };
+        // Resolve shop từ id (ObjectId) hoặc slug
+        let shop;
+        if (mongoose.isValidObjectId(id)) {
+            shop = await Shop.findById(id);
+        }
+        if (!shop) {
+            shop = await Shop.findOne({ slug: id });
+        }
+        if (!shop) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy cửa hàng' });
+        }
+
+        const query = { shop: shop._id, isActive: true };
         if (category) query.category = category;
         if (search) {
             query.$or = [
@@ -131,16 +144,40 @@ const updateShopStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Không tìm thấy cửa hàng' });
         }
 
-        if (status === Shop.STATUS.APPROVED && shop.status !== Shop.STATUS.APPROVED) {
+        const oldStatus = shop.status;
+        if (status === Shop.STATUS.APPROVED && oldStatus !== Shop.STATUS.APPROVED) {
             await User.findByIdAndUpdate(shop.owner, { role: 'vendor' });
         } 
-        else if ((status === Shop.STATUS.REJECTED || status === Shop.STATUS.SUSPENDED) && shop.status === Shop.STATUS.APPROVED) {
+        else if (status === Shop.STATUS.REJECTED && oldStatus !== Shop.STATUS.REJECTED) {
             await User.findByIdAndUpdate(shop.owner, { role: 'customer' });
         }
 
         shop.status = status;
         if (statusNote !== undefined) shop.statusNote = statusNote;
         await shop.save();
+
+        let notifTitle = '';
+        let notifBody = '';
+
+        if (status === Shop.STATUS.SUSPENDED && oldStatus !== Shop.STATUS.SUSPENDED) {
+            notifTitle = 'Cửa hàng bị tạm khóa';
+            notifBody = `Cửa hàng "${shop.name}" của bạn đã bị Admin tạm khóa. Lý do: ${statusNote || 'Vi phạm chính sách'}. Việc quản lý cửa hàng hiện đang bị vô hiệu hóa.`;
+        } 
+
+        else if (status === Shop.STATUS.APPROVED && oldStatus === Shop.STATUS.SUSPENDED) {
+            notifTitle = 'Cửa hàng đã được mở khóa';
+            notifBody = `Cửa hàng "${shop.name}" của bạn đã được Admin mở khóa. Bạn có thể tiếp tục hoạt động kinh doanh bình thường.`;
+        }
+
+        if (notifTitle) {
+            await Notification.create({
+                user: shop.owner, 
+                type: 'system',
+                title: notifTitle,
+                body: notifBody,
+                isRead: false
+            });
+        }
 
         res.status(200).json({ success: true, message: 'Cập nhật trạng thái cửa hàng thành công', data: { shop } });
     } catch (error) {
@@ -301,28 +338,26 @@ const getAdminShopDetail = async (req, res) => {
     }
 };
 
-// @desc    [Admin] Xem danh sách sản phẩm của 1 shop 
+// @desc    [Admin] Xem danh sách sản phẩm của 1 shop (Có phân trang & Lọc danh mục)
 // @route   GET /api/admin/shops/:id/products
 // @access  Private/Admin
 const getAdminShopProducts = async (req, res) => {
     try {
         const { id } = req.params;
-        const { search, category, status } = req.query;
+        const { search, category, status, page = 1, limit = 10 } = req.query;
 
         const query = { shop: id };
 
         // Xử lý Lọc theo Danh mục
         if (category) {
-            const foundCategory = await Category.findOne({
-                $or: [
-                    { name: category },
-                    { slug: category }
-                ]
-            });
-            if (foundCategory) {
-                query.category = foundCategory._id;
+            if (mongoose.isValidObjectId(category)) {
+                query.category = category;
             } else {
-                query.category = new mongoose.Types.ObjectId(); 
+                const foundCategory = await Category.findOne({
+                    $or: [{ name: category }, { slug: category }]
+                });
+                if (foundCategory) query.category = foundCategory._id;
+                else query.category = new mongoose.Types.ObjectId(); 
             }
         }
 
@@ -334,7 +369,7 @@ const getAdminShopProducts = async (req, res) => {
             else if (status === 'outofstock') query.status = 'out_of_stock';
         }
 
-        // Xử lý Tìm kiếm theo Tên hoặc Mã SP
+        // Xử lý Tìm kiếm
         if (search) {
             query.$or = [
                 { name: { $regex: search, $options: 'i' } },
@@ -342,7 +377,12 @@ const getAdminShopProducts = async (req, res) => {
             ];
         }
 
-        const products = await Product.find(query).populate('category', 'name').sort('-createdAt');
+        //  Phân trang
+        const skip = (Number(page) - 1) * Number(limit);
+        const [products, total] = await Promise.all([
+            Product.find(query).populate('category', 'name').sort('-createdAt').skip(skip).limit(Number(limit)),
+            Product.countDocuments(query)
+        ]);
 
         const productsWithMappedStatus = products.map(prod => {
             const item = prod.toObject();
@@ -351,7 +391,20 @@ const getAdminShopProducts = async (req, res) => {
             return item;
         });
 
-        res.status(200).json({ success: true, data: productsWithMappedStatus });
+        const distinctCategoryIds = await Product.distinct('category', { shop: id });
+        const shopCategories = await Category.find({ _id: { $in: distinctCategoryIds } }).select('name');
+
+        res.status(200).json({ 
+            success: true, 
+            data: productsWithMappedStatus,
+            categories: shopCategories, 
+            pagination: {
+                total,
+                page: Number(page),
+                pages: Math.ceil(total / Number(limit)),
+                limit: Number(limit)
+            }
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -404,5 +457,101 @@ const toggleProductVisibilityAdmin = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
-module.exports = { getShop, getShopProducts, getAllShopsAdmin, 
-    updateShopStatus, registerShop, getMyRegistration, resubmitRegistration, getAdminShopDetail, getAdminShopProducts, toggleProductVisibilityAdmin };
+
+// @desc    Get public vouchers/coupons of a shop
+// @route   GET /api/shops/:idOrSlug/vouchers
+// @access  Public
+const getShopVouchers = async (req, res) => {
+    try {
+        const { idOrSlug } = req.params;
+        let shopId;
+
+        if (mongoose.isValidObjectId(idOrSlug)) {
+            shopId = idOrSlug;
+        } else {
+            const shop = await Shop.findOne({ slug: idOrSlug });
+            if (!shop) {
+                return res.status(404).json({ success: false, message: 'Không tìm thấy cửa hàng' });
+            }
+            shopId = shop._id;
+        }
+
+        const now = new Date();
+        const coupons = await Coupon.find({
+            shop: shopId,
+            isActive: true,
+            startDate: { $lte: now },
+            endDate: { $gte: now },
+            $or: [
+                { usageLimit: 0 },
+                { $expr: { $lt: ['$usedCount', '$usageLimit'] } }
+            ]
+        }).sort({ value: -1 }).limit(10);
+
+        const vouchers = coupons.map((c) => ({
+            _id: c._id,
+            code: c.code,
+            description: c.description,
+            discountType: c.discountType,
+            value: c.value,
+            maxDiscount: c.maxDiscount,
+            minOrderValue: c.minOrderValue,
+            endDate: c.endDate,
+            remaining: c.usageLimit === 0 ? null : Math.max(0, c.usageLimit - c.usedCount),
+        }));
+
+        res.status(200).json({ success: true, data: vouchers });
+    } catch (error) {
+        console.error('getShopVouchers error:', error);
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy voucher', error: error.message });
+    }
+};
+
+// @desc    Get all public vouchers across all shops
+// @route   GET /api/vouchers/all
+// @access  Public
+const getAllVouchers = async (req, res) => {
+    try {
+        const now = new Date();
+        const coupons = await Coupon.find({
+            isActive: true,
+            startDate: { $lte: now },
+            endDate: { $gte: now },
+            $or: [
+                { usageLimit: 0 },
+                { $expr: { $lt: ['$usedCount', '$usageLimit'] } }
+            ]
+        })
+        .populate('shop', 'name slug logo')
+        .sort({ createdAt: -1 })
+        .limit(50);
+
+        const vouchers = coupons.map((c) => ({
+            _id: c._id,
+            code: c.code,
+            description: c.description,
+            discountType: c.discountType,
+            value: c.value,
+            maxDiscount: c.maxDiscount,
+            minOrderValue: c.minOrderValue,
+            endDate: c.endDate,
+            remaining: c.usageLimit === 0 ? null : Math.max(0, c.usageLimit - c.usedCount),
+            shop: c.shop ? {
+                _id: c.shop._id,
+                name: c.shop.name,
+                slug: c.shop.slug,
+                logo: c.shop.logo,
+            } : null,
+        }));
+
+        res.status(200).json({ success: true, data: vouchers });
+    } catch (error) {
+        console.error('getAllVouchers error:', error);
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy danh sách voucher', error: error.message });
+    }
+};
+
+module.exports = { getShop, getShopProducts, getAllShopsAdmin,
+    updateShopStatus, registerShop, getMyRegistration, resubmitRegistration,
+    getAdminShopDetail, getAdminShopProducts, toggleProductVisibilityAdmin,
+    getShopVouchers, getAllVouchers };

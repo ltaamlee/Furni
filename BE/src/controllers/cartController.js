@@ -266,6 +266,12 @@ const updateCartItem = async (req, res) => {
         }
 
         cartItem.quantity = quantity;
+        // Recalculate price from current promotion (latest flash sale price)
+        const salePrice = await currentSalePrice(product);
+        cartItem.price = salePrice;
+        cartItem.originalPrice = product.price;
+        cartItem.discount = product.discount || 0;
+
         await cart.save();
 
         res.status(200).json({

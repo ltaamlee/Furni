@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getProductsApi, getCategoriesApi, getBestSellersApi, getWishlistApi } from "../../utils/api";
 import ProductCard from "../../components/common/productCard";
@@ -31,14 +31,9 @@ const ProductsPage = () => {
     const [bestSellers, setBestSellers] = useState([]);
     const [wishlist, setWishlist] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
-    const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
-    const [hasMore, setHasMore] = useState(true);
     const [total, setTotal] = useState(0);
     const [showFilters, setShowFilters] = useState(false);
-    const loadMoreRef = useRef(null);
-    const observerRef = useRef(null);
 
     // Filter states from URL params
     const search = searchParams.get("search") || "";
@@ -54,11 +49,10 @@ const ProductsPage = () => {
     }, []);
 
     useEffect(() => {
-        fetchProducts(true);
+        fetchProducts();
     }, [search, category, priceRange, sort, currentPage]);
 
     useEffect(() => {
-        // Listen for wishlist updates
         const handleWishlistUpdate = (e) => {
             const { productId, action } = e.detail;
             if (action === "add") {
@@ -67,19 +61,9 @@ const ProductsPage = () => {
                 setWishlist(prev => prev.filter(id => id !== productId));
             }
         };
-
         window.addEventListener("wishlist-updated", handleWishlistUpdate);
         return () => window.removeEventListener("wishlist-updated", handleWishlistUpdate);
     }, []);
-
-    useEffect(() => {
-        setupIntersectionObserver();
-        return () => {
-            if (observerRef.current) {
-                observerRef.current.disconnect();
-            }
-        };
-    }, [hasMore, loadingMore, products.length]);
 
     const fetchCategories = async () => {
         try {
@@ -107,7 +91,6 @@ const ProductsPage = () => {
         try {
             const token = localStorage.getItem("access_token");
             if (!token) return;
-            
             const res = await getWishlistApi({ limit: 100 });
             if (res.success) {
                 const wishlistIds = (res.data.wishlist || []).map(item => item.product?._id || item.product);
@@ -118,16 +101,11 @@ const ProductsPage = () => {
         }
     };
 
-    const fetchProducts = async (reset = false) => {
+    const fetchProducts = async () => {
         try {
-            if (reset) {
-                setLoading(true);
-            } else {
-                setLoadingMore(true);
-            }
-
+            setLoading(true);
             const params = {
-                page: reset ? 1 : currentPage,
+                page: currentPage,
                 limit: ITEMS_PER_PAGE,
                 sort: sort,
                 order: sort === "createdAt" || sort === "-createdAt" ? "desc" : sort.includes("-") ? "desc" : "asc"
@@ -144,50 +122,15 @@ const ProductsPage = () => {
             const res = await getProductsApi(params);
 
             if (res.success) {
-                if (reset) {
-                    setProducts(res.data.products || []);
-                } else {
-                    setProducts(prev => [...prev, ...(res.data.products || [])]);
-                }
-                
+                setProducts(res.data.products || []);
                 const pagination = res.data.pagination || {};
                 setTotal(pagination.total || res.data.products?.length || 0);
                 setTotalPages(pagination.totalPages || 1);
-                setHasMore(pagination.hasMore ?? (currentPage < (pagination.totalPages || 1)));
             }
         } catch (error) {
             console.error("Error fetching products:", error);
         } finally {
             setLoading(false);
-            setLoadingMore(false);
-        }
-    };
-
-    const setupIntersectionObserver = () => {
-        if (observerRef.current) {
-            observerRef.current.disconnect();
-        }
-
-        observerRef.current = new IntersectionObserver(
-            (entries) => {
-                if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
-                    loadMore();
-                }
-            },
-            { threshold: 0.1 }
-        );
-
-        if (loadMoreRef.current) {
-            observerRef.current.observe(loadMoreRef.current);
-        }
-    };
-
-    const loadMore = () => {
-        if (currentPage < totalPages) {
-            const newPage = currentPage + 1;
-            const newParams = new URLSearchParams(searchParams);
-            newParams.set("page", newPage.toString());
-            setSearchParams(newParams);
         }
     };
 
@@ -206,7 +149,6 @@ const ProductsPage = () => {
         } else {
             newParams.delete(key);
         }
-        // Reset page when filter changes
         newParams.delete("page");
         setSearchParams(newParams);
     };
@@ -221,17 +163,16 @@ const ProductsPage = () => {
 
     const hasActiveFilters = search || (category && category !== "all") || (priceRange && priceRange !== "all");
 
-    // Generate page numbers for pagination
     const getPageNumbers = () => {
         const pages = [];
         const maxVisible = 5;
         let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
         let end = Math.min(totalPages, start + maxVisible - 1);
-        
+
         if (end - start + 1 < maxVisible) {
             start = Math.max(1, end - maxVisible + 1);
         }
-        
+
         for (let i = start; i <= end; i++) {
             pages.push(i);
         }
@@ -314,8 +255,8 @@ const ProductsPage = () => {
                                     <button
                                         onClick={() => updateFilter("category", "all")}
                                         className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                                            category === "all" 
-                                                ? "bg-[#B86B05] text-white" 
+                                            category === "all"
+                                                ? "bg-[#B86B05] text-white"
                                                 : "text-[#6B5C4C] hover:bg-[#FAF7F4]"
                                         }`}
                                     >
@@ -326,8 +267,8 @@ const ProductsPage = () => {
                                             key={cat.slug}
                                             onClick={() => updateFilter("category", cat.slug)}
                                             className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                                                category === cat.slug 
-                                                    ? "bg-[#B86B05] text-white" 
+                                                category === cat.slug
+                                                    ? "bg-[#B86B05] text-white"
                                                     : "text-[#6B5C4C] hover:bg-[#FAF7F4]"
                                             }`}
                                         >
@@ -346,8 +287,8 @@ const ProductsPage = () => {
                                             key={range.value}
                                             onClick={() => updateFilter("price", range.value)}
                                             className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors ${
-                                                priceRange === range.value 
-                                                    ? "bg-[#B86B05] text-white" 
+                                                priceRange === range.value
+                                                    ? "bg-[#B86B05] text-white"
                                                     : "text-[#6B5C4C] hover:bg-[#FAF7F4]"
                                             }`}
                                         >
@@ -492,15 +433,13 @@ const ProductsPage = () => {
                                     ))}
                                 </div>
 
-                                {/* Pagination UI */}
+                                {/* Pagination */}
                                 {totalPages > 1 && (
                                     <div className="mt-10 flex flex-col items-center gap-4">
-                                        {/* Page Info */}
                                         <p className="text-sm text-[#A8896A]">
                                             Trang {currentPage} / {totalPages}
                                         </p>
 
-                                        {/* Pagination Buttons */}
                                         <div className="flex items-center gap-2">
                                             {/* Previous */}
                                             <button
@@ -540,51 +479,8 @@ const ProductsPage = () => {
                                             </button>
                                         </div>
 
-                                        {/* Jump to Page */}
-                                        <div className="flex items-center gap-2 text-sm">
-                                            <span className="text-[#A8896A]">Đến trang:</span>
-                                            <input
-                                                type="number"
-                                                min={1}
-                                                max={totalPages}
-                                                defaultValue={currentPage}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === "Enter") {
-                                                        const value = parseInt(e.target.value);
-                                                        if (value >= 1 && value <= totalPages) {
-                                                            goToPage(value);
-                                                        }
-                                                    }
-                                                }}
-                                                className="w-16 px-2 py-1 text-center border border-[#D5C9BC] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05]"
-                                            />
-                                            <button
-                                                onClick={(e) => {
-                                                    const input = e.target.parentElement.querySelector("input");
-                                                    const value = parseInt(input.value);
-                                                    if (value >= 1 && value <= totalPages) {
-                                                        goToPage(value);
-                                                    }
-                                                }}
-                                                className="px-3 py-1 bg-[#B86B05] text-white rounded-lg hover:bg-[#95520B] transition-colors"
-                                            >
-                                                Đi
-                                            </button>
-                                        </div>
                                     </div>
                                 )}
-
-                                {/* Load More Trigger for Infinite Scroll */}
-                                <div ref={loadMoreRef} className="mt-10 text-center">
-                                    {loadingMore && (
-                                        <div className="flex justify-center">
-                                            <div className="w-10 h-10 border-3 border-[#D5C9BC] border-t-[#B86B05] rounded-full animate-spin"></div>
-                                        </div>
-                                    )}
-                                    {!hasMore && products.length > 0 && (
-                                        <p className="text-sm text-[#A8896A] py-4">Đã hiển thị tất cả sản phẩm</p>
-                                    )}
-                                </div>
                             </>
                         )}
                     </main>

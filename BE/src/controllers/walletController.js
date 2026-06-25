@@ -7,7 +7,7 @@ const Order = require('../models/order');
  */
 const getMyWallets = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         
         let wallet = await Wallet.findOne({ user: userId });
         
@@ -38,7 +38,7 @@ const getMyWallets = async (req, res) => {
  */
 const getTransactionHistory = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const { page = 1, limit = 10, type } = req.query;
         
         // Build query
@@ -103,7 +103,7 @@ const getTransactionHistory = async (req, res) => {
  */
 const addAccount = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const { type, accountNumber, accountName, bankName, branch } = req.body;
         
         // Validate required fields
@@ -175,7 +175,7 @@ const addAccount = async (req, res) => {
  */
 const updateAccount = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const { accountId } = req.params;
         const { accountNumber, accountName, bankName, branch } = req.body;
         
@@ -227,7 +227,7 @@ const updateAccount = async (req, res) => {
  */
 const deleteAccount = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const { accountId } = req.params;
         
         const wallet = await Wallet.findOne({ user: userId });
@@ -280,7 +280,7 @@ const deleteAccount = async (req, res) => {
  */
 const setDefaultAccount = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const { accountId } = req.params;
         
         const wallet = await Wallet.findOne({ user: userId });

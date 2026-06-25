@@ -165,42 +165,77 @@ const AddressSection = ({ shop, onSaved }) => {
     );
 };
 
-/* ---- Tab: Shipping (tĩnh) ---- */
-const ShippingSection = () => {
+/* ---- Tab: Shipping (chỉ GHN) ---- */
+const GHN_FIELDS = ['token', 'shopId', 'fromDistrictId'];
+
+const ShippingSection = ({ shop, onSaved }) => {
     const { showToast } = useToast();
-    const [carriers, setCarriers] = useState(initialCarriers);
-    const toggle = (code) => setCarriers((cs) => cs.map((c) => (c.code === code ? { ...c, enabled: !c.enabled } : c)));
+    const [saving, setSaving] = useState(false);
+
+    const sp = shop?.shippingProviders || {};
+    const [ghn, setGhn] = useState({
+        token: sp.GHN?.token || "",
+        shopId: sp.GHN?.shopId || "",
+        fromDistrictId: sp.GHN?.fromDistrictId || "",
+    });
+    const [showToken, setShowToken] = useState(false);
+
+    const setField = (field, val) => setGhn((p) => ({ ...p, [field]: val }));
+
+    const save = async () => {
+        try {
+            setSaving(true);
+            const payload = {
+                shippingProviders: {
+                    GHN: GHN_FIELDS.reduce((o, f) => { o[f] = ghn[f]; return o; }, {}),
+                }
+            };
+            const res = await updateMyShopApi(payload);
+            if (res.success) { showToast("Đã lưu cấu hình vận chuyển", "success"); onSaved?.(); }
+            else showToast(res.message || "Lưu thất bại", "error");
+        } catch { showToast("Có lỗi xảy ra", "error"); }
+        finally { setSaving(false); }
+    };
+
     return (
         <div className="vendor-fade-in">
-            <SectionHead title="Cấu hình vận chuyển" sub="Đơn vị vận chuyển liên kết và phí mặc định" />
-            <Label>Đơn vị vận chuyển liên kết</Label>
-            <div className="space-y-2 mb-2">
-                {carriers.map((c) => (
-                    <label key={c.code} className={`flex items-center gap-2.5 px-3 py-2.5 border-[1.5px] rounded-[6px] cursor-pointer transition-colors ${c.enabled ? "border-[#B86B05] bg-[#fffbeb]" : "border-[#EDE8E0] hover:border-[#B86B05] hover:bg-[#fffbeb]"}`}>
-                        <div className="w-10 h-[26px] bg-[#FAF7F4] rounded flex items-center justify-center text-[9px] font-bold text-[#6B5C4C] border border-[#EDE8E0] shrink-0">{c.code}</div>
-                        <div className="flex-1">
-                            <div className="text-[13px] font-semibold">{c.name}</div>
-                            <div className="text-[11.5px] text-[#9E8E7E]">{c.note}</div>
+            <SectionHead title="Cấu hình vận chuyển" sub="Kết nối API Giao Hàng Nhanh (GHN) — Furni sẽ dùng token của shop khi tạo đơn, fallback về token nền tảng nếu trống." />
+
+            <div className="h-px bg-[#EDE8E0] my-5" />
+
+            {/* GHN */}
+            <div className="mb-6">
+                <div className="flex items-center gap-2.5 mb-4">
+                    <div className="w-10 h-[26px] bg-[#FAF7F4] rounded flex items-center justify-center text-[9px] font-bold text-[#6B5C4C] border border-[#EDE8E0]">GHN</div>
+                    <div>
+                        <div className="text-[13px] font-semibold">Giao Hàng Nhanh</div>
+                        <div className="text-[11.5px] text-[#9E8E7E]">API Token, Shop ID & Quận gửi hàng mặc định</div>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-3">
+                        <Label>API Token <span className="text-[#b91c1c]">*</span></Label>
+                        <div className="relative">
+                            <input type={showToken ? "text" : "password"} className={inputClass} placeholder="Token API GHN của shop" value={ghn.token} onChange={(e) => setField("token", e.target.value)} />
+                            <button type="button" onClick={() => setShowToken((v) => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9E8E7E] hover:text-[#6B5C4C] text-[11px]">{showToken ? "Ẩn" : "Hiện"}</button>
                         </div>
-                        <input type="checkbox" checked={c.enabled} onChange={() => toggle(c.code)} className="w-3.5 h-3.5 accent-[#95520B] cursor-pointer" />
-                    </label>
-                ))}
-            </div>
-            <div className="h-px bg-[#EDE8E0] my-4" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                    <Label>Phí ship mặc định (₫)</Label>
-                    <input type="number" className={inputClass} defaultValue={30000} />
-                    <Hint>Miễn phí ship từ đơn ≥ 500.000₫</Hint>
-                </div>
-                <div>
-                    <Label>Thời gian xử lý đơn</Label>
-                    <select className={inputClass} defaultValue="2 ngày làm việc">
-                        <option>1 ngày làm việc</option><option>2 ngày làm việc</option><option>3 ngày làm việc</option>
-                    </select>
+                        <Hint>Lấy tại trang cài đặt API của GHN</Hint>
+                    </div>
+                    <div>
+                        <Label>Shop ID</Label>
+                        <input className={inputClass} placeholder="VD: 23731" value={ghn.shopId} onChange={(e) => setField("shopId", e.target.value)} />
+                    </div>
+                    <div>
+                        <Label>Mã quận gửi hàng</Label>
+                        <input className={inputClass} placeholder="VD: 1441" value={ghn.fromDistrictId} onChange={(e) => setField("fromDistrictId", e.target.value)} />
+                        <Hint>Quận kho hàng của bạn</Hint>
+                    </div>
                 </div>
             </div>
-            <SaveBar saveLabel="Lưu cài đặt" onSave={() => showToast("Đã lưu cấu hình vận chuyển", "success")} onCancel={() => {}} />
+
+            <div className="h-px bg-[#EDE8E0] my-5" />
+
+            <SaveBar saveLabel="Lưu cấu hình vận chuyển" onSave={save} onCancel={onSaved} saving={saving} />
         </div>
     );
 };
@@ -257,7 +292,7 @@ const Settings = () => {
     }, [fetchShop]);
 
     const renderSection = () => {
-        if (active === "shipping") return <ShippingSection />;
+        if (active === "shipping") return <ShippingSection shop={shop} onSaved={fetchShop} />;
         if (active === "payment") return <PaymentSection />;
         if (active === "policy") return <PolicySection />;
         if (!shop) return null;
