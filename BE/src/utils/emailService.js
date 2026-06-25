@@ -38,7 +38,6 @@ const sendRegistrationOTP = async (email, otp) => {
 
   try {
     await transporter.sendMail(mailOptions);
-    console.log(`Registration OTP sent to ${email}`);
   } catch (error) {
     console.error('Error sending registration OTP:', error);
     throw new Error('Failed to send OTP email');
@@ -70,7 +69,6 @@ const sendPasswordResetOTP = async (email, otp) => {
 
   try {
     await transporter.sendMail(mailOptions);
-    console.log(`Password reset OTP sent to ${email}`);
   } catch (error) {
     console.error('Error sending password reset OTP:', error);
     throw new Error('Failed to send OTP email');

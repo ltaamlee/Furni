@@ -115,7 +115,7 @@ const VerifyPasswordPage = () => {
           <div className="p-8">
             <div className="text-center select-none mb-6">
               <h1 className="text-3xl font-black tracking-tight text-amber-900" style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}>
-                NTSorature
+                Sora
               </h1>
               <p className="mt-1 text-xs font-semibold tracking-[0.2em] uppercase text-stone-400">
                 Xác thực OTP

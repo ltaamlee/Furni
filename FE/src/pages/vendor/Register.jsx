@@ -242,7 +242,7 @@ const Register = () => {
             <nav className="bg-white border-b border-[#EDE8E0] px-4 sm:px-8 h-[58px] flex items-center justify-between">
                 <a href="/" className="flex items-center gap-2.5">
                     <div className="w-[34px] h-[34px] bg-[#95520B] rounded-lg flex items-center justify-center font-extrabold text-[15px] text-white">F</div>
-                    <span className="font-bold text-base text-[#1C1108]">Furni</span>
+                    <span className="font-bold text-base text-[#1C1108]">Sora</span>
                 </a>
             </nav>
 
@@ -254,7 +254,7 @@ const Register = () => {
 
                         {step === 1 && (
                             <div className="vendor-fade-in">
-                                <CardHdr title={registrationStatus === 'rejected' ? "Cập nhật đơn đăng ký" : "Thông tin cơ bản về shop"} sub="Điền thông tin để tạo trang shop của bạn trên Furni" />
+                                <CardHdr title={registrationStatus === 'rejected' ? "Cập nhật đơn đăng ký" : "Thông tin cơ bản về shop"} sub="Điền thông tin để tạo trang shop của bạn trên Sora" />
                                 
                                 {registrationStatus === 'rejected' && (
                                     <div className="mx-6 mt-6 p-4 bg-[#fef2f2] border border-[#fca5a5] rounded-[8px] flex items-start gap-3">
@@ -290,7 +290,7 @@ const Register = () => {
                                     <div className="mb-3.5">
                                         <Label required>Slug (đường dẫn shop)</Label>
                                         <div className="flex items-center border-[1.5px] border-[#EDE8E0] rounded-[6px] overflow-hidden bg-white focus-within:border-[#B86B05]">
-                                            <span className="px-3 py-2 bg-[#FAF7F4] border-r border-[#EDE8E0] text-[12.5px] text-[#6B5C4C] whitespace-nowrap">furni.vn/shop/</span>
+                                            <span className="px-3 py-2 bg-[#FAF7F4] border-r border-[#EDE8E0] text-[12.5px] text-[#6B5C4C] whitespace-nowrap">sora.vn/shop/</span>
                                             <input className="border-none outline-none px-3 py-2 text-[13px] flex-1 min-w-0" placeholder="ten-shop-cua-ban" value={slug} onChange={(e) => setSlug(e.target.value)} />
                                         </div>
                                     </div>
@@ -395,7 +395,7 @@ const Register = () => {
                                 <p className="text-[#6B5C4C] text-sm max-w-[380px] mx-auto mb-5 leading-relaxed">
                                     {registrationStatus === 'rejected' 
                                         ? "Đơn đăng ký của bạn đã được cập nhật và gửi lại thành công. Admin sẽ xem xét trong thời gian sớm nhất."
-                                        : "Yêu cầu đăng ký của bạn đã được gửi. Admin Furni sẽ xem xét và phản hồi trong vòng 1–3 ngày làm việc."}
+                                        : "Yêu cầu đăng ký của bạn đã được gửi. Admin Sora sẽ xem xét và phản hồi trong vòng 1–3 ngày làm việc."}
                                 </p>
                                 <div className="flex items-center gap-2.5 px-3.5 py-3 bg-[#fffbeb] border border-[#fde68a] rounded-[6px] text-[13px] text-[#78350f] max-w-[360px] mx-auto mb-6 text-left">
                                     <IconClock size={18} className="shrink-0" />

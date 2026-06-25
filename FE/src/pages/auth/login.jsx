@@ -1,11 +1,9 @@
-import { useContext, useState } from 'react';
+import { useContext, useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../components/context/authContext';
 import { loginApi } from '../../utils/api';
 import InputField from '../../components/common/inputFields';
 import Button from '../../components/common/button';
-
-// ── Icons ───────────────────────────────────────────────────────────────────
 
 const UserIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none"
@@ -31,7 +29,6 @@ const GoogleIcon = () => (
     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
   </svg>
 );
-
 
 const Alert = ({ type, message }) => {
   if (!message) return null;
@@ -59,7 +56,6 @@ const Alert = ({ type, message }) => {
   );
 };
 
-
 const Divider = ({ label }) => (
   <div className="flex items-center gap-4 my-1">
     <div className="flex-1 h-px bg-stone-200" />
@@ -67,7 +63,6 @@ const Divider = ({ label }) => (
     <div className="flex-1 h-px bg-stone-200" />
   </div>
 );
-
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -78,11 +73,31 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState({ type: '', message: '' });
 
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const error = urlParams.get('error');
+
+    if (token) {
+      localStorage.setItem('access_token', token);
+      setAlert({ type: 'success', message: 'Đăng nhập Google thành công! Đang tải...' });
+      window.history.replaceState({}, document.title, "/login");
+
+      setTimeout(() => {
+        window.location.href = '/'; 
+      }, 1000);
+    }
+
+    if (error === 'google_failed') {
+      setAlert({ type: 'error', message: 'Đăng nhập Google thất bại. Vui lòng thử lại!' });
+      window.history.replaceState({}, document.title, "/login");
+    }
+  }, []);
+
   // Field change handler
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-    // Clear field error on change
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: '' }));
   };
 
@@ -179,24 +194,18 @@ const LoginPage = () => {
       <div className="relative w-full max-w-md">
         {/* Card */}
         <div className="bg-white rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
-
-          {/* Top accent bar */}
           <div className="h-1.5 w-full bg-linear-to-r from-amber-900 via-amber-600 to-amber-800" />
 
           <div className="px-8 pt-8 pb-10 flex flex-col gap-6">
-
-            {/* Brand */}
             <div className="text-center select-none">
               <h1 className="text-3xl font-black tracking-tight text-amber-900"
                 style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}>
-                NTSorature
+                Sora
               </h1>
               <p className="mt-1 text-xs font-semibold tracking-[0.2em] uppercase text-stone-400">
                 Đồ gỗ nội thất cao cấp
               </p>
             </div>
-
-            {/* Alert */}
             <Alert type={alert.type} message={alert.message} />
 
             {/* Form */}
@@ -256,8 +265,6 @@ const LoginPage = () => {
                 Đăng nhập
               </Button>
             </form>
-
-            {/* Divider */}
             <Divider label="hoặc đăng nhập với" />
 
             {/* Social login */}
@@ -265,7 +272,7 @@ const LoginPage = () => {
               variant="social"
               fullWidth
               icon={<GoogleIcon />}
-              onClick={() => (window.location.href = '/oauth2/authorization/google')}
+              onClick={() => (window.location.href = `${import.meta.env.VITE_BE_URL}/api/auth/google`)}
             >
               Tiếp tục với Google
             </Button>
@@ -285,7 +292,7 @@ const LoginPage = () => {
 
         {/* Footer note */}
         <p className="mt-5 text-center text-xs text-stone-500/60 tracking-wide">
-          © {new Date().getFullYear()} NTSorature · Bảo mật & Bảo hành
+          © {new Date().getFullYear()} Sora · Bảo mật & Bảo hành
         </p>
       </div>
     </div>

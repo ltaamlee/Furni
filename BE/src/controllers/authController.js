@@ -1,6 +1,12 @@
 const User = require('../models/user');
 const { generateToken } = require('../utils/jwtUtils');
 const { sendRegistrationOTP, sendPasswordResetOTP } = require('../utils/emailService');
+const { OAuth2Client } = require('google-auth-library');
+const client = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  'http://localhost:8386/api/auth/google/callback' // Phải khớp 100% với link đã cấu hình trên Google Cloud
+);
 
 // @desc    Register user
 // @route   POST /api/auth/register
@@ -259,7 +265,6 @@ const forgotPassword = async (req, res) => {
       success: true,
       message: 'Mã OTP đã được gửi đến email của bạn'
     });
-        console.log(otp)
 
   } catch (error) {
     res.status(500).json({
@@ -373,6 +378,68 @@ const checkResetOTP = async (req, res) => {
     res.status(500).json({ success: false, message: 'Đã xảy ra lỗi khi kiểm tra OTP' });
   }
 };
+// @desc    Khởi tạo đăng nhập Google
+// @route   GET /api/auth/google
+// @access  Public
+const googleLogin = (req, res) => {
+  const url = client.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: ['profile', 'email']
+  })
+  res.redirect(url);
+};
+
+// @desc    Nhận dữ liệu Google trả về 
+// @route   GET /api/auth/google/callback
+// @access  Public
+const googleCallback = async (req, res) => {
+  try {
+    const { code } = req.query; 
+    
+    const { tokens } = await client.getToken(code);
+    client.setCredentials(tokens);
+
+    const ticket = await client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const { email, name, sub, picture } = payload; // 'sub' là ID định danh duy nhất của Google
+
+    // Kiểm tra xem email này đã có trong database chưa
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      // Nếu chưa có: Tự động tạo tài khoản mới
+      user = await User.create({
+        fullName: name,
+        email: email,
+        username: `user_${sub.substring(0, 8)}`, // Tạo username ngẫu nhiên để không bị lỗi trống
+        authProvider: 'google',
+        googleId: sub,
+        isVerified: true, // Đăng nhập Google thì mặc định là email thật, không cần gửi OTP nữa
+        profileImage: picture, 
+        role: 'customer'
+      });
+    } else {
+      if (!user.googleId) {
+        user.googleId = sub;
+        user.authProvider = 'google';
+        user.isVerified = true;
+        await user.save();
+      }
+    }
+
+    // Sinh ra JWT Token của hệ thống 
+    const token = generateToken(user._id);
+    res.redirect(`http://localhost:5173/login?token=${token}`);
+
+  } catch (error) {
+    console.error('Lỗi Google Callback:', error);
+    res.redirect('http://localhost:5173/login?error=google_failed');
+  }
+};
 
 module.exports = {
   register,
@@ -381,5 +448,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   resendOTP,
-  checkResetOTP
+  checkResetOTP,
+  googleLogin,
+  googleCallback
 };

@@ -7,7 +7,9 @@ const {
   forgotPassword,
   resetPassword,
   resendOTP,
-  checkResetOTP
+  checkResetOTP,
+  googleLogin,     
+  googleCallback
 } = require('../controllers/authController');
 
 const {
@@ -26,5 +28,8 @@ router.post('/forgot-password', validateForgotPassword, forgotPassword);
 router.post('/reset-password', validateResetPassword, resetPassword);
 router.post('/resend-otp', resendOTP);
 router.post('/check-reset-otp', checkResetOTP);
+
+router.get('/google', googleLogin);
+router.get('/google/callback', googleCallback);
 
 module.exports = router;
