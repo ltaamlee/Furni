@@ -58,12 +58,13 @@ const toLocalInput = (d) => {
 
 const buildForm = (editing) => {
     if (!editing) return {
-        cardType: "flash", name: "", discountType: "percent", value: "25",
+        cardType: "flash", name: "", code: "", discountType: "percent", value: "25",
         maxDiscount: "", minOrderValue: "0", startDate: "", endDate: "", maxUsage: "",
     };
     return {
         cardType: TYPE_TO_CARD[editing.type] || "flash",
         name: editing.name || "",
+        code: editing.couponCode && editing.couponCode !== 'N/A' ? editing.couponCode : "",
         discountType: editing.discountType || "percent",
         value: editing.value ?? "",
         maxDiscount: editing.maxDiscount || "",
@@ -115,11 +116,13 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
 
     const submit = async (status) => {
         if (!form.name.trim()) return showToast("Vui lòng nhập tên chương trình", "error");
+        if (!form.code.trim()) return showToast("Vui lòng nhập mã giảm giá", "error");
         if (!form.startDate || !form.endDate) return showToast("Vui lòng chọn thời gian bắt đầu/kết thúc", "error");
         if (isCombo) return showToast("Mua bộ là khuyến mãi theo shop, không áp dụng cho toàn sàn", "error");
 
         const payload = {
             name: form.name.trim(),
+            code: form.code.trim().toUpperCase(),
             type: CARD_TO_TYPE[form.cardType],
             discountType: form.discountType,
             value: isFreeship ? 0 : Number(form.value) || 0,
@@ -186,6 +189,13 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
                 <Label required>Tên chương trình</Label>
                 <input className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
                     value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="VD: Flash Sale Furni cuối tuần" />
+            </div>
+
+            <div className="mb-3.5">
+                <Label required>Mã giảm giá</Label>
+                <input className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px] uppercase"
+                    value={form.code} onChange={(e) => set("code", e.target.value.toUpperCase())} placeholder="VD: SUMMER2025" maxLength={30} />
+                <div className="text-[11px] text-[#9E8E7E] mt-1">Tối đa 30 ký tự, chỉ chữ in hoa và số</div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-3.5">
