@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { getProductsApi, getBestSellersApi, getTrendingProductsApi, getCategoriesApi } from "../utils/api";
+import { getProductsApi, getBestSellersApi, getTrendingProductsApi, getCategoriesApi, getPlatformCouponsApi, claimVoucherApi } from "../utils/api";
+import { useContext } from "react";
+import { AuthContext } from "../components/context/authContext";
+import { useToast } from "../components/context/ToastContext";
 import ProductCard from "../components/common/productCard";
 
 // Category Icons
@@ -59,11 +62,15 @@ const StarRating = ({ rating = 4.5 }) => {
 };
 
 const HomePage = () => {
+    const { auth } = useContext(AuthContext);
+    const { showToast } = useToast();
     const [categories, setCategories] = useState([]);
     const [bestSellers, setBestSellers] = useState([]);
     const [trending, setTrending] = useState([]);
+    const [platformCoupons, setPlatformCoupons] = useState([]);
     const [loading, setLoading] = useState(true);
     const [categoryIndex, setCategoryIndex] = useState(0);
+    const [claimingId, setClaimingId] = useState(null);
     const categoryScrollRef = useRef(null);
 
     useEffect(() => {
@@ -74,10 +81,11 @@ const HomePage = () => {
         console.log("Fetching home page data...");
         try {
             setLoading(true);
-            const [categoriesRes, bestSellersRes, trendingRes] = await Promise.all([
+            const [categoriesRes, bestSellersRes, trendingRes, couponsRes] = await Promise.all([
                 getCategoriesApi(),
                 getBestSellersApi({ limit: 8 }),
-                getTrendingProductsApi({ limit: 8 })
+                getTrendingProductsApi({ limit: 8 }),
+                getPlatformCouponsApi(),
             ]);
 
             if (categoriesRes.success) {
@@ -89,11 +97,43 @@ const HomePage = () => {
             if (trendingRes.success) {
                 setTrending(trendingRes.data.products || []);
             }
+            if (couponsRes.success) {
+                setPlatformCoupons(couponsRes.data || []);
+            }
         } catch (error) {
             console.error("Error fetching data:", error);
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleClaimPlatformCoupon = async (couponId) => {
+        if (!auth.isAuthenticated) {
+            showToast("Vui lòng đăng nhập để nhận voucher!", "error");
+            return;
+        }
+        try {
+            setClaimingId(couponId);
+            const res = await claimVoucherApi(couponId);
+            if (res.success) {
+                showToast("Nhận voucher thành công! Vào Kho Voucher để xem.", "success");
+                setPlatformCoupons((prev) => prev.map((v) =>
+                    v._id === couponId ? { ...v, _claimed: true } : v
+                ));
+            } else {
+                showToast(res.message || "Nhận voucher thất bại!", "error");
+            }
+        } catch (error) {
+            showToast(error?.response?.data?.message || error.message || "Có lỗi xảy ra!", "error");
+        } finally {
+            setClaimingId(null);
+        }
+    };
+
+    const formatCouponDiscount = (v) => {
+        if (v.discountType === 'freeship') return 'Freeship';
+        if (v.discountType === 'fixed') return `-${Number(v.value).toLocaleString('vi-VN')}đ`;
+        return `-${v.value}%`;
     };
 
     const handleAddToCart = () => {
@@ -164,6 +204,61 @@ const HomePage = () => {
                     </div>
                 </div>
             </section>
+
+            {/* Platform Coupons Section */}
+            {platformCoupons.length > 0 && (
+                <section className="py-8 bg-white">
+                    <div className="max-w-7xl mx-auto px-4">
+                        <div className="flex items-center gap-2 mb-5">
+                            <span className="text-xl">🎟️</span>
+                            <h2 className="text-lg font-bold text-[#1C1108]">Khuyến mãi toàn sàn</h2>
+                            <span className="ml-auto text-xs text-[#A8896A]">Nhấn nhận voucher để lưu vào kho</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {platformCoupons.map((coupon) => (
+                                <div
+                                    key={coupon._id}
+                                    className="rounded-2xl border-2 border-[#B86B05] bg-gradient-to-br from-[#fffbeb] to-[#fef9f0] shadow-sm overflow-hidden flex"
+                                >
+                                    <div className="w-28 flex-shrink-0 flex flex-col items-center justify-center p-3 text-center bg-gradient-to-br from-[#B86B05] to-[#95520B]">
+                                        <span className="text-2xl font-black text-white leading-tight">
+                                            {formatCouponDiscount(coupon)}
+                                        </span>
+                                        <span className="text-[10px] text-white/80 mt-1">Furni</span>
+                                    </div>
+                                    <div className="flex-1 p-3 flex flex-col justify-between min-w-0">
+                                        <div>
+                                            <div className="flex items-start justify-between gap-2">
+                                                <p className="font-bold text-sm text-[#1C1108] truncate">{coupon.code}</p>
+                                                {coupon.maxDiscount > 0 && (
+                                                    <span className="text-[10px] text-[#A8896A] shrink-0">Tối đa {Number(coupon.maxDiscount).toLocaleString('vi-VN')}đ</span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-[#6B5C4C] mt-0.5 line-clamp-2">
+                                                {coupon.description || 'Khuyến mãi đặc biệt từ Furni'}
+                                            </p>
+                                            {coupon.minOrderValue > 0 && (
+                                                <p className="text-[10px] text-[#A8896A] mt-1">Đơn từ {Number(coupon.minOrderValue).toLocaleString('vi-VN')}đ</p>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={() => handleClaimPlatformCoupon(coupon._id)}
+                                            disabled={claimingId === coupon._id || coupon._claimed}
+                                            className={`mt-2 w-full py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                                                coupon._claimed
+                                                    ? 'bg-green-100 text-green-600 cursor-default'
+                                                    : 'bg-[#B86B05] text-white hover:bg-[#9a5a04]'
+                                            } disabled:opacity-60`}
+                                        >
+                                            {claimingId === coupon._id ? 'Đang nhận...' : coupon._claimed ? '✓ Đã nhận' : 'Nhận Voucher'}
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+            )}
 
             {/* Categories Section */}
             <section className="py-10 bg-white">

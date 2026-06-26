@@ -3,6 +3,7 @@ const router = express.Router();
 const {
     calculateFee,
     calculateAllFees,
+    calculateTiers,
     createShippingOrder,
     getShippingByOrderId,
     trackShipment,
@@ -14,6 +15,7 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 // Public routes
 router.get('/calculate', calculateFee);
 router.get('/calculate-all', calculateAllFees);
+router.get('/calculate-tiers', calculateTiers);
 router.get('/track/:trackingNumber', trackShipment);
 
 // Protected routes

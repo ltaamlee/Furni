@@ -176,7 +176,9 @@ const addToCart = async (req, res) => {
         }
 
         // Kiểm tra variant hoặc sản phẩm chính
-        const selectedVariant = variantIndex != null ? product.variants?.[variantIndex] : null;
+        // Convert Mongoose doc to plain object to avoid comparison issues
+        const rawVariant = variantIndex != null ? product.variants?.[variantIndex] : null;
+        const selectedVariant = rawVariant ? rawVariant.toObject ? rawVariant.toObject() : rawVariant : null;
         const variantStock = selectedVariant ? selectedVariant.stock : product.quantity;
         if (variantStock < quantity) {
             return res.status(400).json({
@@ -224,8 +226,16 @@ const addToCart = async (req, res) => {
                 }]
             });
         } else {
+            // Tìm sản phẩm trùng: cùng productId VÀ cùng variant (nếu có)
+            const variantName = selectedVariant?.name || null;
             const existingProduct = cart.products.find(
-                (item) => item.product.toString() === productId.toString()
+                (item) => {
+                    if (item.product.toString() !== productId.toString()) return false;
+                    // Không có variant: so sánh variantName (null) với item.variant
+                    if (!variantName) return !item.variant;
+                    // Có variant: so sánh theo tên
+                    return item.variant === variantName;
+                }
             );
 
             if (existingProduct) {
@@ -246,6 +256,11 @@ const addToCart = async (req, res) => {
                     existingProduct.variant = selectedVariant.name || null;
                     existingProduct.variantPrice = selectedVariant.price || null;
                     existingProduct.variantStock = selectedVariant.stock || 0;
+                } else {
+                    // Nếu không chọn variant → xóa variant info
+                    existingProduct.variant = null;
+                    existingProduct.variantPrice = null;
+                    existingProduct.variantStock = null;
                 }
             } else {
                 cart.products.push({
@@ -309,22 +324,6 @@ const updateCartItem = async (req, res) => {
             });
         }
 
-        const product = await Product.findById(productId);
-        if (!product) {
-            return res.status(404).json({
-                success: false,
-                message: 'Không tìm thấy sản phẩm'
-            });
-        }
-
-        const stock = cartItem.variantStock ?? product.quantity;
-        if (quantity > stock) {
-            return res.status(400).json({
-                success: false,
-                message: `Chỉ còn ${stock} sản phẩm trong kho`
-            });
-        }
-
         const cart = await Cart.findOne({ user: req.user._id });
         if (!cart) {
             return res.status(404).json({
@@ -341,6 +340,22 @@ const updateCartItem = async (req, res) => {
             return res.status(404).json({
                 success: false,
                 message: 'Sản phẩm không có trong giỏ hàng'
+            });
+        }
+
+        const product = await Product.findById(productId);
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                message: 'Không tìm thấy sản phẩm'
+            });
+        }
+
+        const stock = cartItem.variantStock ?? product.quantity;
+        if (quantity > stock) {
+            return res.status(400).json({
+                success: false,
+                message: `Chỉ còn ${stock} sản phẩm trong kho`
             });
         }
 

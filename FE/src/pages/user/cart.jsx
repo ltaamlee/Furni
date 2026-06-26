@@ -5,12 +5,12 @@ import {
     getCartApi,
     updateCartItemApi,
     removeFromCartApi,
-    getAvailableCouponsApi,
-    validateCouponApi,
-    getMyPointsApi,
+    getAvailableVouchersApi,
+    validateVoucherApi,
     getShopVouchersApi,
     getAddressesApi,
     calculateShippingFeesApi,
+    getShopShippingConfigApi,
 } from "../../utils/api";
 import { useToast } from "../../components/context/ToastContext";
 
@@ -27,9 +27,7 @@ const CartPage = () => {
     const [couponCode, setCouponCode] = useState("");
     const [applyingCoupon, setApplyingCoupon] = useState(false);
     const [couponDiscount, setCouponDiscount] = useState(0);
-    const [loyaltyPoints, setLoyaltyPoints] = useState(0);
-    const [usePoints, setUsePoints] = useState(false);
-    const [shopVouchers, setShopVouchers] = useState({}); // keyed by shopId
+    const [shopVouchers, setShopVouchers] = useState({});
     
     // Selection state
     const [selectedItems, setSelectedItems] = useState(new Set());
@@ -45,7 +43,6 @@ const CartPage = () => {
         fetchAddresses();
         if (auth?.user) {
             fetchCoupons();
-            fetchLoyaltyPoints();
         }
     }, []);
 
@@ -91,23 +88,12 @@ const CartPage = () => {
 
     const fetchCoupons = async () => {
         try {
-            const res = await getAvailableCouponsApi();
+            const res = await getAvailableVouchersApi();
             if (res.success) {
-                setCoupons(res.data.coupons.filter(c => c.canUse));
+                setCoupons(res.data || []);
             }
         } catch (error) {
-            console.error("Error fetching coupons:", error);
-        }
-    };
-
-    const fetchLoyaltyPoints = async () => {
-        try {
-            const res = await getMyPointsApi();
-            if (res.success) {
-                setLoyaltyPoints(res.data.points);
-            }
-        } catch (error) {
-            console.error("Error fetching loyalty points:", error);
+            console.error("Error fetching vouchers:", error);
         }
     };
 
@@ -142,10 +128,28 @@ const CartPage = () => {
         if (!provinceCode) return;
         try {
             setLoadingShipping(true);
-            const res = await calculateShippingFeesApi({
+            // Get the first selected item's shop to filter providers
+            let enabledProviders = null;
+            const firstSelectedItem = cart?.products?.find(item =>
+                selectedItems.has(item.product._id || item.product) && item.shopIsActive !== false
+            );
+            if (firstSelectedItem) {
+                const shopId = firstSelectedItem.shop?._id || firstSelectedItem.shop;
+                if (shopId) {
+                    try {
+                        const cfgRes = await getShopShippingConfigApi(shopId);
+                        if (cfgRes.success) {
+                            enabledProviders = cfgRes.data.shippingConfig?.enabledProviders || null;
+                        }
+                    } catch (_) { /* ignore */ }
+                }
+            }
+            const params = {
                 provinceCode,
                 orderTotal: selectedItemsData.itemsTotal,
-            });
+            };
+            if (enabledProviders) params.enabledProviders = enabledProviders.join(',');
+            const res = await calculateShippingFeesApi(params);
             if (res.success) {
                 setShippingFees(res.data.fees || []);
             }
@@ -255,17 +259,17 @@ const CartPage = () => {
                 const op = item.originalPrice || item.price;
                 return sum + (op * item.quantity);
             }, 0);
-            const res = await validateCouponApi({
+            const res = await validateVoucherApi({
                 code: couponCode,
                 orderTotal: originalSubtotal
             });
             if (res.success) {
-                setSelectedCoupon(res.data.coupon);
+                setSelectedCoupon(res.data.voucher);
                 setCouponDiscount(res.data.discount);
-                showToast(`Áp dụng mã ${couponCode.toUpperCase()} thành công!`, "success");
+                showToast(`Áp dụng mã ${couponCode.toUpperCase()} thành công! Giảm ${formatPrice(res.data.discount)}`, "success");
             }
         } catch (error) {
-            showToast(error.response?.data?.message || "Mã giảm giá không hợp lệ!", "error");
+            showToast(error.response?.data?.message || "Mã voucher không hợp lệ!", "error");
             setSelectedCoupon(null);
             setCouponDiscount(0);
         } finally {
@@ -273,10 +277,9 @@ const CartPage = () => {
         }
     };
 
-    const handleSelectCoupon = async (coupon) => {
+    const handleSelectCoupon = async (voucher) => {
         try {
             setApplyingCoupon(true);
-            // Compute subtotal using original prices for coupon validation
             const selectedCartProducts = cart?.products?.filter(item =>
                 selectedItems.has(item.product._id || item.product)
             ) || [];
@@ -284,15 +287,15 @@ const CartPage = () => {
                 const op = item.originalPrice || item.price;
                 return sum + (op * item.quantity);
             }, 0);
-            const res = await validateCouponApi({
-                code: coupon.code,
+            const res = await validateVoucherApi({
+                code: voucher.code,
                 orderTotal: originalSubtotal
             });
             if (res.success) {
-                setSelectedCoupon(res.data.coupon);
+                setSelectedCoupon(res.data.voucher);
                 setCouponDiscount(res.data.discount);
-                setCouponCode(coupon.code);
-                showToast(`Áp dụng mã ${coupon.code} thành công!`, "success");
+                setCouponCode(voucher.code);
+                showToast(`Áp dụng mã ${voucher.code} thành công! Giảm ${formatPrice(res.data.discount)}`, "success");
             }
         } catch (error) {
             showToast(error.response?.data?.message || "Không thể áp dụng mã này!", "error");
@@ -381,11 +384,14 @@ const CartPage = () => {
         };
     }, [selectedItemsData.itemsTotal, selectedAddressId, selectedAddress?.provinceCode]);
 
-    // Get the cheapest available shipping fee
+    // Get the cheapest available shipping fee - only show when items are selected
     const cheapestShippingFee = shippingFees.length > 0
         ? Math.min(...shippingFees.map(f => f.isFree ? 0 : f.fee))
         : null;
-    const shippingFee = cheapestShippingFee === 0 ? 0 : (cheapestShippingFee || 30000);
+    const selectedCount = selectedItems.size;
+    const shippingFee = selectedCount > 0
+        ? (cheapestShippingFee === 0 ? 0 : (cheapestShippingFee ?? 0))
+        : 0;
 
     if (loading) {
         return (
@@ -399,10 +405,8 @@ const CartPage = () => {
     const originalSubtotal = selectedItemsData.subtotal; // giá gốc tổng (để hiển thị tiết kiệm)
     const itemsTotal = selectedItemsData.itemsTotal; // giá sau giảm tổng
     const totalDiscount = selectedItemsData.totalDiscount;
-    const pointsDiscount = usePoints ? Math.min(loyaltyPoints, itemsTotal) : 0;
-    const discount = couponDiscount + pointsDiscount;
+    const discount = couponDiscount;
     const total = Math.max(0, itemsTotal + shippingFee - discount);
-    const selectedCount = selectedItems.size;
 
     return (
         <div className="min-h-screen bg-[#FAF7F4] py-8">
@@ -639,6 +643,13 @@ const CartPage = () => {
                                                             >
                                                                 {item.name}
                                                             </h3>
+
+                                                            {/* Variant Name */}
+                                                            {item.variant && (
+                                                                <p className="text-xs text-[#A8896A] mt-1">
+                                                                    Phân loại: <span className="font-medium text-[#6B5344]">{item.variant}</span>
+                                                                </p>
+                                                            )}
                                                             
                                                             {isUnavailable && (
                                                                 <p className="text-xs text-amber-600 mt-1 font-medium">Shop đang tạm nghỉ, sản phẩm chưa thể thanh toán</p>
@@ -725,28 +736,28 @@ const CartPage = () => {
                             {auth?.user && coupons.length > 0 && (
                                 <div className="bg-white rounded-2xl border border-[#EDE8E0] p-5">
                                     <h3 className="font-bold text-sm text-[#1C1108] mb-4 flex items-center gap-2">
-                                        <span>🎟️</span> Mã giảm giá có sẵn
+                                        <span>🎟️</span> Voucher có sẵn
                                     </h3>
                                     <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                                        {coupons.slice(0, 5).map((coupon) => (
+                                        {coupons.slice(0, 5).map((voucher) => (
                                             <div
-                                                key={coupon._id}
+                                                key={voucher._id}
                                                 className={`flex items-center justify-between p-3 rounded-xl border-2 cursor-pointer transition-colors ${
-                                                    selectedCoupon?.code === coupon.code
+                                                    selectedCoupon?.code === voucher.code
                                                         ? "border-[#B86B05] bg-[#B86B05]/5"
                                                         : "border-[#EDE8E0] hover:border-[#B86B05]"
                                                 }`}
-                                                onClick={() => handleSelectCoupon(coupon)}
+                                                onClick={() => handleSelectCoupon(voucher)}
                                             >
                                                 <div>
-                                                    <p className="font-bold text-xs text-[#1C1108]">{coupon.code}</p>
+                                                    <p className="font-bold text-xs text-[#1C1108]">{voucher.code}</p>
                                                     <p className="text-xs text-[#A8896A] mt-0.5">
-                                                        {coupon.type === 'percent' ? `Giảm ${coupon.value}%` : `Giảm ${formatPrice(coupon.value)}`}
-                                                        {coupon.minOrderValue > 0 && ` (Đơn từ ${formatPrice(coupon.minOrderValue)})`}
+                                                        {voucher.discountType === 'percent' ? `Giảm ${voucher.value}%` : `Giảm ${formatPrice(voucher.value)}`}
+                                                        {voucher.minOrderValue > 0 && ` (Đơn từ ${formatPrice(voucher.minOrderValue)})`}
                                                     </p>
                                                 </div>
                                                 <span className="text-xs font-semibold text-[#B86B05]">
-                                                    {selectedCoupon?.code === coupon.code ? "✓ Đang dùng" : "Dùng ngay"}
+                                                    {selectedCoupon?.code === voucher.code ? "✓ Đang dùng" : "Dùng ngay"}
                                                 </span>
                                             </div>
                                         ))}
@@ -754,40 +765,6 @@ const CartPage = () => {
                                 </div>
                             )}
 
-                            {/* Enter Coupon Code */}
-                            <div className="bg-white rounded-2xl border border-[#EDE8E0] p-5">
-                                <h3 className="font-bold text-sm text-[#1C1108] mb-4">Nhập mã giảm giá</h3>
-                                <div className="flex gap-3">
-                                    <input
-                                        type="text"
-                                        value={couponCode}
-                                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                                        placeholder="Nhập mã giảm giá..."
-                                        className="flex-1 px-4 py-2.5 border border-[#D5C9BC] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-sm placeholder:text-[#A8896A]"
-                                    />
-                                    <button
-                                        onClick={handleApplyCoupon}
-                                        disabled={applyingCoupon}
-                                        className="px-5 py-2.5 bg-[#B86B05] text-white rounded-xl font-semibold text-sm hover:bg-[#95520B] transition-colors disabled:opacity-50 active:scale-[0.98]"
-                                    >
-                                        {applyingCoupon ? "..." : "Áp dụng"}
-                                    </button>
-                                </div>
-                                {selectedCoupon && (
-                                    <div className="mt-3 flex items-center justify-between bg-green-50 border border-green-200 rounded-xl p-3">
-                                        <div>
-                                            <p className="font-bold text-xs text-green-700">{selectedCoupon.code}</p>
-                                            <p className="text-xs text-green-600 mt-0.5">Giảm {formatPrice(couponDiscount)}</p>
-                                        </div>
-                                        <button
-                                            onClick={handleRemoveCoupon}
-                                            className="text-[#BF4343] hover:bg-red-50 p-1.5 rounded-lg transition-colors"
-                                        >
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
                         </div>
 
                         {/* Summary */}
@@ -828,17 +805,12 @@ const CartPage = () => {
                                         </div>
                                     )}
                                     
-                                    {pointsDiscount > 0 && (
-                                        <div className="flex justify-between text-purple-600">
-                                            <span>Điểm tích lũy</span>
-                                            <span className="font-semibold">-{formatPrice(pointsDiscount)}</span>
-                                        </div>
-                                    )}
-                                    
                                     <div className="flex justify-between">
                                         <span className="text-[#6B5C4C]">Phí vận chuyển</span>
                                         <span className="font-semibold text-[#1C1108]">
-                                            {loadingShipping ? (
+                                            {selectedCount === 0 ? (
+                                                <span className="text-[#A8896A]">Chọn sản phẩm để xem</span>
+                                            ) : loadingShipping ? (
                                                 <span className="text-[#A8896A]">Đang tính...</span>
                                             ) : cheapestShippingFee === 0 ? (
                                                 <span className="text-green-600">Miễn phí</span>
@@ -861,34 +833,20 @@ const CartPage = () => {
                                     </div>
                                 </div>
                                 
-                                {/* Loyalty Points Option */}
-                                {auth?.user && loyaltyPoints > 0 && (
-                                    <div className="mt-4 p-4 bg-purple-50 rounded-xl border border-purple-100">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <div>
-                                                <p className="font-semibold text-xs text-purple-800">Sử dụng điểm tích lũy</p>
-                                                <p className="text-xs text-purple-600 mt-0.5">{loyaltyPoints.toLocaleString('vi-VN')} điểm có sẵn</p>
-                                            </div>
-                                            <label className="relative inline-flex items-center cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={usePoints}
-                                                    onChange={(e) => setUsePoints(e.target.checked)}
-                                                    className="sr-only peer"
-                                                />
-                                                <div className="w-10 h-6 bg-[#D5C9BC] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-5 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#B86B05]"></div>
-                                            </label>
-                                        </div>
-                                        {usePoints && (
-                                            <p className="text-xs text-purple-700 font-medium">Giảm thêm {formatPrice(pointsDiscount)}</p>
-                                        )}
-                                    </div>
-                                )}
-                                
                                 <button
                                     onClick={() => {
                                         // Save selected items to localStorage before navigating
                                         localStorage.setItem('checkout_selected_items', JSON.stringify([...selectedItems]));
+                                        // Pass coupon state so checkout can restore it
+                                        if (selectedCoupon) {
+                                            localStorage.setItem('checkout_coupon', JSON.stringify({
+                                                code: selectedCoupon.code,
+                                                discount: couponDiscount,
+                                                type: selectedCoupon.type,   // 'product' | 'shipping'
+                                            }));
+                                        } else {
+                                            localStorage.removeItem('checkout_coupon');
+                                        }
                                         navigate("/checkout");
                                     }}
                                     disabled={selectedCount === 0}
@@ -899,17 +857,6 @@ const CartPage = () => {
                                 <Link to="/" className="block text-center mt-3 text-sm text-[#A8896A] hover:text-[#B86B05] transition-colors">
                                     ← Tiếp tục mua sắm
                                 </Link>
-                                
-                                {/* Loyalty Points Link */}
-                                {auth?.user && (
-                                    <Link
-                                        to="/loyalty"
-                                        className="block text-center mt-4 p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-100"
-                                    >
-                                        <p className="text-sm font-semibold text-purple-700">💎 {loyaltyPoints.toLocaleString('vi-VN')} điểm tích lũy</p>
-                                        <p className="text-xs text-purple-500 mt-0.5">Nhấn để xem và đổi quà</p>
-                                    </Link>
-                                )}
                             </div>
                         </div>
                     </div>

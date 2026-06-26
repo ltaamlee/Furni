@@ -3,7 +3,7 @@ import { PageHeader, Btn, Label, Hint, Badge, inputClass } from "../../component
 import { carriers as initialCarriers } from "../../components/vendor/data";
 import { IconUser, IconMapPin, IconTruck, IconWallet, IconDoc, IconImage } from "../../components/vendor/icons";
 import { useToast } from "../../components/context/ToastContext";
-import { getMyShopApi, updateMyShopApi, uploadVendorImagesApi, getProvincesApi } from "../../utils/api";
+import { getMyShopApi, updateMyShopApi, updateShippingConfigApi, uploadVendorImagesApi, getProvincesApi } from "../../utils/api";
 
 const TABS = [
     { key: "basic", label: "Thông tin cơ bản", icon: IconUser },
@@ -212,32 +212,180 @@ const AddressSection = ({ shop, onSaved }) => {
     );
 };
 
-/* ---- Tab: Shipping (phí cố định theo khu vực) ---- */
-const ShippingSection = () => {
+/* ---- Tab: Shipping (cấu hình vận chuyển) ---- */
+const PROVIDER_OPTIONS = [
+    { key: 'ghtk', name: 'Giao Hàng Tiết Kiệm', short: 'GHTK', desc: 'Phổ biến, giá rẻ, phủ rộng', color: 'from-green-400 to-green-600' },
+    { key: 'jt', name: 'J&T Express', short: 'J&T', desc: 'Nhanh, ổn định, công nghệ tốt', color: 'from-orange-400 to-orange-600' },
+    { key: 'viettel', name: 'Viettel Post', short: 'Viettel', desc: 'Phủ sóng rộng, bưu cục nhiều', color: 'from-red-400 to-red-600' },
+];
+
+const formatVND = (n) => new Intl.NumberFormat("vi-VN").format(n) + " đ";
+
+const ShippingSection = ({ shop, onSaved }) => {
+    const { showToast } = useToast();
+    const [enabled, setEnabled] = useState(shop?.shippingConfig?.enabledProviders || ['ghtk', 'jt']);
+    const [threshold, setThreshold] = useState(shop?.shippingConfig?.freeShippingThreshold ?? 500000);
+    const [defaultProv, setDefaultProv] = useState(shop?.shippingConfig?.defaultProvider || 'ghtk');
+    const [saving, setSaving] = useState(false);
+    const [dirty, setDirty] = useState(false);
+
+    const toggle = (key) => {
+        const next = enabled.includes(key) ? enabled.filter(k => k !== key) : [...enabled, key];
+        if (next.length === 0) {
+            showToast("Phải chọn ít nhất 1 đơn vị vận chuyển!", "warning");
+            return;
+        }
+        setEnabled(next);
+        if (!next.includes(defaultProv)) setDefaultProv(next[0]);
+        setDirty(true);
+    };
+
+    const handleSave = async () => {
+        if (enabled.length === 0) {
+            showToast("Phải chọn ít nhất 1 đơn vị vận chuyển!", "warning");
+            return;
+        }
+        try {
+            setSaving(true);
+            await updateShippingConfigApi({ enabledProviders: enabled, freeShippingThreshold: threshold, defaultProvider: defaultProv });
+            showToast("Lưu cấu hình vận chuyển thành công!", "success");
+            setDirty(false);
+            onSaved();
+        } catch (err) {
+            showToast(err?.response?.data?.message || "Lỗi lưu cấu hình!", "error");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleCancel = () => {
+        setEnabled(shop?.shippingConfig?.enabledProviders || ['ghtk', 'jt']);
+        setThreshold(shop?.shippingConfig?.freeShippingThreshold ?? 500000);
+        setDefaultProv(shop?.shippingConfig?.defaultProvider || 'ghtk');
+        setDirty(false);
+    };
+
+    const isFreeShippingThreshold = (val) => {
+        if (!val || val <= 0) return null;
+        return val;
+    };
+
     return (
-        <div className="vendor-fade-in">
-            <SectionHead title="Cấu hình vận chuyển" sub="Phí vận chuyển được tính dựa trên khoảng cách từ cửa hàng đến khách hàng và cân nặng sản phẩm." />
+        <div className="vendor-fade-in space-y-6">
+            <SectionHead
+                title="Cấu hình vận chuyển"
+                sub="Chọn đơn vị vận chuyển mà cửa hàng hỗ trợ và ngưỡng miễn phí vận chuyển"
+            />
 
-            <div className="h-px bg-[#EDE8E0] my-5" />
+            {/* Provider selection */}
+            <div>
+                <Label className="mb-3 block">Đơn vị vận chuyển</Label>
+                <p className="text-[12px] text-[#9E8E7E] mb-3">Tick chọn các đơn vị mà cửa hàng của bạn hỗ trợ giao hàng. Khách sẽ chỉ thấy đơn vị bạn đã chọn.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {PROVIDER_OPTIONS.map((p) => {
+                        const isEnabled = enabled.includes(p.key);
+                        const isDefault = defaultProv === p.key;
+                        return (
+                            <div
+                                key={p.key}
+                                onClick={() => toggle(p.key)}
+                                className={`relative rounded-xl border-2 cursor-pointer transition-all p-4 ${
+                                    isEnabled
+                                        ? "border-teal-400 bg-teal-50"
+                                        : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"
+                                }`}
+                            >
+                                {/* Checkbox */}
+                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                                    isEnabled ? "border-teal-500 bg-teal-500" : "border-[#D5C9BC]"
+                                }`}>
+                                    {isEnabled && (
+                                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    )}
+                                </div>
 
-            <div className="bg-[#FAF7F4] rounded-[6px] p-4 border border-[#EDE8E0] text-[13px] text-[#6B5C4C]">
-                <div className="flex items-start gap-2">
-                    <svg className="w-5 h-5 text-[#B86B05] flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div>
-                        <p className="font-semibold mb-1">Cách tính phí vận chuyển</p>
-                        <ul className="mt-2 space-y-1">
-                            <li>• <strong>Cùng tỉnh:</strong> Giá cơ bản (thấp nhất)</li>
-                            <li>• <strong>Cùng miền:</strong> Giá cơ bản × 1.2 (+20%)</li>
-                            <li>• <strong>Khác miền:</strong> Giá cơ bản × 1.5 (+50%)</li>
-                            <li>• <strong>Cân nặng:</strong> Phí tăng theo mỗi 500g vượt quá 500g đầu tiên</li>
-                            <li>• <strong>Miễn phí:</strong> Đơn hàng từ <strong>500,000đ</strong></li>
-                        </ul>
-                        <p className="mt-3">Bạn không cần cấu hình thêm. Phí sẽ được tự động tính khi khách đặt hàng dựa trên địa chỉ kho hàng của bạn.</p>
+                                {/* Content */}
+                                <div className="mt-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${p.color} flex items-center justify-center text-white text-xs font-black`}>
+                                            {p.short}
+                                        </div>
+                                        <div>
+                                            <p className={`text-sm font-bold ${isEnabled ? "text-teal-700" : "text-slate-600"}`}>{p.name}</p>
+                                            <p className="text-[11px] text-[#9E8E7E]">{p.desc}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Default badge */}
+                                    {isDefault && (
+                                        <span className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-teal-500 text-white text-[10px] font-bold rounded-full">
+                                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            Mặc định
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* Set as default button */}
+                                {isEnabled && !isDefault && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setDefaultProv(p.key); setDirty(true); }}
+                                        className="absolute top-3 right-3 text-[10px] text-teal-600 hover:text-teal-700 font-semibold"
+                                    >
+                                        Đặt mặc định
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Free shipping threshold */}
+            <div>
+                <Label className="mb-2 block">Ngưỡng miễn phí vận chuyển</Label>
+                <p className="text-[12px] text-[#9E8E7E] mb-3">Khi tổng đơn hàng đạt ngưỡng này, khách sẽ được miễn phí vận chuyển. Đặt = 0 để tắt.</p>
+                <div className="flex items-center gap-3 flex-wrap">
+                    {[0, 200000, 300000, 500000, 700000, 1000000].map((val) => (
+                        <button
+                            key={val}
+                            type="button"
+                            onClick={() => { setThreshold(val); setDirty(true); }}
+                            className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
+                                threshold === val
+                                    ? "border-teal-500 bg-teal-50 text-teal-700"
+                                    : "border-[#EDE8E0] text-slate-500 hover:border-teal-300"
+                            }`}
+                        >
+                            {val === 0 ? "Tắt miễn phí" : `Từ ${formatVND(val)}`}
+                        </button>
+                    ))}
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-slate-400">Hoặc:</span>
+                        <input
+                            type="number"
+                            value={threshold > 0 ? threshold : ""}
+                            onChange={(e) => { setThreshold(Number(e.target.value)); setDirty(true); }}
+                            placeholder="Nhập số..."
+                            className="w-36 px-3 py-2 border-2 border-[#EDE8E0] rounded-xl text-sm focus:outline-none focus:border-teal-400"
+                        />
+                        <span className="text-sm text-slate-400">đ</span>
                     </div>
                 </div>
             </div>
+
+            {/* Summary */}
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-[13px] text-slate-500 space-y-1">
+                <p><strong className="text-slate-700">Đơn vị đang bật:</strong> {enabled.map(k => PROVIDER_OPTIONS.find(p => p.key === k)?.name).join(', ')}</p>
+                <p><strong className="text-slate-700">Mặc định:</strong> {PROVIDER_OPTIONS.find(p => p.key === defaultProv)?.name}</p>
+                <p><strong className="text-slate-700">Miễn phí ship:</strong> {threshold === 0 ? "Không bật" : `Đơn từ ${formatVND(threshold)}`}</p>
+            </div>
+
+            {dirty && <SaveBar saveLabel="Lưu cấu hình" onSave={handleSave} onCancel={handleCancel} saving={saving} />}
         </div>
     );
 };
@@ -294,7 +442,7 @@ const Settings = () => {
     }, [fetchShop]);
 
     const renderSection = () => {
-        if (active === "shipping") return <ShippingSection />;
+        if (active === "shipping") return <ShippingSection shop={shop} onSaved={fetchShop} />;
         if (active === "payment") return <PaymentSection />;
         if (active === "policy") return <PolicySection />;
         if (!shop) return null;

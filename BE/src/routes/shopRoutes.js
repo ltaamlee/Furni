@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getShop, getShopProducts, getShopVouchers, registerShop, getMyRegistration, resubmitRegistration } = require('../controllers/shopController');
+const { getShop, getShopProducts, getShopShippingConfig, getShopVouchers, registerShop, getMyRegistration, resubmitRegistration, getPlatformCoupons } = require('../controllers/shopController');
 const { protect } = require('../middleware/authMiddleware');
 const { uploadImagesMiddleware, uploadImages } = require('../controllers/uploadController'); 
 
@@ -12,7 +12,9 @@ router.post('/upload', protect, uploadImagesMiddleware, uploadImages);
 
 
 // CÁC API PUBLIC
+router.get('/coupons/platform', getPlatformCoupons);
 router.get('/:id/products', getShopProducts);
+router.get('/:id/shipping-config', getShopShippingConfig);
 router.get('/:idOrSlug', getShop);
 router.get('/:idOrSlug/vouchers', getShopVouchers);
 

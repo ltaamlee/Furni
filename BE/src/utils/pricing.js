@@ -60,6 +60,7 @@ const bestPricing = (product, promos, basePrice = null) => {
 /**
  * Gắn thông tin giá khuyến mãi vào danh sách sản phẩm (plain object / lean).
  * Thêm: salePrice, originalPrice (giá gốc), discountPercent, promotion {id,name,type}.
+ * Nếu có variants, cũng tính giá sale cho từng variant.
  */
 const attachPricing = async (products) => {
     const list = Array.isArray(products) ? products : [products];
@@ -67,7 +68,17 @@ const attachPricing = async (products) => {
 
     const shopIds = [...new Set(list.map((p) => idStr(p.shop)).filter(Boolean))];
     const promos = await loadRunningPromotions(shopIds);
-    if (promos.length === 0) return products;
+    if (promos.length === 0) {
+        // Vẫn cần đảm bảo variants có originalPrice
+        for (const p of list) {
+            if (p.variants && Array.isArray(p.variants)) {
+                for (const v of p.variants) {
+                    v.originalPrice = v.originalPrice ?? v.price;
+                }
+            }
+        }
+        return products;
+    }
 
     for (const p of list) {
         const best = bestPricing(p, promos);
@@ -76,6 +87,23 @@ const attachPricing = async (products) => {
             p.originalPrice = p.price;
             p.discountPercent = Math.round((1 - best.salePrice / p.price) * 100);
             p.promotion = { id: best.promotionId, name: best.promotionName, type: best.promotionType };
+        }
+
+        // Tính giá sale cho từng variant
+        if (p.variants && Array.isArray(p.variants)) {
+            for (const v of p.variants) {
+                v.originalPrice = v.originalPrice ?? v.price;
+                const variantBest = bestPricing(p, promos, v.price);
+                if (variantBest) {
+                    v.salePrice = variantBest.salePrice;
+                    v.discountPercent = Math.round((1 - variantBest.salePrice / v.price) * 100);
+                    v.promotion = { id: variantBest.promotionId, name: variantBest.promotionName, type: variantBest.promotionType };
+                } else {
+                    v.salePrice = null;
+                    v.discountPercent = null;
+                    v.promotion = null;
+                }
+            }
         }
     }
     return products;

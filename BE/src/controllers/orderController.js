@@ -6,6 +6,7 @@ const Notification = require('../models/notification');
 const { ORDER_STATUS } = require('../models/order');
 const payoutService = require('../services/payoutService');
 const { attachPricing } = require('../utils/pricing');
+const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
 const pickCheckoutItems = (cart, selectedProductIds = [], selectedProducts = []) => {
@@ -95,10 +96,10 @@ const notifyVendorsNewOrder = async (order) => {
 // @access  Private
 const createOrder = async (req, res) => {
     try {
-        const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, shippingServiceType = null } = req.body;
+        const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, shippingTier = 'express', shippingProvider = null, couponCode = null } = req.body;
         const isBuyNow = Boolean(buyNowProduct?.productId && Number(buyNowProduct.quantity) > 0);
-        // Ước tính ngày giao dựa trên service type từ frontend, fallback 3 ngày
-        const estimatedDays = shippingServiceType === 'express' ? 1 : shippingServiceType === 'economy' ? 7 : 3;
+        // Ước tính ngày giao dựa trên tier
+        const estimatedDays = shippingTier === 'express' ? 3 : 7;
 
         // Lấy cart của user
         const cart = isBuyNow ? null : await Cart.findOne({ user: req.user._id });
@@ -200,6 +201,44 @@ const createOrder = async (req, res) => {
         const shopKeys = Object.keys(shopGroups);
         const isMultiVendor = shopKeys.length > 1;
 
+        // Tính tổng subtotal tất cả shop để validate coupon
+        const totalSubtotal = shopKeys.reduce((sum, key) => sum + shopGroups[key].subtotal, 0);
+
+        // Validate và tính coupon discount (lấy dữ liệu mới nhất từ Coupon)
+        let couponDiscount = 0;
+        let usedCouponCode = null;
+        let usedCouponId = null;
+        if (couponCode) {
+            const voucher = await VoucherWallet.findOne({ user: req.user._id, code: couponCode.toUpperCase() })
+                .populate('coupon');
+            
+            if (voucher && voucher.status === VOUCHER_STATUS.ACTIVE) {
+                const coupon = voucher.coupon;
+                // Kiểm tra Coupon còn tồn tại và active
+                if (coupon && coupon.isActive) {
+                    // Sử dụng dữ liệu mới nhất từ Coupon
+                    const couponValue = coupon.value ?? voucher.value;
+                    const discountType = coupon.discountType || voucher.discountType;
+                    const maxDiscount = coupon.maxDiscount ?? voucher.maxDiscount;
+                    const minOrderValue = coupon.minOrderValue ?? voucher.minOrderValue;
+                    const couponEndDate = coupon.endDate || voucher.endDate;
+
+                    if (!couponEndDate || new Date(couponEndDate) >= new Date()) {
+                        if (!minOrderValue || totalSubtotal >= minOrderValue) {
+                            if (discountType === 'percent') {
+                                couponDiscount = Math.round(totalSubtotal * couponValue / 100);
+                                if (maxDiscount) couponDiscount = Math.min(couponDiscount, maxDiscount);
+                            } else {
+                                couponDiscount = Math.min(couponValue, totalSubtotal);
+                            }
+                            usedCouponCode = coupon.code || voucher.code;
+                            usedCouponId = voucher._id;
+                        }
+                    }
+                }
+            }
+        }
+
         // Tạo 1 đơn hàng độc lập cho mỗi shop (không còn parent/child)
         const createdOrders = [];
         
@@ -215,7 +254,11 @@ const createOrder = async (req, res) => {
                 shippingFee = 0; // Miễn phí vận chuyển
             }
 
-            const groupTotal = group.subtotal + shippingFee;
+            // Phân bổ coupon discount theo tỷ lệ subtotal của shop
+            const shopCouponDiscount = totalSubtotal > 0
+                ? Math.round(couponDiscount * group.subtotal / totalSubtotal)
+                : 0;
+            const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
 
             const order = new Order({
                 user: req.user._id,
@@ -229,7 +272,11 @@ const createOrder = async (req, res) => {
                 },
                 paymentMethod,
                 subtotal: group.subtotal,
+                couponDiscount: shopCouponDiscount,
+                couponCode: shopId === shopKeys[0] ? usedCouponCode : null,
                 shippingFee,
+                shippingTier,
+                shippingProvider,
                 totalPrice: groupTotal,
                 totalQuantity: group.totalQuantity,
                 orderedAt: new Date(),
@@ -248,6 +295,14 @@ const createOrder = async (req, res) => {
 
             await order.save();
             createdOrders.push(order);
+        }
+
+        // Đánh dấu voucher là đã sử dụng (sau khi tất cả orders được tạo)
+        if (usedCouponId) {
+            await VoucherWallet.findByIdAndUpdate(usedCouponId, {
+                status: VOUCHER_STATUS.USED,
+                usedAt: new Date()
+            });
         }
 
         // Xóa khỏi giỏ các sản phẩm vừa thanh toán, giữ lại item chưa chọn.

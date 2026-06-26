@@ -196,6 +196,42 @@ const orderSchema = new mongoose.Schema({
         default: 0,
         min: 0
     },
+    // Tầng vận chuyển: 'economy' (tiết kiệm) hoặc 'express' (nhanh) — chọn tại checkout
+    shippingTier: {
+        type: String,
+        enum: ['economy', 'express'],
+        default: 'express'
+    },
+    // Provider thực tế shop chọn khi bàn giao cho đơn vị vận chuyển (J&T, GHTK, Viettel)
+    shippingProvider: {
+        type: String,
+        default: null
+    },
+    // Tracking number từ đơn vị vận chuyển (sau khi shop bàn giao)
+    trackingNumber: {
+        type: String,
+        default: null
+    },
+    // Link tới ShippingOrder document
+    shippingOrderId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'ShippingOrder',
+        default: null
+    },
+    couponDiscount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    couponCode: {
+        type: String,
+        default: null
+    },
+    usedCouponId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'VoucherWallet',
+        default: null
+    },
     totalPrice: {
         type: Number,
         required: true,

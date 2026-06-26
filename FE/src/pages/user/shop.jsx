@@ -224,10 +224,15 @@ const ShopPage = () => {
                     </div>
                 </div>
 
-                {/* Voucher Section — all shops */}
+                {/* Voucher Section — chỉ hiển thị coupon thường, không phải Flash Sale/Combo */}
                 {vouchers.length > 0 && (() => {
+                    // Chỉ hiển thị voucher coupon thường (promotion = null hoặc undefined)
+                    const couponVouchers = vouchers.filter(v => !v.promotion);
+                    
+                    if (couponVouchers.length === 0) return null;
+                    
                     // Group vouchers by shop
-                    const grouped = vouchers.reduce((acc, v) => {
+                    const grouped = couponVouchers.reduce((acc, v) => {
                         const shopId = v.shop?._id || 'global';
                         if (!acc[shopId]) {
                             acc[shopId] = {
@@ -300,7 +305,7 @@ const ShopPage = () => {
                                                                 : 'bg-[#B86B05] text-white hover:bg-[#9a5a04]'
                                                         } disabled:opacity-60`}
                                                     >
-                                                        {claimingId === voucher._id ? 'Đang nhận...' : voucher._claimed ? '✓ Đã nhận' : 'Nhận Voucher'}
+                                                        {claimingId === voucher._id ? 'Đang nhận...' : voucher._claimed ? 'Đã nhận' : (voucher.usageLimit === 0 ? 'Lưu Voucher' : 'Nhận Voucher')}
                                                     </button>
                                                 </div>
                                             </div>

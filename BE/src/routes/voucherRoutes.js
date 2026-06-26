@@ -7,6 +7,7 @@ const {
     getVoucherCount,
     applyVoucher,
     getAvailableVouchers,
+    validateVoucher,
 } = require('../controllers/voucherWalletController');
 const { getAllVouchers } = require('../controllers/shopController');
 
@@ -22,5 +23,6 @@ router.get('/wallet', authorize('customer'), getMyVouchers);
 router.get('/count', authorize('customer'), getVoucherCount);
 router.post('/apply', authorize('customer'), applyVoucher);
 router.get('/available', authorize('customer'), getAvailableVouchers);
+router.post('/validate', authorize('customer'), validateVoucher);
 
 module.exports = router;

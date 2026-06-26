@@ -2,7 +2,6 @@ const Review = require('../models/Review');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
 const Coupon = require('../models/Coupon');
-const LoyaltyPoint = require('../models/LoyaltyPoint');
 const mongoose = require('mongoose');
 
 const REVIEW_TYPE = require('../models/Review').TYPE || { PRODUCT: 'product', ORDER: 'order', SHOP: 'shop' };
@@ -120,28 +119,16 @@ const createReview = async (req, res) => {
                 code: `RATED-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
                 name: `Cảm ơn bạn đã đánh giá ${rating} sao!`,
                 description: 'Mã giảm giá từ việc đánh giá sản phẩm',
-                type: 'fixed',
+                discountType: 'fixed',
                 value: 10000,
                 maxUses: 1,
                 perUserLimit: 1,
                 startDate: new Date(),
                 endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                isPublic: false,
-                loyaltyCost: null
+                isPublic: false
             });
             await Coupon.findByIdAndUpdate(coupon._id, { applicableProducts: [productId] });
             reward = { type: 'coupon', code: coupon.code, value: coupon.value };
-        } else {
-            let loyaltyPoint = await LoyaltyPoint.findOne({ user: userId });
-            if (!loyaltyPoint) {
-                loyaltyPoint = await LoyaltyPoint.create({ user: userId });
-            }
-            await loyaltyPoint.addPoints(
-                50,
-                `Nhận điểm từ việc đánh giá sản phẩm ${rating} sao`,
-                orderId
-            );
-            reward = { type: 'points', value: 50 };
         }
 
         const populatedReview = await Review.findById(review._id)

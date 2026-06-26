@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { getOrderByIdApi, cancelPayOSPaymentApi } from "../../utils/api";
+import { getOrderByIdApi } from "../../utils/api";
 
 const PayOSReturnPage = () => {
   const navigate = useNavigate();
@@ -8,8 +8,6 @@ const PayOSReturnPage = () => {
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(null);
-  const [countdown, setCountdown] = useState(600); // 10 phút = 600 giây
-  const [cancelling, setCancelling] = useState(false);
   const [autoCancelled, setAutoCancelled] = useState(false);
 
   const status = searchParams.get("payment");
@@ -17,12 +15,6 @@ const PayOSReturnPage = () => {
   const isSuccess = status === "success";
   const isCancelled = status === "cancelled";
 
-  // Định dạng thời gian countdown
-  const formatCountdown = (seconds) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  };
 
   // Fetch order details
   const fetchOrderDetails = useCallback(async (id) => {
@@ -40,15 +32,6 @@ const PayOSReturnPage = () => {
         } else {
           setPaymentStatus("failed");
         }
-
-        // Sync countdown với paymentExpiresAt từ server
-        if (o.paymentExpiresAt) {
-          const remaining = Math.max(
-            0,
-            Math.floor((new Date(o.paymentExpiresAt) - Date.now()) / 1000)
-          );
-          setCountdown(remaining);
-        }
       } else {
         setPaymentStatus("failed");
       }
@@ -58,8 +41,9 @@ const PayOSReturnPage = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [navigate]);
 
+  // Fetch order khi orderId thay đổi
   useEffect(() => {
     if (orderId) {
       fetchOrderDetails(orderId);
@@ -72,58 +56,19 @@ const PayOSReturnPage = () => {
     }
   }, [orderId, isCancelled, fetchOrderDetails]);
 
-  // Countdown timer — khi hết giờ thì tự động hủy đơn
+  // Khi auto cancel thành công → chuyển sang cancelled state
   useEffect(() => {
-    if (paymentStatus !== "pending" || !orderId || countdown <= 0) return;
-
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [paymentStatus, orderId, countdown]);
-
-  // Khi countdown về 0 → auto cancel đơn
-  useEffect(() => {
-    if (countdown !== 0 || paymentStatus !== "pending" || !orderId || autoCancelled) return;
-
-    const doCancel = async () => {
-      setAutoCancelled(true);
-      try {
-        await cancelPayOSPaymentApi(orderId);
-        setPaymentStatus("cancelled");
-      } catch (err) {
-        console.error("Auto cancel failed:", err);
-        // Vẫn chuyển sang cancelled state để hiển thị
-        setPaymentStatus("cancelled");
-      }
-    };
-
-    doCancel();
-  }, [countdown, paymentStatus, orderId, autoCancelled]);
-
-  // Khi user nhấn "Hủy đơn hàng"
-  const handleCancel = async () => {
-    if (!orderId) return;
-    if (!window.confirm("Bạn có chắc muốn hủy đơn hàng này?")) return;
-
-    setCancelling(true);
-    try {
-      await cancelPayOSPaymentApi(orderId);
+    if (autoCancelled) {
       setPaymentStatus("cancelled");
-    } catch (err) {
-      console.error("Cancel failed:", err);
-      alert("Không thể hủy đơn. Vui lòng thử lại.");
-    } finally {
-      setCancelling(false);
     }
-  };
+  }, [autoCancelled]);
+
+  // Khi paymentStatus là pending → redirect về trang đơn hàng
+  useEffect(() => {
+    if (paymentStatus === "pending" && orderId) {
+      navigate(`/orders/${orderId}`);
+    }
+  }, [paymentStatus, orderId, navigate]);
 
   // Retry payment
   const handleRetryPayment = () => {
@@ -241,6 +186,9 @@ const PayOSReturnPage = () => {
                           />
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-medium text-[#1C1108] line-clamp-1">{item.name}</p>
+                            {item.variant && (
+                              <p className="text-[10px] text-[#A8896A]">Phân loại: {item.variant}</p>
+                            )}
                             <p className="text-[10px] text-[#A8896A]">×{item.quantity}</p>
                           </div>
                           <p className="text-xs font-bold text-[#1C1108] whitespace-nowrap">
@@ -283,82 +231,16 @@ const PayOSReturnPage = () => {
             </div>
           </div>
         ) : paymentStatus === "pending" ? (
-          /* === PENDING STATE === */
+          /* === PENDING STATE — show loading then redirect === */
           <div className="space-y-5">
-            <div className="bg-white/95 backdrop-blur rounded-3xl shadow-2xl overflow-hidden">
-              <div className="relative h-28 overflow-hidden"
-                style={{ background: "linear-gradient(135deg, #d97706 0%, #b45309 100%)" }}>
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-                  <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center mb-2">
-                    <svg className="w-9 h-9 text-white animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <h2 className="text-xl font-extrabold">Đang chờ thanh toán</h2>
-                </div>
+            <div className="bg-white/95 backdrop-blur rounded-3xl shadow-2xl p-8 text-center">
+              <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-9 h-9 text-amber-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
               </div>
-
-              <div className="p-6 space-y-4">
-                {/* Countdown timer */}
-                <div className="text-center">
-                  <p className="text-xs text-[#A8896A] font-medium uppercase tracking-wider mb-2">Thời gian còn lại</p>
-                  <div className={`text-4xl font-black font-mono tracking-widest ${countdown <= 60 ? "text-red-500 animate-pulse" : "text-amber-600"}`}>
-                    {formatCountdown(countdown)}
-                  </div>
-                  {countdown <= 60 && countdown > 0 && (
-                    <p className="text-xs text-red-500 font-semibold mt-1">Sắp hết thời gian!</p>
-                  )}
-                </div>
-
-                {/* Progress bar */}
-                <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                  <div
-                    className={`h-2 rounded-full transition-all duration-1000 ${countdown <= 60 ? "bg-red-500" : "bg-amber-500"}`}
-                    style={{ width: `${Math.max(0, (countdown / 600) * 100)}%` }}
-                  />
-                </div>
-
-                <p className="text-sm text-[#6B5C4C] text-center leading-relaxed">
-                  Vui lòng hoàn tất thanh toán trong <b className="text-[#1C1108]">{formatCountdown(countdown)}</b>. Đơn hàng sẽ tự động hủy nếu không thanh toán kịp thời gian.
-                </p>
-
-                {order && (
-                  <div className="bg-[#FAF7F4] rounded-2xl p-4 border border-[#EDE8E0]">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="text-xs text-[#A8896A] font-semibold uppercase tracking-wider">Mã đơn hàng</p>
-                        <p className="font-extrabold text-[#1C1108]">{order.orderNumber}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-[#A8896A] font-semibold uppercase tracking-wider">Số tiền</p>
-                        <p className="font-extrabold text-amber-600">{formatPrice(order.totalPrice)}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Action buttons */}
-                <div className="space-y-2 pt-2">
-                  <button
-                    onClick={handleCancel}
-                    disabled={cancelling}
-                    className="w-full py-3 rounded-xl font-semibold text-sm text-red-600 bg-red-50 border-2 border-red-200 hover:bg-red-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {cancelling ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin" />
-                        Đang hủy...
-                      </span>
-                    ) : "Hủy đơn hàng"}
-                  </button>
-                  <button
-                    onClick={() => navigate("/")}
-                    className="w-full py-3 rounded-xl font-semibold text-sm text-amber-600 bg-amber-50 border-2 border-amber-200 hover:bg-amber-100 transition-all"
-                  >
-                    Về trang chủ (thanh toán sau)
-                  </button>
-                </div>
-              </div>
+              <h2 className="text-lg font-bold text-[#1C1108]">Đang chuyển hướng...</h2>
+              <p className="text-sm text-[#6B5C4C] mt-2">Vui lòng chờ trong giây lát.</p>
             </div>
           </div>
         ) : paymentStatus === "cancelled" ? (

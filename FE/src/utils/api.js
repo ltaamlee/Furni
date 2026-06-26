@@ -220,73 +220,21 @@ const addToRecentlyViewedApi = (productId) => {
     return axios.post(URL_API);
 }
 
-// Coupon APIs
-const getAvailableCouponsApi = () => {
-    const URL_API = "/loyalty/coupons";
-    return axios.get(URL_API);
-}
-
-const getMyCouponsApi = (params = {}) => {
-    const URL_API = "/loyalty/coupons/my-coupons";
-    return axios.get(URL_API, { params });
-}
-
-const validateCouponApi = (data) => {
-    const URL_API = "/loyalty/coupons/validate";
-    return axios.post(URL_API, data);
-}
-
-const redeemCouponApi = (couponId) => {
-    const URL_API = "/loyalty/coupons/redeem";
-    return axios.post(URL_API, { couponId });
-}
-
-// Loyalty Points APIs
-const getMyPointsApi = () => {
-    const URL_API = "/loyalty/points";
-    return axios.get(URL_API);
-}
-
-const getPointHistoryApi = (params = {}) => {
-    const URL_API = "/loyalty/points/history";
-    return axios.get(URL_API, { params });
-}
-
-const getExchangeableCouponsApi = () => {
-    const URL_API = "/loyalty/points/exchangeable";
-    return axios.get(URL_API);
-}
-
 // Shipping APIs
-const getShippingProvidersApi = () => {
-    const URL_API = "/shipping/providers";
-    return axios.get(URL_API);
-}
-
-const calculateShippingFeesApi = (params) => {
-    const URL_API = "/shipping/calculate-all";
-    return axios.get(URL_API, { params });
-}
+const getShippingProvidersApi = () => axios.get("/shipping/providers");
+const calculateShippingFeesApi = (params) => axios.get("/shipping/calculate-all", { params });
+const calculateShippingTiersApi = (params) => axios.get("/shipping/calculate-tiers", { params });
 
 // Location APIs (Vietnam administrative divisions)
-const getProvincesApi = () => {
-    const URL_API = "/locations/provinces";
-    return axios.get(URL_API);
-}
-
-const getShippingByOrderApi = (orderId) => {
-    const URL_API = `/shipping/orders/${orderId}`;
-    return axios.get(URL_API);
-}
-
-const trackShipmentApi = (trackingNumber) => {
-    const URL_API = `/shipping/track/${trackingNumber}`;
-    return axios.get(URL_API);
-}
+const getProvincesApi = () => axios.get("/locations/provinces");
+const getShippingByOrderApi = (orderId) => axios.get(`/shipping/orders/${orderId}`);
+const trackShipmentApi = (trackingNumber) => axios.get(`/shipping/track/${trackingNumber}`);
 
 // Public shop (storefront)
 const getShopApi = (idOrSlug) => axios.get(`/shops/${idOrSlug}`);
 const getShopVouchersApi = (idOrSlug) => axios.get(`/shops/${idOrSlug}/vouchers`);
+const getPlatformCouponsApi = () => axios.get("/shops/coupons/platform");
+const getShopShippingConfigApi = (shopId) => axios.get(`/shops/${shopId}/shipping-config`);
 
 // Voucher wallet APIs
 const claimVoucherApi = (couponId) => axios.post("/vouchers/claim", { couponId });
@@ -296,6 +244,7 @@ const getAvailableVouchersApi = () => axios.get("/vouchers/available");
 const applyVoucherApi = (voucherWalletId, orderId) =>
     axios.post("/vouchers/apply", { voucherWalletId, orderId });
 const getAllVouchersApi = () => axios.get("/vouchers/all");
+const validateVoucherApi = (data) => axios.post("/vouchers/validate", data);
 const getShopProductsApi = (id, params = {}) => axios.get(`/shops/${id}/products`, { params });
 const registerShopApi = (data) => axios.post("/shops/register", data);
 const getMyShopRegistrationApi = () => axios.get("/shops/my-registration");
@@ -374,7 +323,8 @@ const exportVendorProductsApi = (params = {}) =>
 // Vendor orders (đơn hàng có sản phẩm của shop)
 const getVendorOrdersApi = (params = {}) => axios.get("/vendor/orders", { params });
 const getVendorOrderApi = (id) => axios.get(`/vendor/orders/${id}`);
-const updateVendorOrderStatusApi = (id, status, note) => axios.put(`/vendor/orders/${id}/status`, { status, note });
+const updateVendorOrderStatusApi = (id, status, extra = {}) =>
+    axios.put(`/vendor/orders/${id}/status`, { status, ...extra });
 
 const getVendorPromotionsApi = (params = {}) => axios.get("/vendor/promotions", { params });
 const createVendorPromotionApi = (data) => axios.post("/vendor/promotions", data);
@@ -556,6 +506,11 @@ const syncShippingRatesApi = () => {
     return axios.post(URL_API);
 };
 
+const bulkUpdateShippingRatesApi = (rates) => {
+    const URL_API = "/shipping-rates/bulk";
+    return axios.put(URL_API, { rates });
+};
+
 export {
     createUserApi,
     loginApi,
@@ -599,26 +554,23 @@ export {
     checkWishlistApi,
     getRecentlyViewedApi,
     addToRecentlyViewedApi,
-    getAvailableCouponsApi,
-    getMyCouponsApi,
-    validateCouponApi,
-    redeemCouponApi,
-    getMyPointsApi,
-    getPointHistoryApi,
-    getExchangeableCouponsApi,
     getShippingProvidersApi,
     calculateShippingFeesApi,
+    calculateShippingTiersApi,
     getShippingByOrderApi,
     trackShipmentApi,
     getProvincesApi,
     // GeoVina APIs
     getShopApi,
     getShopVouchersApi,
+    getPlatformCouponsApi,
+    getShopShippingConfigApi,
     claimVoucherApi,
     getMyVouchersApi,
     getVoucherCountApi,
     getAvailableVouchersApi,
     getAllVouchersApi,
+    validateVoucherApi,
     applyVoucherApi,
     getShopProductsApi,
     registerShopApi,
@@ -723,6 +675,7 @@ export {
     getShippingRatesGroupedApi,
     updateShippingRateApi,
     seedShippingRatesApi,
+    bulkUpdateShippingRatesApi,
     resetShippingRatesApi,
     syncShippingRatesApi,
 };

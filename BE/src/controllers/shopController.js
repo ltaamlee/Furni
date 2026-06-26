@@ -54,6 +54,37 @@ const getShop = async (req, res) => {
     }
 };
 
+// @desc    Lấy cấu hình vận chuyển công khai của 1 shop
+// @route   GET /api/shops/:id/shipping-config
+// @access  Public
+const getShopShippingConfig = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        let shop;
+        if (mongoose.isValidObjectId(id)) {
+            shop = await Shop.findById(id).select('shippingConfig name');
+        }
+        if (!shop) {
+            shop = await Shop.findOne({ slug: id }).select('shippingConfig name');
+        }
+        if (!shop) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy cửa hàng' });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                shopId: shop._id,
+                shopName: shop.name,
+                shippingConfig: shop.shippingConfig || {}
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy cấu hình vận chuyển', error: error.message });
+    }
+};
+
 // @desc    Lấy sản phẩm của 1 shop (công khai, phân trang)
 // @route   GET /api/shops/:id/products
 // @access  Public
@@ -509,6 +540,8 @@ const getShopVouchers = async (req, res) => {
             minOrderValue: c.minOrderValue,
             endDate: c.endDate,
             remaining: c.usageLimit === 0 ? null : Math.max(0, c.usageLimit - c.usedCount),
+            usageLimit: c.usageLimit,
+            promotion: c.promotion, // null = coupon thường, có giá trị = Flash Sale/Combo
         }));
 
         res.status(200).json({ success: true, data: vouchers });
@@ -547,6 +580,8 @@ const getAllVouchers = async (req, res) => {
             minOrderValue: c.minOrderValue,
             endDate: c.endDate,
             remaining: c.usageLimit === 0 ? null : Math.max(0, c.usageLimit - c.usedCount),
+            usageLimit: c.usageLimit,
+            promotion: c.promotion,
             shop: c.shop ? {
                 _id: c.shop._id,
                 name: c.shop.name,
@@ -562,7 +597,45 @@ const getAllVouchers = async (req, res) => {
     }
 };
 
-module.exports = { getShop, getShopProducts, getAllShopsAdmin,
+// @desc    Get public platform coupons (admin-created, no shop)
+// @route   GET /api/coupons/platform
+// @access  Public
+const getPlatformCoupons = async (req, res) => {
+    try {
+        const now = new Date();
+        const coupons = await Coupon.find({
+            shop: null,
+            isActive: true,
+            startDate: { $lte: now },
+            endDate: { $gte: now },
+            $or: [
+                { usageLimit: 0 },
+                { $expr: { $lt: ['$usedCount', '$usageLimit'] } }
+            ]
+        })
+        .sort({ value: -1 })
+        .limit(20);
+
+        const data = coupons.map((c) => ({
+            _id: c._id,
+            code: c.code,
+            description: c.description,
+            discountType: c.discountType,
+            value: c.value,
+            maxDiscount: c.maxDiscount,
+            minOrderValue: c.minOrderValue,
+            endDate: c.endDate,
+            remaining: c.usageLimit === 0 ? null : Math.max(0, c.usageLimit - c.usedCount),
+        }));
+
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        console.error('getPlatformCoupons error:', error);
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy coupon toàn sàn', error: error.message });
+    }
+};
+
+module.exports = { getShop, getShopProducts, getShopShippingConfig, getAllShopsAdmin,
     updateShopStatus, registerShop, getMyRegistration, resubmitRegistration,
     getAdminShopDetail, getAdminShopProducts, toggleProductVisibilityAdmin,
-    getShopVouchers, getAllVouchers };
+    getShopVouchers, getAllVouchers, getPlatformCoupons };

@@ -1,478 +1,449 @@
-import React, { useState, useEffect } from "react";
-import { getAdminPromotionsSiteApi, createAdminPromotionSiteApi, updateAdminPromotionSiteApi, deleteAdminPromotionSiteApi } from "../../utils/api";
+import React, { useState, useEffect, useCallback } from "react";
+import SlideOver from "../../components/vendor/SlideOver";
+import { promoTypes, formatVND } from "../../components/vendor/data";
+import { IconPlus, IconZap, IconTag, IconBox, IconTruck, IconImage, IconEdit, IconTrash, IconCheck } from "../../components/vendor/icons";
+import { useToast } from "../../components/context/ToastContext";
+import {
+    getAdminPromotionsSiteApi,
+    createAdminPromotionSiteApi,
+    updateAdminPromotionSiteApi,
+    deleteAdminPromotionSiteApi,
+} from "../../utils/api";
+
+const TYPE_ICON = { flash: IconZap, coupon: IconTag, combo: IconBox, freeship: IconTruck };
+const CARD_TO_TYPE = { flash: "flash_sale", coupon: "coupon", combo: "bundle", freeship: "freeship" };
+const TYPE_TO_CARD = { flash_sale: "flash", coupon: "coupon", bundle: "combo", gift: "combo", freeship: "freeship" };
+
+const DISCOUNT_OPTIONS = {
+    percent: { value: "percent", label: "Phần trăm (%)" },
+    fixed: { value: "fixed", label: "Số tiền cố định (₫)" },
+    freeship: { value: "freeship", label: "Miễn phí vận chuyển" },
+};
+const DISCOUNTS_BY_CARD = {
+    flash: ["percent", "fixed"],
+    coupon: ["percent", "fixed"],
+    combo: ["percent", "fixed"],
+    freeship: ["freeship"],
+};
+
+const TYPE_META = {
+    flash_sale: { label: "Flash Sale", tone: "red" },
+    coupon: { label: "Coupon", tone: "purple" },
+    bundle: { label: "Mua bộ", tone: "orange" },
+    gift: { label: "Quà tặng", tone: "blue" },
+    freeship: { label: "Free ship", tone: "blue" },
+};
+const STATUS_META = {
+    running: { label: "Đang chạy", tone: "green" },
+    scheduled: { label: "Sắp diễn ra", tone: "blue" },
+    ended: { label: "Đã kết thúc", tone: "gray" },
+    paused: { label: "Tạm dừng", tone: "yellow" },
+    draft: { label: "Nháp", tone: "gray" },
+};
+const TAB_DEFS = [
+    { key: "all", label: "Tất cả" },
+    { key: "running", label: "Đang chạy" },
+    { key: "scheduled", label: "Sắp diễn ra" },
+    { key: "ended", label: "Đã kết thúc" },
+];
+
+const msgOf = (res) => (Array.isArray(res?.message) ? res.message.join(", ") : res?.message);
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "");
+const toLocalInput = (d) => {
+    if (!d) return "";
+    const dt = new Date(d);
+    const off = dt.getTimezoneOffset() * 60000;
+    return new Date(dt - off).toISOString().slice(0, 16);
+};
+
+const buildForm = (editing) => {
+    if (!editing) return {
+        cardType: "flash", name: "", discountType: "percent", value: "25",
+        maxDiscount: "", minOrderValue: "0", startDate: "", endDate: "", maxUsage: "",
+    };
+    return {
+        cardType: TYPE_TO_CARD[editing.type] || "flash",
+        name: editing.name || "",
+        discountType: editing.discountType || "percent",
+        value: editing.value ?? "",
+        maxDiscount: editing.maxDiscount || "",
+        minOrderValue: editing.minOrderValue ?? "0",
+        startDate: toLocalInput(editing.startDate),
+        endDate: toLocalInput(editing.endDate),
+        maxUsage: editing.maxUsage || "",
+    };
+};
+
+const discountText = (p) => {
+    if (p.discountType === "freeship" || p.type === "freeship") return "Miễn phí vận chuyển";
+    const hi = p.discountType === "percent" ? `${p.value}%` : formatVND(p.value);
+    const cond = p.minOrderValue ? ` cho đơn từ ${formatVND(p.minOrderValue)}` : "";
+    return { hi, cond, tone: p.type === "flash_sale" ? "text-red-600" : "text-[#B86B05]" };
+};
+
+const Badge = ({ tone, children }) => {
+    const tones = {
+        red: "bg-red-50 text-red-600",
+        purple: "bg-purple-50 text-purple-600",
+        orange: "bg-orange-50 text-orange-600",
+        blue: "bg-blue-50 text-blue-600",
+        green: "bg-green-50 text-green-600",
+        yellow: "bg-yellow-50 text-yellow-700",
+        gray: "bg-gray-100 text-gray-500",
+    };
+    return <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${tones[tone] || tones.gray}`}>{children}</span>;
+};
+
+/* ---- Create / Edit promotion SlideOver ---- */
+const PromoModal = ({ open, onClose, editing, onSaved }) => {
+    const { showToast } = useToast();
+    const [form, setForm] = useState(() => buildForm(editing));
+    const [saving, setSaving] = useState(false);
+
+    const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+    const setCardType = (cardType) => setForm((f) => {
+        const allowed = DISCOUNTS_BY_CARD[cardType] || ["percent", "fixed"];
+        const discountType = allowed.includes(f.discountType) ? f.discountType : allowed[0];
+        return { ...f, cardType, discountType };
+    });
+
+    const discountChoices = DISCOUNTS_BY_CARD[form.cardType] || ["percent", "fixed"];
+    const unit = form.discountType === "percent" ? "%" : "₫";
+    const isFreeship = form.discountType === "freeship";
+    const isCombo = form.cardType === "combo";
+
+    const submit = async (status) => {
+        if (!form.name.trim()) return showToast("Vui lòng nhập tên chương trình", "error");
+        if (!form.startDate || !form.endDate) return showToast("Vui lòng chọn thời gian bắt đầu/kết thúc", "error");
+        if (isCombo) return showToast("Mua bộ là khuyến mãi theo shop, không áp dụng cho toàn sàn", "error");
+
+        const payload = {
+            name: form.name.trim(),
+            type: CARD_TO_TYPE[form.cardType],
+            discountType: form.discountType,
+            value: isFreeship ? 0 : Number(form.value) || 0,
+            maxDiscount: Number(form.maxDiscount) || 0,
+            minOrderValue: Number(form.minOrderValue) || 0,
+            appliesTo: "all",
+            startDate: form.startDate,
+            endDate: form.endDate,
+            maxUsage: Number(form.maxUsage) || 0,
+            status,
+            shop: null,
+        };
+
+        try {
+            setSaving(true);
+            const res = editing
+                ? await updateAdminPromotionSiteApi(editing._id, payload)
+                : await createAdminPromotionSiteApi(payload);
+            if (res.success) {
+                showToast(editing ? "Cập nhật khuyến mãi thành công" : "Tạo khuyến mãi thành công", "success");
+                onSaved();
+                onClose();
+            } else {
+                showToast(msgOf(res) || "Lưu khuyến mãi thất bại", "error");
+            }
+        } catch {
+            showToast("Có lỗi xảy ra", "error");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const previewAfter = form.discountType === "percent"
+        ? Math.round(6500000 * (1 - (Number(form.value) || 0) / 100))
+        : Math.max(0, 6500000 - (Number(form.value) || 0));
+
+    return (
+        <SlideOver open={open} onClose={onClose} title={<h3 className="text-base font-bold">{editing ? "Chỉnh sửa khuyến mãi" : "Tạo khuyến mãi toàn sàn"}</h3>}>
+            <div className="mb-3">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-600 rounded-full text-[11px] font-bold">
+                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                    Áp dụng cho toàn sàn
+                </span>
+            </div>
+
+            <Label required>Loại khuyến mãi</Label>
+            <div className="grid grid-cols-2 gap-2 mb-[18px] mt-1">
+                {promoTypes.map((t) => {
+                    if (t.key === "combo") return null;
+                    const Icon = TYPE_ICON[t.key];
+                    const selected = form.cardType === t.key;
+                    return (
+                        <button key={t.key} onClick={() => setCardType(t.key)}
+                            className={`border-2 rounded-[10px] px-4 py-3.5 cursor-pointer transition-colors text-center ${selected ? "border-[#B86B05] bg-[#fffbeb]" : "border-[#EDE8E0] hover:border-[#B86B05] hover:bg-[#fffbeb]"}`}>
+                            <Icon size={22} strokeWidth={1.8} className={`mx-auto mb-2 ${selected ? "text-[#B86B05]" : "text-[#9E8E7E]"}`} />
+                            <div className="text-[13px] font-semibold">{t.label}</div>
+                            <div className="text-[11.5px] text-[#9E8E7E] mt-0.5">{t.sub}</div>
+                        </button>
+                    );
+                })}
+            </div>
+
+            <div className="mb-3.5">
+                <Label required>Tên chương trình</Label>
+                <input className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
+                    value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="VD: Flash Sale Furni cuối tuần" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3.5">
+                <div>
+                    <Label>Loại giảm</Label>
+                    <select className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
+                        value={form.discountType} disabled={isFreeship} onChange={(e) => set("discountType", e.target.value)}>
+                        {discountChoices.map((d) => (
+                            <option key={d} value={DISCOUNT_OPTIONS[d].value}>{DISCOUNT_OPTIONS[d].label}</option>
+                        ))}
+                    </select>
+                    {isFreeship && <div className="text-[11px] text-[#9E8E7E] mt-1">Free ship không cần giá trị giảm</div>}
+                </div>
+                <div className={isFreeship ? "opacity-40" : ""}>
+                    <Label required>Giá trị giảm</Label>
+                    <div className="relative">
+                        <input type="number" className="w-full px-4 py-2.5 pr-8 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
+                            value={form.value} disabled={isFreeship} onChange={(e) => set("value", e.target.value)} placeholder="25" />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] font-semibold text-[#6B5C4C]">{unit}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3.5">
+                <div>
+                    <Label>Điều kiện đơn tối thiểu</Label>
+                    <input type="number" className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
+                        value={form.minOrderValue} onChange={(e) => set("minOrderValue", e.target.value)} />
+                    <div className="text-[11px] text-[#9E8E7E] mt-1">0 = không giới hạn</div>
+                </div>
+                <div>
+                    <Label>Giảm tối đa (₫)</Label>
+                    <input type="number" className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
+                        value={form.maxDiscount} onChange={(e) => set("maxDiscount", e.target.value)} placeholder="Không giới hạn" />
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3.5">
+                <div>
+                    <Label required>Bắt đầu</Label>
+                    <input type="datetime-local" className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
+                        value={form.startDate} onChange={(e) => set("startDate", e.target.value)} />
+                </div>
+                <div>
+                    <Label required>Kết thúc</Label>
+                    <input type="datetime-local" className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
+                        value={form.endDate} onChange={(e) => set("endDate", e.target.value)} />
+                </div>
+            </div>
+
+            <div className="mb-4">
+                <Label>Số lượt dùng tối đa</Label>
+                <input type="number" className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
+                    value={form.maxUsage} onChange={(e) => set("maxUsage", e.target.value)} placeholder="0 = không giới hạn" />
+            </div>
+
+            {/* Preview */}
+            <div className="rounded-[10px] p-[18px] text-white mt-1 bg-gradient-to-br from-[#1a3a6b] to-[#2563eb]">
+                <span className="inline-block bg-white/20 backdrop-blur border border-white/30 px-2.5 py-[3px] rounded-full text-[11px] font-bold mb-2">Preview</span>
+                <div className="text-[18px] font-extrabold mb-1">
+                    {promoTypes.find((t) => t.key === form.cardType)?.label} {!isFreeship && `– Giảm ${form.value || 0}${unit}`}
+                </div>
+                <div className="text-[12.5px] opacity-80">Áp dụng: Toàn sàn Furni</div>
+                {!isFreeship && (
+                    <div className="mt-2.5 flex gap-2">
+                        <div className="bg-white/15 rounded-md px-3 py-2 text-[12px]"><div className="opacity-70 text-[10px]">Giá gốc</div><div className="font-bold line-through">6.500.000₫</div></div>
+                        <div className="bg-white/25 rounded-md px-3 py-2 text-[12px]"><div className="opacity-70 text-[10px]">Sau giảm</div><div className="font-extrabold text-[15px] text-yellow-300">{previewAfter.toLocaleString("vi-VN")}₫</div></div>
+                    </div>
+                )}
+            </div>
+
+            <div className="flex gap-2.5 mt-5 pt-4 border-t border-[#EDE8E0]">
+                <button onClick={onClose} className="px-5 py-2.5 border border-[#EDE8E0] rounded-lg text-[14px] font-medium hover:bg-[#FAF7F4] transition-colors">Hủy</button>
+                <button onClick={() => submit("draft")} disabled={saving} className="px-5 py-2.5 text-[14px] font-medium text-[#6B5C4C] hover:bg-[#FAF7F4] rounded-lg transition-colors disabled:opacity-50">Lưu nháp</button>
+                <button onClick={() => submit(editing ? (editing.status || "running") : "running")} disabled={saving}
+                    className="ml-auto px-5 py-2.5 bg-[#B86B05] text-white rounded-lg text-[14px] font-semibold hover:bg-[#95520B] shadow-sm shadow-[#B86B05]/20 transition-colors disabled:opacity-50">
+                    {saving ? "Đang lưu..." : editing ? "Lưu thay đổi" : "Kích hoạt ngay"}
+                </button>
+            </div>
+        </SlideOver>
+    );
+};
+
+const Label = ({ children, required }) => (
+    <label className="block text-[12px] font-semibold text-[#6B5C4C] uppercase mb-1.5 tracking-wide">
+        {children} {required && <span className="text-red-500 ml-0.5">*</span>}
+    </label>
+);
 
 const AdminPromotions = () => {
-    const [promotions, setPromotions] = useState([]);
-    
-    // States Lọc & Tìm kiếm
-    const [search, setSearch] = useState("");
-    const [typeFilter, setTypeFilter] = useState("");
-    const [statusFilter, setStatusFilter] = useState("");
+    const { showToast } = useToast();
+    const [tab, setTab] = useState("all");
+    const [list, setList] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [modalOpen, setModalOpen] = useState(false);
+    const [editing, setEditing] = useState(null);
+    const [modalKey, setModalKey] = useState(0);
+    const [deleteId, setDeleteId] = useState(null);
 
-    // States Modal
-    const [addModal, setAddModal] = useState(false);
-    const [detailModal, setDetailModal] = useState({ show: false, data: null, isEditing: false });
-    const [deleteModal, setDeleteModal] = useState({ show: false, id: null, name: "" });
-
-    // Forms & Error handling
-    const [formData, setFormData] = useState({
-        name: "", code: "", discountType: "percent", value: "", maxDiscount: "", minOrderValue: "", startDate: "", endDate: ""
-    });
-    const [formError, setFormError] = useState("");
-    const [toast, setToast] = useState({ show: false, type: "", message: "" });
-
-    const showToast = (type, message) => {
-        setToast({ show: true, type, message });
-        setTimeout(() => setToast({ show: false, type: "", message: "" }), 3000);
-    };
+    const fetchPromotions = useCallback(async () => {
+        try {
+            setLoading(true);
+            const res = await getAdminPromotionsSiteApi({ scope: "platform", limit: 100 });
+            if (res.success) setList(res.data.promotions || []);
+            else setList([]);
+        } catch {
+            setList([]);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
         fetchPromotions();
-    }, [search, typeFilter, statusFilter]);
+    }, [fetchPromotions]);
 
-    const fetchPromotions = async () => {
-        try {
-            const res = await getAdminPromotionsSiteApi({ search, type: typeFilter, status: statusFilter });
-            if (res && res.success) setPromotions(res.data.promotions || []);
-        } catch (error) {
-            console.error("Lỗi tải khuyến mãi:", error);
-            showToast("error", "Lỗi tải dữ liệu!");
-        }
+    const counts = {
+        all: list.length,
+        running: list.filter((p) => p.status === "running").length,
+        scheduled: list.filter((p) => p.status === "scheduled").length,
+        ended: list.filter((p) => p.status === "ended").length,
     };
+    const tabs = TAB_DEFS.map((t) => ({ ...t, count: counts[t.key] ?? 0 }));
+    const filtered = tab === "all" ? list : list.filter((p) => p.status === tab);
 
-    const validateDates = (start, end) => {
-        const startDate = new Date(start);
-        const endDate = new Date(end);
-        
-        if (endDate <= startDate) {
-            return "Thời gian kết thúc phải lớn hơn thời gian bắt đầu!";
-        }
-        return "";
-    };
-
-    const handleAddSubmit = async () => {
-        setFormError("");
-        if (!formData.name || !formData.code || !formData.value || !formData.startDate || !formData.endDate) {
-            setFormError("Vui lòng điền đầy đủ các trường bắt buộc (*)"); return;
-        }
-
-        const dateError = validateDates(formData.startDate, formData.endDate);
-        if (dateError) { setFormError(dateError); return; }
-
-        try {
-            const res = await createAdminPromotionSiteApi(formData);
-            if (res && res.success) {
-                showToast("success", "Thêm khuyến mãi thành công!");
-                setAddModal(false);
-                fetchPromotions();
-                setFormData({ name: "", code: "", discountType: "percent", value: "", maxDiscount: "", minOrderValue: "", startDate: "", endDate: "" });
-            }
-        } catch (error) {
-            setFormError(error.response?.data?.message || "Có lỗi xảy ra!");
-        }
-    };
-
-    const handleEditSubmit = async () => {
-        setFormError("");
-        if (!formData.value || !formData.startDate || !formData.endDate) {
-            setFormError("Vui lòng điền đầy đủ các trường bắt buộc (*)"); return;
-        }
-
-        const dateError = validateDates(formData.startDate, formData.endDate);
-        if (dateError) { setFormError(dateError); return; }
-
-        try {
-            const res = await updateAdminPromotionSiteApi(detailModal.data._id, formData);
-            if (res && res.success) {
-                showToast("success", "Cập nhật khuyến mãi thành công!");
-                setDetailModal({ show: false, data: null, isEditing: false });
-                fetchPromotions();
-            }
-        } catch (error) {
-            setFormError(error.response?.data?.message || "Có lỗi xảy ra!");
-        }
-    };
-
+    const openCreate = () => { setEditing(null); setModalKey((k) => k + 1); setModalOpen(true); };
+    const openEdit = (p) => { setEditing(p); setModalKey((k) => k + 1); setModalOpen(true); };
     const handleDelete = async () => {
-        try {
-            const res = await deleteAdminPromotionSiteApi(deleteModal.id);
-            if (res && res.success) {
-                showToast("success", "Đã xóa khuyến mãi thành công!");
-                setDeleteModal({ show: false, id: null, name: "" });
-                fetchPromotions();
-            }
-        } catch (error) {
-            showToast("error", "Lỗi khi xóa khuyến mãi!");
+        if (!deleteId) return;
+        const res = await deleteAdminPromotionSiteApi(deleteId);
+        if (res.success) {
+            showToast("Đã xóa khuyến mãi", "success");
+            fetchPromotions();
+        } else {
+            showToast(msgOf(res) || "Xóa thất bại", "error");
         }
+        setDeleteId(null);
     };
-
-    const formatForDatetimeLocal = (isoString) => {
-        if (!isoString) return "";
-        const d = new Date(isoString);
-        const year = d.getFullYear();
-        const month = (d.getMonth() + 1).toString().padStart(2, '0');
-        const date = d.getDate().toString().padStart(2, '0');
-        const hours = d.getHours().toString().padStart(2, '0');
-        const minutes = d.getMinutes().toString().padStart(2, '0');
-        return `${year}-${month}-${date}T${hours}:${minutes}`;
-    };
-
-    const openEditMode = () => {
-        const d = detailModal.data;
-        setFormData({
-            name: d.name, code: d.couponCode, discountType: d.discountType,
-            value: d.value, maxDiscount: d.maxDiscount, minOrderValue: d.minOrderValue,
-            startDate: formatForDatetimeLocal(d.startDate), 
-            endDate: formatForDatetimeLocal(d.endDate)
-        });
-        setFormError("");
-        setDetailModal({ ...detailModal, isEditing: true });
-    };
-
-    const handleResetFilters = () => {
-        setSearch(""); 
-        setTypeFilter(""); 
-        setStatusFilter("");
-    };
-
-    const formatDateTimeDisplay = (dateString) => {
-        if (!dateString) return "N/A";
-        const d = new Date(dateString);
-        const time = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-        const date = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
-        return `${time} - ${date}`;
-    };
-
-    const renderStatusBadge = (status) => {
-        switch (status) {
-            case 'running': return <span className="px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#e6f4ea] text-[#1e8e3e]">Đang diễn ra</span>;
-            case 'scheduled': return <span className="px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#ebf5fb] text-[#3498db]">Sắp diễn ra</span>;
-            case 'ended': return <span className="px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#fce8e6] text-[#d93025]">Đã kết thúc</span>;
-            default: return <span className="px-[10px] py-[5px] rounded-[20px] text-[12px] font-semibold bg-[#f2f2f2] text-[#666]">Bản nháp</span>;
-        }
-    };
-
-    // Icons SVG
-    const IconEye = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>;
-    const IconTrash = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>;
-    const IconPlus = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>;
-    const IconX = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>;
-    const IconEdit = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>;
-    const IconCalendarPlus = () => <svg className="w-[18px] h-[18px] text-[#1e8e3e]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="16" rx="2" ry="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M16 3v4M8 3v4M12 11v6M9 14h6" /></svg>;
-    const IconCalendarMinus = () => <svg className="w-[18px] h-[18px] text-[#d93025]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="16" rx="2" ry="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M16 3v4M8 3v4M9 14h6" /></svg>;
 
     return (
-        <div className="w-full relative">
-            {/* HỆ THỐNG TOAST THÔNG BÁO */}
-            {toast.show && (
-                <div className={`fixed top-5 right-5 z-[9999] flex items-center gap-3 rounded-[6px] border px-4 py-3 text-[14px] font-medium shadow-lg transition-all animate-bounce ${
-                    toast.type === "success" ? "border-[#e6f4ea] bg-[#e6f4ea] text-[#1e8e3e]" : "border-[#fce8e6] bg-[#fce8e6] text-[#d93025]"
-                }`}>
-                    {toast.message}
+        <div className="w-full">
+            {/* Page Header */}
+            <div className="flex justify-between items-center mb-6 gap-4">
+                <div>
+                    <p className="text-xl font-bold text-[#1C1108]">Khuyến mãi toàn sàn</p>
+                    <p className="text-sm text-[#A8896A] mt-0.5">{counts.running} chương trình đang hoạt động</p>
                 </div>
-            )}
-
-            {/* TOOLBAR */}
-            <div className="flex justify-between items-center mb-5 gap-[15px] flex-wrap">
-                <div className="flex gap-[10px] items-center flex-wrap">
-                    <div className="relative w-[280px]">
-                        <div className="absolute left-[15px] top-1/2 -translate-y-1/2 text-[#777]">
-                            <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                        </div>
-                        <input 
-                            type="text" placeholder="Tìm kiếm tên chiến dịch..." 
-                            value={search} onChange={(e) => setSearch(e.target.value)}
-                            className="w-full py-[10px] pl-[40px] pr-[15px] border border-[#e2d8d0] bg-white rounded-[6px] text-[14px] outline-none focus:border-[#853D12]"
-                        />
-                    </div>
-                    
-                    <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="py-[10px] px-[15px] min-w-[180px] border border-[#e2d8d0] bg-white rounded-[6px] text-[14px] outline-none cursor-pointer focus:border-[#853D12]">
-                        <option value="">Tất cả loại khuyến mãi</option>
-                        <option value="percent">Giảm theo % (PERCENT)</option>
-                        <option value="fixed">Giảm cố định (FIXED)</option>
-                    </select>
-
-                    <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-[10px] px-[15px] border border-[#e2d8d0] bg-white rounded-[6px] text-[14px] outline-none cursor-pointer focus:border-[#853D12]">
-                        <option value="">Tất cả trạng thái</option>
-                        <option value="running">Đang diễn ra</option>
-                        <option value="scheduled">Sắp diễn ra</option>
-                        <option value="ended">Đã kết thúc</option>
-                    </select>
-
-                    <button onClick={handleResetFilters} title="Tải lại" className="w-[40px] h-[40px] flex items-center justify-center border border-[#e2d8d0] rounded-[6px] bg-white text-[#777] hover:border-[#853D12] hover:text-[#853D12] hover:rotate-[30deg] transition-all">
-                        <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                    </button>
-                </div>
-
-                <button onClick={() => { setFormData({ name: "", code: "", discountType: "percent", value: "", maxDiscount: "", minOrderValue: "", startDate: "", endDate: "" }); setFormError(""); setAddModal(true); }} className="ml-auto flex items-center gap-[8px] px-[20px] py-[10px] bg-[#853D12] text-white rounded-[6px] font-semibold text-[14px] shadow-[0_4px_10px_rgba(133,61,18,0.2)] hover:bg-[#5e290a] transition-colors">
-                    <IconPlus /> Thêm khuyến mãi
+                <button onClick={openCreate}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-[#B86B05] text-white rounded-lg text-[14px] font-semibold hover:bg-[#95520B] shadow-sm shadow-[#B86B05]/20 transition-colors">
+                    <IconPlus size={14} /> Tạo khuyến mãi
                 </button>
             </div>
 
-{/* BẢNG DỮ LIỆU CHÍNH */}
-            <div className="bg-white rounded-[8px] shadow-[0_10px_30px_rgba(0,0,0,0.12)] border border-[rgba(0,0,0,0.05)] overflow-hidden">
-                <table className="w-full text-center border-collapse table-fixed">
-                    <thead className="bg-[#faf7f5] border-b-2 border-[#e2d8d0]">
-                        <tr>
-                            <th className="w-[5%] py-[15px] px-[10px] text-[13px] uppercase font-semibold text-[#777]">STT</th>
-                            <th className="w-[25%] py-[15px] px-[10px] text-[13px] uppercase font-semibold text-[#777] text-left">Tên Chiến Dịch</th>
-                            <th className="w-[20%] py-[15px] px-[10px] text-[13px] uppercase font-semibold text-[#777]">Loại Khuyến Mãi</th>
-                            <th className="w-[25%] py-[15px] px-[10px] text-[13px] uppercase font-semibold text-[#777] text-left pl-[40px]">Thời Gian Áp Dụng</th>
-                            <th className="w-[15%] py-[15px] px-[10px] text-[13px] uppercase font-semibold text-[#777]">Trạng Thái</th>
-                            <th className="w-[10%] py-[15px] px-[10px] text-[13px] uppercase font-semibold text-[#777]">Hành động</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {promotions.length === 0 ? (
-                            <tr><td colSpan="6" className="py-[30px] text-[#777]">Không có khuyến mãi nào!</td></tr>
-                        ) : (
-                            promotions.map((p, index) => (
-                                <tr key={p._id} className="hover:bg-[#fdfbf9] border-b border-[#e2d8d0] last:border-0 transition-colors">
-                                    <td className="py-[15px] px-[10px] text-[14px] font-semibold text-[#777] align-top">{index + 1}</td>
-
-                                    <td className="py-[15px] px-[10px] text-left pr-4 align-top">
-                                        <div className="font-bold text-[#853D12] text-[15px] mb-2 break-words whitespace-normal leading-snug">
-                                            {p.name}
-                                        </div>
-                                        <span className="text-[12px] font-semibold text-[#777] bg-[#f2f2f2] px-[6px] py-[2px] rounded border border-[#e2d8d0] inline-block">
-                                            Mã: {p.couponCode}
-                                        </span>
-                                    </td>
-                                    
-                                    <td className="py-[15px] px-[10px] text-[13px] font-medium text-[#333] align-top">
-                                        {p.discountType === 'percent' ? 'PERCENTAGE (%)' : 'FIXED AMOUNT'}
-                                    </td>
-                                    <td className="py-[15px] px-[10px] text-[13px] text-[#555] text-left pl-[40px] align-top">
-                                        <div className="flex flex-col gap-[6px]">
-                                            <div className="flex items-center gap-[8px]"><IconCalendarPlus /> <span>{formatDateTimeDisplay(p.startDate)}</span></div>
-                                            <div className="flex items-center gap-[8px]"><IconCalendarMinus /> <span>{formatDateTimeDisplay(p.endDate)}</span></div>
-                                        </div>
-                                    </td>
-                                    <td className="py-[15px] px-[10px] align-top">{renderStatusBadge(p.status)}</td>
-                                    <td className="py-[15px] px-[10px] align-top">
-                                        <div className="flex gap-[8px] justify-center">
-                                            <button onClick={() => setDetailModal({ show: true, data: p, isEditing: false })} title="Xem chi tiết" className="w-[32px] h-[32px] rounded-[6px] border border-[#e2d8d0] flex items-center justify-center text-[#777] hover:border-[#3498db] hover:text-[#3498db] hover:bg-[#ebf5fb] transition-all shadow-sm">
-                                                <IconEye />
-                                            </button>
-                                            <button onClick={() => setDeleteModal({ show: true, id: p._id, name: p.name })} title="Xóa" className="w-[32px] h-[32px] rounded-[6px] border border-[#e2d8d0] flex items-center justify-center text-[#777] hover:border-[#d93025] hover:text-[#d93025] hover:bg-[#fce8e6] transition-all shadow-sm">
-                                                <IconTrash />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))
+            {/* Tabs */}
+            <div className="flex flex-wrap gap-2 mb-5">
+                {tabs.map((t) => (
+                    <button key={t.key} onClick={() => setTab(t.key)}
+                        className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all border ${
+                            tab === t.key
+                                ? "bg-[#B86B05] text-white border-[#B86B05] shadow-md shadow-[#B86B05]/20"
+                                : "bg-white border-[#EDE8E0] text-[#6B5C4C] hover:border-[#B86B05] hover:text-[#B86B05]"
+                        }`}>
+                        {t.label}
+                        {t.count > 0 && (
+                            <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                tab === t.key ? "bg-white/20 text-white" : "bg-[#FAF7F4] text-[#A8896A]"
+                            }`}>{t.count}</span>
                         )}
-                    </tbody>
-                </table>
+                    </button>
+                ))}
             </div>
 
-            {/* MODAL XEM CHI TIẾT VÀ CHỈNH SỬA */}
-            {detailModal.show && detailModal.data && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000] animate-[fadeIn_0.3s_ease]">
-                    <div className="bg-white w-[520px] rounded-[8px] p-[25px] shadow-[0_15px_30px_rgba(0,0,0,0.2)]">
-                        <div className="flex justify-between items-center border-b border-[#e2d8d0] pb-[15px] mb-[20px]">
-                            <span className="font-semibold text-[18px] text-[#333]">
-                                {detailModal.isEditing ? "Cập nhật khuyến mãi" : "Chi tiết chiến dịch"}
-                            </span>
-                            <button onClick={() => setDetailModal({ show: false, data: null, isEditing: false })} className="text-[#777] hover:text-[#d93025]"><IconX /></button>
-                        </div>
-                        
-                        {formError && detailModal.isEditing && (
-                            <div className="mb-4 p-3 bg-[#fce8e6] border border-[#fca5a5] text-[#d93025] text-[13px] font-medium rounded-[6px] flex items-center gap-2 animate-[fadeIn_0.2s_ease]">
-                                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                                {formError}
-                            </div>
-                        )}
-
-                        <div className="max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-                            {!detailModal.isEditing ? (
-                                // GIAO DIỆN XEM CHI TIẾT
-                                <div className="grid grid-cols-2 gap-[15px] text-[14px]">
-                                    <div className="col-span-2">
-                                        <label className="text-[12px] font-bold text-[#853D12] uppercase block mb-1">Tên chiến dịch</label>
-                                        <div className="font-bold text-[16px] text-[#333]">{detailModal.data.name}</div>
-                                    </div>
-                                    <div>
-                                        <label className="text-[12px] font-bold text-[#777] uppercase block mb-1">Mã giảm giá</label>
-                                        <span className="font-bold text-[#853D12] bg-[#fef1e8] border border-dashed border-[#853D12] px-[8px] py-[4px] rounded-[4px]">{detailModal.data.couponCode}</span>
-                                    </div>
-                                    <div>
-                                        <label className="text-[12px] font-bold text-[#777] uppercase block mb-1">Trạng thái</label>
-                                        {renderStatusBadge(detailModal.data.status)}
-                                    </div>
-                                    <div>
-                                        <label className="text-[12px] font-bold text-[#777] uppercase block mb-1">Loại & Giá trị giảm</label>
-                                        <div className="font-medium text-[#333]">
-                                            {detailModal.data.discountType === 'percent' ? `Giảm ${detailModal.data.value}%` : `Giảm ${detailModal.data.value.toLocaleString()}đ`}
+            {/* List */}
+            <div className="bg-white rounded-2xl border border-[#EDE8E0] shadow-sm overflow-hidden">
+                {loading ? (
+                    <div className="py-12 text-center text-[#9E8E7E] text-[13px]">Đang tải...</div>
+                ) : filtered.length === 0 ? (
+                    <div className="py-14 text-center">
+                        <div className="text-4xl mb-3 select-none">🎟️</div>
+                        <p className="text-[#9E8E7E] text-[14px]">Chưa có khuyến mãi nào cho toàn sàn</p>
+                        <button onClick={openCreate} className="mt-4 px-5 py-2.5 bg-[#B86B05] text-white rounded-lg text-[13px] font-semibold hover:bg-[#95520B] transition-colors">
+                            Tạo khuyến mãi đầu tiên
+                        </button>
+                    </div>
+                ) : (
+                    <div>
+                        {filtered.map((p) => {
+                            const type = TYPE_META[p.type] || TYPE_META.coupon;
+                            const status = STATUS_META[p.status] || STATUS_META.draft;
+                            const d = discountText(p);
+                            const progress = p.maxUsage ? Math.min(100, Math.round(((p.usedCount || 0) / p.maxUsage) * 100)) : null;
+                            return (
+                                <div key={p._id}
+                                    className={`flex items-center justify-between gap-4 px-6 py-4 border-b border-[#EDE8E0] last:border-b-0 transition-colors ${
+                                        p.status === "ended" ? "opacity-60" : "hover:bg-[#FAF7F4]"
+                                    }`}>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                                            <span className="text-[14px] font-bold text-[#1C1108]">{p.name}</span>
+                                            <Badge tone={type.tone}>{type.label}</Badge>
+                                            <Badge tone={status.tone}>{status.label}</Badge>
                                         </div>
+                                        <div className="flex gap-4 flex-wrap text-[12px] text-[#9E8E7E]">
+                                            <span>{typeof d === "string" ? d : <>Giảm <strong className={d.tone}>{d.hi}</strong>{d.cond}</>}</span>
+                                            <span>{fmtDate(p.startDate)} – {fmtDate(p.endDate)}</span>
+                                            <span>{p.maxUsage ? `Đã dùng: ${p.usedCount || 0} / ${p.maxUsage} lượt` : "Không giới hạn lượt"}</span>
+                                        </div>
+                                        {progress != null && (
+                                            <div className="h-1 bg-[#EDE8E0] rounded-full mt-2 max-w-[200px] overflow-hidden">
+                                                <div className="h-full rounded-full bg-gradient-to-r from-[#B86B05] to-[#DE9601]" style={{ width: `${progress}%` }} />
+                                            </div>
+                                        )}
                                     </div>
-                                    <div>
-                                        <label className="text-[12px] font-bold text-[#777] uppercase block mb-1">Giảm tối đa (Nếu theo %)</label>
-                                        <div className="font-medium text-[#333]">{detailModal.data.maxDiscount > 0 ? `${detailModal.data.maxDiscount.toLocaleString()}đ` : 'Không giới hạn'}</div>
-                                    </div>
-                                    <div className="col-span-2 bg-[#faf7f5] p-3 rounded-[6px] border border-[#e2d8d0]">
-                                        <label className="text-[12px] font-bold text-[#777] uppercase block mb-1">Giá trị đơn hàng tối thiểu</label>
-                                        <div className="font-bold text-[#1e8e3e]">{detailModal.data.minOrderValue > 0 ? `Áp dụng cho đơn từ ${detailModal.data.minOrderValue.toLocaleString()} VNĐ` : 'Áp dụng cho mọi đơn hàng'}</div>
-                                    </div>
-                                    <div className="bg-[#fef1e8] p-3 rounded-[6px]">
-                                        <label className="text-[12px] font-bold text-[#853D12] uppercase block mb-1 flex items-center gap-1"><IconCalendarPlus/> Bắt đầu lúc</label>
-                                        <div className="font-medium text-[#333]">{formatDateTimeDisplay(detailModal.data.startDate)}</div>
-                                    </div>
-                                    <div className="bg-[#fce8e6] p-3 rounded-[6px]">
-                                        <label className="text-[12px] font-bold text-[#d93025] uppercase block mb-1 flex items-center gap-1"><IconCalendarMinus/> Kết thúc lúc</label>
-                                        <div className="font-medium text-[#333]">{formatDateTimeDisplay(detailModal.data.endDate)}</div>
-                                    </div>
-                                </div>
-                            ) : (
-                                // GIAO DIỆN CHỈNH SỬA
-                                <div className="grid grid-cols-2 gap-[15px]">
-                                    <div className="col-span-2 flex flex-col gap-1">
-                                        <label className="text-[12px] font-semibold text-[#777] uppercase">Tên chiến dịch <span className="text-[#d93025]">*</span></label>
-                                        <input type="text" value={formData.name} disabled className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] bg-[#f2f2f2] text-[#666] cursor-not-allowed" />
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                        <label className="text-[12px] font-semibold text-[#777] uppercase">Mã giảm giá <span className="text-[#d93025]">*</span></label>
-                                        <input type="text" value={formData.code} disabled className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] bg-[#f2f2f2] text-[#666] cursor-not-allowed font-bold" />
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                        <label className="text-[12px] font-semibold text-[#777] uppercase">Loại KM <span className="text-[#d93025]">*</span></label>
-                                        <select value={formData.discountType} onChange={e => setFormData({...formData, discountType: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]">
-                                            <option value="percent">Giảm theo %</option>
-                                            <option value="fixed">Giảm số tiền</option>
-                                        </select>
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                        <label className="text-[12px] font-semibold text-[#777] uppercase">Giá trị giảm <span className="text-[#d93025]">*</span></label>
-                                        <input type="number" value={formData.value} onChange={e => setFormData({...formData, value: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]" />
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                        <label className="text-[12px] font-semibold text-[#777] uppercase">Giảm tối đa (VNĐ)</label>
-                                        <input type="number" value={formData.maxDiscount} onChange={e => setFormData({...formData, maxDiscount: e.target.value})} disabled={formData.discountType !== 'percent'} className={`w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none ${formData.discountType !== 'percent' ? 'bg-[#f2f2f2] cursor-not-allowed' : 'focus:border-[#853D12]'}`} />
-                                    </div>
-                                    <div className="col-span-2 flex flex-col gap-1">
-                                        <label className="text-[12px] font-semibold text-[#777] uppercase">Đơn tối thiểu (VNĐ)</label>
-                                        <input type="number" value={formData.minOrderValue} onChange={e => setFormData({...formData, minOrderValue: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]" />
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                        <label className="text-[12px] font-semibold text-[#777] uppercase">Bắt đầu <span className="text-[#d93025]">*</span></label>
-                                        <input type="datetime-local" value={formData.startDate} onChange={e => setFormData({...formData, startDate: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]" />
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                        <label className="text-[12px] font-semibold text-[#777] uppercase">Kết thúc <span className="text-[#d93025]">*</span></label>
-                                        <input type="datetime-local" value={formData.endDate} onChange={e => setFormData({...formData, endDate: e.target.value})} className={`w-full p-[10px] border rounded-[6px] outline-none transition-colors ${formError.includes("thời gian bắt đầu") ? 'border-[#d93025] bg-[#fff5f5]' : 'border-[#e2d8d0] focus:border-[#853D12]'}`} />
+                                    <div className="flex gap-2 shrink-0">
+                                        <button onClick={() => openEdit(p)}
+                                            className="px-3 py-1.5 border border-[#EDE8E0] rounded-lg text-[12px] font-medium text-[#6B5C4C] hover:border-[#B86B05] hover:text-[#B86B05] hover:bg-[#fffbeb] transition-all">
+                                            Sửa
+                                        </button>
+                                        <button onClick={() => setDeleteId(p._id)}
+                                            className="px-3 py-1.5 border border-red-200 rounded-lg text-[12px] font-medium text-red-500 hover:bg-red-50 transition-all">
+                                            Xóa
+                                        </button>
                                     </div>
                                 </div>
-                            )}
-                        </div>
-
-                        <div className="mt-[20px] pt-[15px] border-t border-[#e2d8d0] flex justify-end gap-2">
-                            {detailModal.isEditing ? (
-                                <>
-                                    <button onClick={() => setDetailModal({ ...detailModal, isEditing: false })} className="px-[18px] py-[9px] bg-[#f2f2f2] text-[#333] rounded-[6px] font-medium hover:bg-[#e2d8d0]">Hủy</button>
-                                    <button onClick={handleEditSubmit} className="px-[18px] py-[9px] bg-[#853D12] text-white rounded-[6px] font-bold hover:bg-[#5e290a] shadow-md">Lưu cập nhật</button>
-                                </>
-                            ) : (
-                                <>
-                                    <button onClick={() => setDetailModal({ show: false, data: null, isEditing: false })} className="px-[18px] py-[9px] border border-[#e2d8d0] text-[#333] rounded-[6px] font-medium hover:bg-[#faf7f5]">Đóng</button>
-                                    <button onClick={openEditMode} className="px-[18px] py-[9px] bg-[#ebf5fb] text-[#3498db] border border-[#3498db] rounded-[6px] font-bold hover:bg-[#3498db] hover:text-white flex items-center gap-1 transition-colors">
-                                        <IconEdit /> Chỉnh sửa
-                                    </button>
-                                </>
-                            )}
-                        </div>
+                            );
+                        })}
                     </div>
-                </div>
-            )}
+                )}
+            </div>
 
-            {/* MODAL THÊM MỚI */}
-            {addModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000] animate-[fadeIn_0.3s_ease]">
-                    <div className="bg-white w-[520px] rounded-[8px] p-[25px] shadow-[0_15px_30px_rgba(0,0,0,0.2)]">
-                        <div className="flex justify-between items-center border-b border-[#e2d8d0] pb-[10px] mb-[20px]">
-                            <span className="font-semibold text-[18px] text-[#333]">Thêm khuyến mãi mới</span>
-                            <button onClick={() => setAddModal(false)} className="text-[#777] hover:text-[#d93025]"><IconX /></button>
-                        </div>
-                        
-                        {formError && (
-                            <div className="mb-4 p-3 bg-[#fce8e6] border border-[#fca5a5] text-[#d93025] text-[13px] font-medium rounded-[6px] flex items-center gap-2 animate-[fadeIn_0.2s_ease]">
-                                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                                {formError}
+            <PromoModal key={modalKey} open={modalOpen} onClose={() => setModalOpen(false)} editing={editing} onSaved={fetchPromotions} />
+
+            {/* Delete Confirm Modal */}
+            {deleteId && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                        <div className="text-center mb-4">
+                            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
                             </div>
-                        )}
-
-                        <div className="max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-                            <div className="grid grid-cols-2 gap-[15px]">
-                                <div className="col-span-2 flex flex-col gap-1">
-                                    <label className="text-[12px] font-semibold text-[#777] uppercase">Tên chiến dịch <span className="text-[#d93025]">*</span></label>
-                                    <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]" placeholder="VD: Khai xuân 2026..." />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-[12px] font-semibold text-[#777] uppercase">Mã giảm giá <span className="text-[#d93025]">*</span></label>
-                                    <input type="text" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]" placeholder="VD: XUAN26" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-[12px] font-semibold text-[#777] uppercase">Loại KM <span className="text-[#d93025]">*</span></label>
-                                    <select value={formData.discountType} onChange={e => setFormData({...formData, discountType: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]">
-                                        <option value="percent">Giảm theo %</option>
-                                        <option value="fixed">Giảm số tiền</option>
-                                    </select>
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-[12px] font-semibold text-[#777] uppercase">Giá trị giảm <span className="text-[#d93025]">*</span></label>
-                                    <input type="number" value={formData.value} onChange={e => setFormData({...formData, value: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]" placeholder="Nhập số..." />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-[12px] font-semibold text-[#777] uppercase">Giảm tối đa (VNĐ)</label>
-                                    <input type="number" value={formData.maxDiscount} onChange={e => setFormData({...formData, maxDiscount: e.target.value})} disabled={formData.discountType !== 'percent'} className={`w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none ${formData.discountType !== 'percent' ? 'bg-[#f2f2f2] cursor-not-allowed' : 'focus:border-[#853D12]'}`} placeholder="" />
-                                </div>
-                                <div className="col-span-2 flex flex-col gap-1">
-                                    <label className="text-[12px] font-semibold text-[#777] uppercase">Đơn tối thiểu (VNĐ)</label>
-                                    <input type="number" value={formData.minOrderValue} onChange={e => setFormData({...formData, minOrderValue: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]" placeholder="" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-[12px] font-semibold text-[#777] uppercase">Bắt đầu <span className="text-[#d93025]">*</span></label>
-                                    <input type="datetime-local" value={formData.startDate} onChange={e => setFormData({...formData, startDate: e.target.value})} className="w-full p-[10px] border border-[#e2d8d0] rounded-[6px] outline-none focus:border-[#853D12]" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-[12px] font-semibold text-[#777] uppercase">Kết thúc <span className="text-[#d93025]">*</span></label>
-                                    <input type="datetime-local" value={formData.endDate} onChange={e => setFormData({...formData, endDate: e.target.value})} className={`w-full p-[10px] border rounded-[6px] outline-none transition-colors ${formError.includes("thời gian bắt đầu") ? 'border-[#d93025] bg-[#fff5f5]' : 'border-[#e2d8d0] focus:border-[#853D12]'}`} />
-                                </div>
-                            </div>
+                            <p className="text-lg font-bold text-[#1C1108]">Xác nhận xóa</p>
+                            <p className="text-sm text-[#6B5C4C] mt-1">Bạn có chắc chắn muốn xóa khuyến mãi này? Hành động này không thể hoàn tác.</p>
                         </div>
-                        <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-[#e2d8d0]">
-                            <button onClick={() => setAddModal(false)} className="px-[18px] py-[9px] border border-[#e2d8d0] rounded-[6px] font-medium hover:bg-[#faf7f5]">Hủy</button>
-                            <button onClick={handleAddSubmit} className="px-[18px] py-[9px] bg-[#853D12] text-white rounded-[6px] font-bold hover:bg-[#5e290a]">Lưu khuyến mãi</button>
+                        <div className="flex gap-3">
+                            <button onClick={() => setDeleteId(null)}
+                                className="flex-1 px-4 py-2.5 border border-[#EDE8E0] rounded-xl text-[14px] font-medium text-[#6B5C4C] hover:bg-[#FAF7F4] transition-colors">
+                                Hủy
+                            </button>
+                            <button onClick={handleDelete}
+                                className="flex-1 px-4 py-2.5 bg-red-500 text-white rounded-xl text-[14px] font-semibold hover:bg-red-600 transition-colors shadow-sm">
+                                Xóa
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
-
-            {/* MODAL XÓA */}
-            {deleteModal.show && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000] animate-[fadeIn_0.3s_ease]">
-                    <div className="bg-white w-[400px] rounded-[8px] p-[25px] shadow-lg">
-                        <div className="flex justify-between items-center mb-4">
-                            <span className="font-bold text-[18px]">Xác nhận xóa</span>
-                            <button onClick={() => setDeleteModal({ show: false })} className="text-[#777] hover:text-[#d93025]"><IconX /></button>
-                        </div>
-                        <p className="text-[14px] text-[#333] mb-2">Bạn có chắc chắn muốn xóa khuyến mãi <strong className="text-[#853D12]">{deleteModal.name}</strong> không?</p>
-                        <p className="text-[13px] text-[#d93025] font-medium mb-5 flex items-center gap-1">
-                            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg> 
-                            Hành động này sẽ gỡ mã giảm giá khỏi hệ thống.
-                        </p>
-                        <div className="flex justify-end gap-2 border-t border-[#e2d8d0] pt-4">
-                            <button onClick={() => setDeleteModal({ show: false })} className="px-4 py-2 border border-[#e2d8d0] rounded-[6px] hover:bg-gray-50 font-medium">Hủy</button>
-                            <button onClick={handleDelete} className="px-4 py-2 bg-[#d93025] text-white rounded-[6px] hover:bg-red-700 font-bold shadow-md">Xác nhận xóa</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            
-            <style>{`
-                .custom-scrollbar::-webkit-scrollbar { width: 5px; }
-                .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #e2d8d0; border-radius: 10px; }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #853D12; }
-            `}</style>
         </div>
     );
 };

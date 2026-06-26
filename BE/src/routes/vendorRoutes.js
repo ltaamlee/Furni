@@ -25,7 +25,8 @@ const {
     markNotificationRead,
     markAllNotificationsRead,
     deleteNotification,
-    updateMyShop
+    updateMyShop,
+    updateShippingConfig
 } = require('../controllers/vendorController');
 
 // Tái sử dụng logic sản phẩm (đã tự gán shop + kiểm tra quyền theo vendor)
@@ -54,6 +55,7 @@ router.use(protect, authorize('vendor'));
 // Shop & dashboard
 router.get('/shop', getMyShop);
 router.put('/shop', updateMyShop);
+router.put('/shop/shipping-config', updateShippingConfig);
 router.get('/dashboard', getDashboardSummary);
 router.get('/reports', getReports);
 router.get('/categories', getVendorCategories);

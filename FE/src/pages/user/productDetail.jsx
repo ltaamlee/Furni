@@ -114,6 +114,13 @@ const ProductDetailPage = () => {
         }
     }, [product]);
 
+    // Auto-select first variant when product loads (if product has variants)
+    useEffect(() => {
+        if (product?.variants?.length > 0 && selectedVariant === null) {
+            setSelectedVariant(0);
+        }
+    }, [product]);
+
     const fetchProduct = async () => {
         try {
             setLoading(true);
@@ -188,7 +195,7 @@ const ProductDetailPage = () => {
         }
         try {
             setAdding(true);
-            await addToCartApi(product._id, quantity);
+            await addToCartApi(product._id, quantity, selectedVariant);
             setAddedSuccess(true);
             showToast(`Đã thêm ${quantity} sản phẩm vào giỏ hàng!`, "success");
             window.dispatchEvent(new Event("cart-updated"));
@@ -279,13 +286,36 @@ const ProductDetailPage = () => {
     const images = product.images?.length > 0 ? product.images : ["/placeholder.png"];
     const variants = product.variants || [];
     const activeVariant = selectedVariant !== null ? variants[selectedVariant] : null;
-    // Giá khuyến mãi (chỉ áp cho giá sản phẩm, bỏ qua khi đã chọn biến thể riêng)
-    const onSale = !activeVariant && product.salePrice != null && product.salePrice < product.price;
+    
+    // Kiểm tra variant có giá sale riêng không
+    const variantSalePrice = activeVariant?.salePrice;
+    const variantOriginalPrice = activeVariant?.originalPrice;
+    const variantHasSale = variantSalePrice != null && variantOriginalPrice != null && variantSalePrice < variantOriginalPrice;
+    
+    // Kiểm tra sản phẩm chính có sale không
+    const productHasSale = product.salePrice != null && product.salePrice < product.price;
     const base = activeVariant?.price ?? product.price;
-    const displayPrice = onSale ? product.salePrice : base;
-    const strikePrice = onSale ? product.price : (product.originalPrice && product.originalPrice > base ? product.originalPrice : null);
+    
+    // Có sale khi variant có sale riêng HOẶC sản phẩm chính có sale
+    const onSale = variantHasSale || productHasSale;
+    
+    // displayPrice: 
+    // - Variant có sale riêng: giá sale của variant
+    // - Product có sale VÀ không chọn variant: giá sale của product
+    // - Còn lại: giá base (variant.price hoặc product.price)
+    const displayPrice = variantHasSale 
+      ? variantSalePrice 
+      : (!activeVariant && productHasSale ? product.salePrice : base);
+    
+    // strikePrice: giá gốc để hiển thị gạch ngang
+    // - Variant có sale: dùng variantOriginalPrice
+    // - Product có sale VÀ không chọn variant: dùng product.price
+    // - Còn lại: null
+    const strikePrice = variantHasSale 
+      ? variantOriginalPrice 
+      : (!activeVariant && productHasSale ? product.price : null);
     const displayStock = activeVariant?.stock ?? product.quantity;
-    const discountPct = strikePrice ? Math.round((1 - displayPrice / strikePrice) * 100) : null;
+    const discountPct = strikePrice && displayPrice ? Math.round((1 - displayPrice / strikePrice) * 100) : null;
 
     const deliveryLabel =
         product.deliveryType === "with_installation"

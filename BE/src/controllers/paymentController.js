@@ -221,7 +221,7 @@ const createPayOSPayment = async (req, res) => {
  */
 const createPayOSPaymentWithCart = async (req, res) => {
     try {
-        const { shippingAddress, shippingProvider, shippingFee, note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null } = req.body;
+        const { shippingAddress, shippingTier = 'express', shippingProvider = null, shippingFee, note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, couponCode = null } = req.body;
         const isBuyNow = Boolean(buyNowProduct?.productId && Number(buyNowProduct.quantity) > 0);
 
         // Kiểm tra PayOS đã được cấu hình chưa
@@ -292,11 +292,56 @@ const createPayOSPaymentWithCart = async (req, res) => {
         }
 
         const subtotal = checkoutItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const totalPrice = subtotal + (shippingFee || 0);
+
+        // Tính giảm giá voucher nếu có (lấy dữ liệu mới nhất từ Coupon)
+        let couponDiscount = 0;
+        let usedCoupon = null;
+        if (couponCode) {
+            const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
+            const voucher = await VoucherWallet.findOne({ user: req.user._id, code: couponCode.toUpperCase() })
+                .populate('coupon');
+            
+            if (voucher && voucher.status === VOUCHER_STATUS.ACTIVE) {
+                const coupon = voucher.coupon;
+                // Kiểm tra Coupon còn tồn tại và active
+                if (coupon && coupon.isActive) {
+                    // Sử dụng dữ liệu mới nhất từ Coupon
+                    const couponValue = coupon.value ?? voucher.value;
+                    const discountType = coupon.discountType || voucher.discountType;
+                    const maxDiscount = coupon.maxDiscount ?? voucher.maxDiscount;
+                    const minOrderValue = coupon.minOrderValue ?? voucher.minOrderValue;
+                    const couponEndDate = coupon.endDate || voucher.endDate;
+
+                    if (!couponEndDate || new Date(couponEndDate) >= new Date()) {
+                        if (!minOrderValue || subtotal >= minOrderValue) {
+                            if (discountType === 'percent') {
+                                couponDiscount = Math.round(subtotal * couponValue / 100);
+                                if (maxDiscount) couponDiscount = Math.min(couponDiscount, maxDiscount);
+                            } else {
+                                couponDiscount = Math.min(couponValue, subtotal);
+                            }
+                            usedCoupon = voucher;
+                        }
+                    }
+                }
+            }
+        }
+
+        const discountedSubtotal = subtotal - couponDiscount;
+        const totalPrice = Math.max(0, discountedSubtotal + (shippingFee || 0));
+
+        // Lấy thông tin shop từ sản phẩm đầu tiên (multi-vendor: mỗi shop sẽ tạo đơn riêng)
+        const firstProduct = productMap[checkoutItems[0]?.product?.toString() || checkoutItems[0]?.product];
+        const orderShop = firstProduct?.shop?._id || firstProduct?.shop || null;
+        const orderShopName = firstProduct?.shop?.name || '';
+        const orderShopCode = firstProduct?.shop?.code || '';
 
         // Tạo đơn hàng
         const order = new Order({
             user: req.user._id,
+            shop: orderShop,
+            shopName: orderShopName,
+            shopCode: orderShopCode,
             products: checkoutItems.map(item => {
                 const product = productMap[item.product.toString()];
                 return {
@@ -317,11 +362,16 @@ const createPayOSPaymentWithCart = async (req, res) => {
             paymentMethod: 'PAYOS',
             paymentStatus: 'pending',
             subtotal,
+            couponDiscount,
+            couponCode: usedCoupon ? couponCode.toUpperCase() : null,
             shippingFee: shippingFee || 0,
+            shippingTier,
+            shippingProvider,
             totalPrice,
             totalQuantity: checkoutItems.reduce((sum, item) => sum + item.quantity, 0),
+            usedCouponId: usedCoupon ? usedCoupon._id : null,
             orderedAt: new Date(),
-            estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+            estimatedDelivery: new Date(Date.now() + (shippingTier === 'express' ? 3 : 7) * 24 * 60 * 60 * 1000),
             // Thanh toán PayOS hết hạn sau 30 phút
             paymentExpiresAt: new Date(Date.now() + 30 * 60 * 1000)
         });
@@ -353,6 +403,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
             buyerPhone: shippingAddress?.phone || '',
             returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${order._id}`,
             cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?payment=cancelled&orderId=${order._id}`,
+            paymentMethodType: 'QRCODE',
         };
 
         const response = await payos.paymentRequests.create(paymentData);
@@ -361,6 +412,15 @@ const createPayOSPaymentWithCart = async (req, res) => {
             // Xóa khỏi giỏ các sản phẩm vừa tạo thanh toán, giữ lại item chưa chọn.
             if (!isBuyNow) {
                 await removeCheckoutItemsFromCart(cart, checkoutItems, selectedProducts, selectedProductIds);
+            }
+
+            // Đánh dấu voucher là đã sử dụng (sau khi PayOS link tạo thành công)
+            if (usedCoupon) {
+                const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
+                await VoucherWallet.findByIdAndUpdate(usedCoupon._id, {
+                    status: VOUCHER_STATUS.USED,
+                    usedAt: new Date()
+                });
             }
 
             return res.status(200).json({
@@ -455,6 +515,22 @@ const payOSWebhook = async (req, res) => {
 
                 // KHÔNG gọi payout ở đây - payout chỉ gọi khi đơn DELIVERED
                 // Điều này đảm bảo vendor chỉ nhận tiền khi giao hàng thành công
+
+                // Đánh dấu voucher là đã sử dụng (nếu có)
+                if (order.usedCouponId) {
+                    const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
+                    const Coupon = require('../models/Coupon');
+                    await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
+                        status: VOUCHER_STATUS.USED,
+                        usedAt: new Date()
+                    });
+                    if (order.couponCode) {
+                        const voucher = await VoucherWallet.findById(order.usedCouponId);
+                        if (voucher?.coupon) {
+                            await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: 1 } });
+                        }
+                    }
+                }
             }
         } else if (success === false || (code && code !== '00')) {
             // Thanh toán thất bại hoặc bị hủy tại cổng PayOS

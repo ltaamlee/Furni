@@ -187,23 +187,23 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
 
   const handleProvinceChange = (provinceCode) => {
     console.log('[MapPicker] handleProvinceChange called with:', provinceCode, typeof provinceCode);
-    console.log('[MapPicker] All provinces codes:', provinces.map(p => ({ code: p.code, type: typeof p.code, name: p.name })));
+    console.log('[MapPicker] All provinces codes:', provinces.map(p => ({ code: p.ProvinceID, name: p.ProvinceName })));
     const province = provinces.find(
-      (p) => String(p.code) === String(provinceCode)
+      (p) => String(p.ProvinceID) === String(provinceCode)
     );
     console.log('[MapPicker] Found province:', province);
-    console.log('[MapPicker] Province code type:', typeof province?.code, province?.code);
+    console.log('[MapPicker] Province code type:', typeof province?.ProvinceID, province?.ProvinceID);
     const updated = {
       ...formData,
-      provinceCode: province ? String(province.code) : null,
-      provinceName: province?.name || "",
+      provinceCode: province ? String(province.ProvinceID) : null,
+      provinceName: province?.ProvinceName || "",
       wardName: "",
     };
     console.log('[MapPicker] Updated provinceCode:', updated.provinceCode, typeof updated.provinceCode);
     setFormData(updated);
     onChange(updated);
     if (provinceCode) {
-      flyToAddress(province?.name, null);
+      flyToAddress(province?.ProvinceName, null);
     }
   };
 
@@ -295,12 +295,16 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
         if (markerRef.current) markerRef.current.setLngLat(newPos);
         if (mapRef.current) mapRef.current.flyTo({ center: newPos, zoom: 17 });
 
-        // Parse address components - province only (no ward dropdown)
+        // Parse address components - province + ward + street
         const comps = place.address_components || [];
         let provinceName = "";
+        let districtName = "";
+        let wardName = "";
         for (const c of comps) {
           const types = c.types || [];
           if (types.includes("administrative_area_level_1")) provinceName = c.long_name;
+          if (types.includes("administrative_area_level_2")) districtName = c.long_name;
+          if (types.includes("administrative_area_level_3") || types.includes("ward")) wardName = c.long_name;
         }
         const streetNum = comps.find((c) => c.types?.includes("street_number"))?.long_name || "";
         const route = comps.find((c) => c.types?.includes("route"))?.long_name || "";
@@ -309,12 +313,13 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
         const updated = {
           ...formData,
           street: street || prediction.description,
+          wardName: wardName || formData.wardName,
+          districtName: districtName,
           formattedAddress: place.formatted_address || prediction.description,
           lat,
           lng,
           provinceCode: null,
           provinceName: "",
-          wardName: "",
           _provinceNamePending: provinceName || undefined,
         };
         setFormData(updated);
@@ -325,7 +330,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
             (p) => p.ProvinceName.toLowerCase() === provinceName.toLowerCase()
           );
           if (matched) {
-            setFormData((f) => ({ ...f, provinceCode: matched.ProvinceID, provinceName: matched.ProvinceName, _provinceNamePending: undefined }));
+            setFormData((f) => ({ ...f, provinceCode: String(matched.ProvinceID), provinceName: matched.ProvinceName, _provinceNamePending: undefined }));
           } else if (provinces.length > 0) {
             setFormData((f) => ({ ...f, provinceName, _provinceNamePending: provinceName }));
           }
@@ -336,7 +341,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
     }
   };
 
-  // Reverse geocode - simplified: province only (no ward dropdown)
+  // Reverse geocode - parse province, ward, and street from result
   const reverseGeocode = useCallback(async (lat, lng) => {
     setReverseLoading(true);
     try {
@@ -358,11 +363,19 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
       if (data.results && data.results.length > 0) {
         const result = data.results[0];
         const comps = result.address_components || [];
+
+        // Extract: ward, district, province
         let provinceName = "";
+        let districtName = "";
+        let wardName = "";
         for (const c of comps) {
           const types = c.types || [];
           if (types.includes("administrative_area_level_1")) provinceName = c.long_name;
+          if (types.includes("administrative_area_level_2")) districtName = c.long_name;
+          if (types.includes("administrative_area_level_3") || types.includes("ward")) wardName = c.long_name;
         }
+
+        // Build street: "123 Đường ABC"
         const streetNum = comps.find((c) => c.types?.includes("street_number"))?.long_name || "";
         const route = comps.find((c) => c.types?.includes("route"))?.long_name || "";
         const street = [streetNum, route].filter(Boolean).join(", ");
@@ -373,10 +386,11 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
         const updated = {
           ...formData,
           street: street || formData.street,
+          wardName: wardName || formData.wardName,
+          districtName: districtName,
           formattedAddress: result.formatted_address || "",
           lat,
           lng,
-          wardName: formData.wardName,
         };
 
         if (sameProvince) {
@@ -390,6 +404,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
 
         setFormData(updated);
         onChange(updated);
+        // Update search input so user sees the detected address
         setSearchQuery(street || result.formatted_address || "");
 
         if (provinceName && !sameProvince) {
@@ -397,7 +412,7 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
             (p) => p.ProvinceName.toLowerCase() === provinceName.toLowerCase()
           );
           if (matched) {
-            setFormData((f) => ({ ...f, provinceCode: matched.ProvinceID, provinceName: matched.ProvinceName, _provinceNamePending: undefined }));
+            setFormData((f) => ({ ...f, provinceCode: String(matched.ProvinceID), provinceName: matched.ProvinceName, _provinceNamePending: undefined }));
           } else if (provinces.length > 0) {
             setFormData((f) => ({ ...f, provinceName, _provinceNamePending: provinceName }));
           }
@@ -527,7 +542,7 @@ const SearchableCombobox = ({
   }, [options, query]);
 
   const selected = options.find(
-    (o) => String(o.code || o.value || o) === String(value)
+    (o) => String(o.ProvinceID || o.code || o.value || o) === String(value)
   );
 
   useEffect(() => {
@@ -584,7 +599,7 @@ const SearchableCombobox = ({
 
   const handleSelect = (opt) => {
     console.log('[SearchableCombobox] handleSelect called with:', opt, 'label:', label);
-    onChange(String(opt.code || opt.value || opt));
+    onChange(String(opt.ProvinceID || opt.code || opt.value || opt));
     setOpen(false);
     setQuery("");
     setHighlighted(-1);
@@ -657,8 +672,8 @@ const SearchableCombobox = ({
               <li className="px-4 py-3 text-sm text-[#A8896A]">Không tìm thấy</li>
             ) : (
               filtered.map((opt, i) => {
-                const optVal = String(opt.code || opt.value || opt);
-                const optLabel = opt.name || opt.label || opt;
+                const optVal = String(opt.ProvinceID || opt.code || opt.value || opt);
+                const optLabel = opt.ProvinceName || opt.name || opt.label || opt;
                 return (
                   <li
                     key={optVal}

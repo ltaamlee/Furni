@@ -54,6 +54,13 @@ const SHIPPING_FEES = {
     default: 30000
 };
 
+const PROVIDER_LABELS = {
+    jt: 'J&T Express',
+    ghtk: 'Giao Hàng Tiết Kiệm',
+    viettel: 'Viettel Post',
+    ghn: 'Giao Hàng Nhanh'
+};
+
 const getShippingFee = (provinceCode) => {
     return SHIPPING_FEES[provinceCode] || SHIPPING_FEES.default;
 };
@@ -122,7 +129,7 @@ const calculateFee = async (req, res) => {
 // ──────────────────────────────────────────────────────────
 const calculateAllFees = async (req, res) => {
     try {
-        const { provinceCode, weight = 1000 } = req.query;
+        const { provinceCode, weight = 1000, enabledProviders } = req.query;
 
         if (!provinceCode) {
             return res.status(400).json({ success: false, message: 'Thiếu provinceCode!' });
@@ -132,10 +139,17 @@ const calculateAllFees = async (req, res) => {
         const region = getRegionForProvince(code);
         const rates = await getCachedRates();
 
+        // Parse enabledProviders if provided (comma-separated string)
+        let enabled = [];
+        if (enabledProviders) {
+            enabled = enabledProviders.split(',').map(p => p.trim()).filter(Boolean);
+        }
+
         const results = rates
             .filter(r => r.region === region)
+            .filter(r => enabled.length === 0 || enabled.includes(r.provider))
             .map(r => {
-                const additional500gBlocks = Math.max(0, Math.ceil((weight - 1000) / 500));
+                const additional500gBlocks = Math.max(0, Math.ceil((Number(weight) - 1000) / 500));
                 const fee = Math.round(r.baseFee + r.feePer500g * additional500gBlocks);
                 return {
                     provider: r.provider,
@@ -314,9 +328,104 @@ const updateShippingStatus = async (req, res) => {
     }
 };
 
+// ──────────────────────────────────────────────────────────
+// @route   GET /api/shipping/calculate-tiers
+// @access  Public
+// @desc    Returns cheapest option per tier (economy + express) for a province + filtered by shop's enabledProviders
+// ──────────────────────────────────────────────────────────
+const calculateTiers = async (req, res) => {
+    try {
+        const { provinceCode, weight = 1000, orderTotal = 0, enabledProviders } = req.query;
+
+        if (!provinceCode) {
+            return res.status(400).json({ success: false, message: 'Thiếu provinceCode!' });
+        }
+
+        const code = Number(provinceCode);
+        const region = getRegionForProvince(code);
+        const w = Number(weight);
+        const additional500gBlocks = Math.max(0, Math.ceil((w - 1000) / 500));
+        const rates = await getCachedRates();
+
+        // Parse enabledProviders if provided
+        let enabled = [];
+        if (enabledProviders) {
+            enabled = enabledProviders.split(',').map(p => p.trim()).filter(Boolean);
+        }
+
+        // Filter rates matching region (and enabled providers if specified)
+        const regionRates = rates.filter(r => r.region === region)
+            .filter(r => enabled.length === 0 || enabled.includes(r.provider));
+
+        // For each tier, pick the cheapest provider from filtered rates
+        const tierResults = ['economy', 'express'].map(tier => {
+            const tierRates = regionRates.filter(r => r.serviceType === tier);
+            if (!tierRates.length) return null;
+
+            const cheapest = tierRates.reduce((best, r) => {
+                const fee = Math.round(r.baseFee + r.feePer500g * additional500gBlocks);
+                const bestFee = Math.round(best.baseFee + best.feePer500g * additional500gBlocks);
+                return fee < bestFee ? r : best;
+            });
+
+            const fee = Math.round(cheapest.baseFee + cheapest.feePer500g * additional500gBlocks);
+            return {
+                tier,
+                provider: cheapest.provider,
+                providerName: PROVIDER_LABELS[cheapest.provider] || cheapest.provider,
+                fee,
+                estimatedDays: cheapest.estimatedDays,
+                isFree: Number(orderTotal) >= 500000
+            };
+        }).filter(Boolean);
+
+        // Fallback if no rates in DB
+        if (tierResults.length === 0) {
+            const fallbackProviders = enabled.length > 0 ? enabled : ['ghtk'];
+            tierResults.push(
+                {
+                    tier: 'economy',
+                    provider: fallbackProviders[0],
+                    providerName: PROVIDER_LABELS[fallbackProviders[0]] || fallbackProviders[0],
+                    fee: Math.round(getShippingFee(code) * 0.85),
+                    estimatedDays: { min: 4, max: 7 },
+                    isFree: Number(orderTotal) >= 500000
+                },
+                {
+                    tier: 'express',
+                    provider: fallbackProviders[0],
+                    providerName: PROVIDER_LABELS[fallbackProviders[0]] || fallbackProviders[0],
+                    fee: getShippingFee(code),
+                    estimatedDays: { min: 1, max: 3 },
+                    isFree: Number(orderTotal) >= 500000
+                }
+            );
+        }
+
+        // Apply free shipping rule
+        tierResults.forEach(t => {
+            if (t.isFree) t.fee = 0;
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                provinceCode: code,
+                region,
+                weight: w,
+                tiers: tierResults
+            }
+        });
+    } catch (error) {
+        console.error('Calculate tiers error:', error);
+        res.status(500).json({ success: false, message: 'Lỗi khi tính phí vận chuyển!' });
+    }
+};
+
 module.exports = {
     calculateFee,
     calculateAllFees,
+    calculateTiers,
     createShippingOrder,
     getShippingByOrderId,
     trackShipment,

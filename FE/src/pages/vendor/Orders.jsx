@@ -4,7 +4,7 @@ import SlideOver from "../../components/vendor/SlideOver";
 import { formatVND } from "../../components/vendor/data";
 import { IconAlertCircle, IconCheck } from "../../components/vendor/icons";
 import { useToast } from "../../components/context/ToastContext";
-import { getVendorOrdersApi, updateVendorOrderStatusApi } from "../../utils/api";
+import { getVendorOrdersApi, updateVendorOrderStatusApi, getMyShopApi } from "../../utils/api";
 
 const STATUS_META = {
     pending: { label: "Chờ xác nhận", tone: "yellow" },
@@ -88,8 +88,116 @@ const Timeline = ({ order }) => {
     );
 };
 
+const PROVIDER_OPTIONS = [
+    { key: 'ghtk', name: 'Giao Hàng Tiết Kiệm', short: 'GHTK', desc: 'Phổ biến, giá rẻ', color: 'from-green-400 to-green-600' },
+    { key: 'jt', name: 'J&T Express', short: 'J&T', desc: 'Nhanh, công nghệ', color: 'from-orange-400 to-orange-600' },
+    { key: 'viettel', name: 'Viettel Post', short: 'Viettel', desc: 'Phủ rộng, bưu cục nhiều', color: 'from-red-400 to-red-600' },
+];
+
+/* ---- Popup: chọn đơn vị vận chuyển khi giao hàng ---- */
+const ChooseProviderModal = ({ open, onClose, order, shopShippingConfig, onConfirm }) => {
+    const [selected, setSelected] = useState(order?.shippingProvider || shopShippingConfig?.defaultProvider || null);
+    const [trackingNum, setTrackingNum] = useState("");
+
+    if (!open) return null;
+
+    const availableProviders = shopShippingConfig?.enabledProviders || ['ghtk', 'jt', 'viettel'];
+    const options = PROVIDER_OPTIONS.filter(p => availableProviders.includes(p.key));
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+
+            {/* Modal */}
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                {/* Header */}
+                <div className="px-6 pt-6 pb-4 border-b border-[#EDE8E0]">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800">Bàn giao đơn vị vận chuyển</h3>
+                            <p className="text-xs text-slate-400 mt-0.5">Đơn #{order?.orderNumber}</p>
+                        </div>
+                        <button onClick={onClose} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+                            <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Body */}
+                <div className="px-6 py-5 space-y-4">
+                    <div>
+                        <p className="text-sm font-semibold text-slate-700 mb-3">Chọn đơn vị vận chuyển</p>
+                        <div className="space-y-2">
+                            {options.map((p) => {
+                                const isSelected = selected === p.key;
+                                return (
+                                    <div
+                                        key={p.key}
+                                        onClick={() => setSelected(p.key)}
+                                        className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                                            isSelected ? "border-teal-400 bg-teal-50" : "border-[#EDE8E0] hover:border-teal-300"
+                                        }`}
+                                    >
+                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                                            isSelected ? "border-teal-500 bg-teal-500" : "border-slate-300"
+                                        }`}>
+                                            {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
+                                        </div>
+                                        <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${p.color} flex items-center justify-center text-white text-xs font-black`}>
+                                            {p.short}
+                                        </div>
+                                        <div>
+                                            <p className={`text-sm font-bold ${isSelected ? "text-teal-700" : "text-slate-700"}`}>{p.name}</p>
+                                            <p className="text-[11px] text-slate-400">{p.desc}</p>
+                                        </div>
+                                        {shopShippingConfig?.defaultProvider === p.key && (
+                                            <span className="ml-auto text-[10px] text-teal-600 font-semibold bg-teal-100 px-2 py-0.5 rounded-full">Mặc định</span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Tracking number */}
+                    <div>
+                        <p className="text-sm font-semibold text-slate-700 mb-2">Mã vận đơn <span className="text-slate-400 font-normal">(tùy chọn)</span></p>
+                        <input
+                            type="text"
+                            value={trackingNum}
+                            onChange={(e) => setTrackingNum(e.target.value.toUpperCase())}
+                            placeholder="Nhập mã vận đơn sau khi tạo đơn ở hãng..."
+                            className="w-full px-4 py-2.5 border-2 border-[#EDE8E0] rounded-xl text-sm focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100 transition placeholder:text-slate-300"
+                        />
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 pb-6 flex gap-2">
+                    <button
+                        onClick={onClose}
+                        className="flex-1 py-2.5 rounded-xl border-2 border-[#EDE8E0] text-slate-500 font-semibold text-sm hover:border-slate-300 transition-colors"
+                    >
+                        Hủy
+                    </button>
+                    <button
+                        onClick={() => { onConfirm(selected, trackingNum); onClose(); }}
+                        disabled={!selected}
+                        className="flex-1 py-2.5 rounded-xl bg-teal-500 text-white font-bold text-sm hover:bg-teal-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                    >
+                        Xác nhận giao hàng
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 /* ---- Order detail drawer ---- */
-const OrderDetail = ({ open, onClose, order, onAction, busy }) => {
+const OrderDetail = ({ open, onClose, order, onAction, onActionShipping, busy, shopShippingConfig }) => {
     if (!order) return null;
     const st = STATUS_META[order.status] || STATUS_META.pending;
     const pay = PAYMENT_META[order.paymentMethod] || { label: order.paymentMethod, tone: "gray" };
@@ -153,12 +261,29 @@ const OrderDetail = ({ open, onClose, order, onAction, busy }) => {
                 <div className="flex justify-between border-t border-[#EDE8E0] mt-1 pt-2.5 font-bold text-sm"><span>Doanh thu shop</span><span className="text-[#B86B05] text-[15px]">{formatVND(order.shopSubtotal || 0)}</span></div>
             </DetailCard>
 
+            {/* Shipping info if already shipped */}
+            {(order.shippingProvider || order.trackingNumber) && (
+                <div className="bg-teal-50 rounded-xl p-4 border border-teal-200 mb-4">
+                    <p className="text-xs font-semibold text-teal-700 mb-1">Đơn vị vận chuyển</p>
+                    <p className="text-sm font-bold text-teal-800">{PROVIDER_OPTIONS.find(p => p.key === order.shippingProvider)?.name || order.shippingProvider || '—'}</p>
+                    {order.trackingNumber && (
+                        <p className="text-xs text-teal-600 mt-1">Mã vận đơn: <span className="font-mono font-semibold">{order.trackingNumber}</span></p>
+                    )}
+                </div>
+            )}
+
             {(next || canCancel) && (
                 <div className="flex gap-2 flex-wrap">
                     {next && (
-                        <Btn variant="primary" className="flex-1" disabled={busy} onClick={() => onAction(order, next.to)}>
-                            <IconCheck size={14} strokeWidth={2.5} /> {busy ? "Đang xử lý..." : next.label}
-                        </Btn>
+                        next.to === 'shipping' ? (
+                            <Btn variant="primary" className="flex-1" disabled={busy} onClick={() => onActionShipping(order)}>
+                                <IconCheck size={14} strokeWidth={2.5} /> Giao hàng
+                            </Btn>
+                        ) : (
+                            <Btn variant="primary" className="flex-1" disabled={busy} onClick={() => onAction(order, next.to)}>
+                                <IconCheck size={14} strokeWidth={2.5} /> {busy ? "Đang xử lý..." : next.label}
+                            </Btn>
+                        )
                     )}
                     {canCancel && (
                         <Btn variant="danger" size="sm" disabled={busy} onClick={() => onAction(order, "cancelled")}>Huỷ đơn</Btn>
@@ -183,6 +308,15 @@ const Orders = () => {
     const [panelOpen, setPanelOpen] = useState(false);
     const [selectedId, setSelectedId] = useState(null);
     const [busy, setBusy] = useState(false);
+    const [shippingProviderModal, setShippingProviderModal] = useState(false); // { order, provider, trackingNum }
+    const [shopShippingConfig, setShopShippingConfig] = useState(null);
+
+    // Fetch shop config on mount
+    useEffect(() => {
+        getMyShopApi().then(res => {
+            if (res.success) setShopShippingConfig(res.data.shop?.shippingConfig);
+        });
+    }, []);
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -229,6 +363,36 @@ const Orders = () => {
             showToast("Có lỗi xảy ra", "error");
         } finally {
             setBusy(false);
+        }
+    };
+
+    // Kick off "Giao hàng" flow — open provider picker modal
+    const doActionShipping = (order) => {
+        setShippingProviderModal({ order });
+        setPanelOpen(false);
+    };
+
+    // Confirm "Giao hàng" with selected provider
+    const doConfirmShipping = async (provider, trackingNum) => {
+        if (!shippingProviderModal) return;
+        const order = shippingProviderModal.order;
+        try {
+            setBusy(true);
+            const res = await updateVendorOrderStatusApi(order._id, 'shipping', {
+                shippingProvider: provider,
+                trackingNumber: trackingNum || null,
+            });
+            if (res.success) {
+                showToast(`Đã bàn giao cho ${PROVIDER_OPTIONS.find(p => p.key === provider)?.name || provider}`, "success");
+                await fetchOrders();
+            } else {
+                showToast(msgOf(res) || "Cập nhật thất bại", "error");
+            }
+        } catch {
+            showToast("Có lỗi xảy ra", "error");
+        } finally {
+            setBusy(false);
+            setShippingProviderModal(null);
         }
     };
 
@@ -296,7 +460,11 @@ const Orders = () => {
                                     <td className="px-3.5 py-3">
                                         <div className="flex gap-1">
                                             {next ? (
-                                                <Btn variant="primary" size="xs" disabled={busy} onClick={() => doAction(o, next.to)}>{next.label}</Btn>
+                                                next.to === 'shipping' ? (
+                                                    <Btn variant="primary" size="xs" disabled={busy} onClick={() => doActionShipping(o)}>Giao hàng</Btn>
+                                                ) : (
+                                                    <Btn variant="primary" size="xs" disabled={busy} onClick={() => doAction(o, next.to)}>{next.label}</Btn>
+                                                )
                                             ) : (
                                                 <Btn variant="outline" size="xs" onClick={() => openDetail(o)}>Chi tiết</Btn>
                                             )}
@@ -319,7 +487,23 @@ const Orders = () => {
                 </div>
             )}
 
-            <OrderDetail open={panelOpen} onClose={() => setPanelOpen(false)} order={selected} onAction={doAction} busy={busy} />
+            <OrderDetail
+                open={panelOpen}
+                onClose={() => setPanelOpen(false)}
+                order={selected}
+                onAction={doAction}
+                onActionShipping={doActionShipping}
+                busy={busy}
+                shopShippingConfig={shopShippingConfig}
+            />
+
+            <ChooseProviderModal
+                open={!!shippingProviderModal}
+                onClose={() => setShippingProviderModal(null)}
+                order={shippingProviderModal?.order}
+                shopShippingConfig={shopShippingConfig}
+                onConfirm={doConfirmShipping}
+            />
         </div>
     );
 };

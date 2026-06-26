@@ -118,6 +118,9 @@ const OrderSuccessPage = () => {
                                     />
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-medium text-[#1C1108] line-clamp-1">{item.name}</p>
+                                        {item.variant && (
+                                            <p className="text-[10px] text-[#A8896A]">Phân loại: {item.variant}</p>
+                                        )}
                                         {/* Price: giá gốc + giảm */}
                                         <div className="flex items-center flex-wrap gap-1.5 mt-0.5">
                                             {item.originalPrice && item.discount > 0 ? (

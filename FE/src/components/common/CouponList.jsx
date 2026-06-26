@@ -54,14 +54,16 @@ const CouponList = () => {
     };
 
     const formatDiscount = (v) => {
-        if (v.discountType === 'freeship') return 'Freeship';
-        if (v.discountType === 'fixed') return `-${Number(v.value).toLocaleString('vi-VN')}đ`;
+        const type = v.discountType || v.type;
+        if (type === 'freeship') return 'Freeship';
+        if (type === 'fixed') return `-${Number(v.value).toLocaleString('vi-VN')}đ`;
         return `-${v.value}%`;
     };
 
     const getBorderColor = (v) => {
-        if (v.discountType === 'freeship') return 'border-blue-400';
-        if (v.discountType === 'fixed') return 'border-orange-400';
+        const type = v.discountType || v.type;
+        if (type === 'freeship') return 'border-blue-400';
+        if (type === 'fixed') return 'border-orange-400';
         if (isExpired(v.endDate)) return 'border-gray-200';
         return 'border-[#B86B05]';
     };
@@ -145,9 +147,15 @@ const CouponList = () => {
                 </div>
             ) : (
                 <div className="space-y-3">
+                    {tab === "active" && (
+                        <h4 className="text-sm font-bold text-[#1C1108] flex items-center gap-2">
+                            <span>🎟️</span> Voucher của tôi
+                        </h4>
+                    )}
                     {vouchers.map((v) => {
                         const expired = isExpired(v.endDate);
                         const used = v.status === 'used';
+                        const discountType = v.discountType || v.type;
                         return (
                             <div
                                 key={v._id}
@@ -157,9 +165,9 @@ const CouponList = () => {
                             >
                                 {/* Left: discount value */}
                                 <div className={`w-32 flex-shrink-0 flex flex-col items-center justify-center p-4 text-center ${
-                                    v.discountType === 'freeship'
+                                    discountType === 'freeship'
                                         ? "bg-gradient-to-br from-blue-500 to-blue-700 text-white"
-                                        : v.discountType === 'fixed'
+                                        : discountType === 'fixed'
                                         ? "bg-gradient-to-br from-orange-500 to-orange-700 text-white"
                                         : "bg-gradient-to-br from-[#B86B05] to-[#95520B] text-white"
                                 }`}>
@@ -189,11 +197,13 @@ const CouponList = () => {
                                             <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                                 expired
                                                     ? "bg-red-50 text-red-500"
+                                                    : v.isExhausted
+                                                    ? "bg-orange-50 text-orange-500"
                                                     : used
                                                     ? "bg-gray-100 text-gray-500"
                                                     : "bg-green-50 text-green-600"
                                             }`}>
-                                                {expired ? "Hết hạn" : used ? "Đã dùng" : "Còn hiệu lực"}
+                                                {expired ? "Hết hạn" : v.isExhausted ? "Hết lượt" : used ? "Đã dùng" : "Còn hiệu lực"}
                                             </span>
                                         </div>
 

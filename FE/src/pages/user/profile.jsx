@@ -23,10 +23,6 @@ const UserProfile = () => {
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [showAvatarModal, setShowAvatarModal] = useState(false);
 
-    // Loyalty points state
-    const [loyaltyPoints, setLoyaltyPoints] = useState(0);
-    const [loadingPoints, setLoadingPoints] = useState(true);
-
     // Avatar upload handlers
     const handleAvatarFileChange = (e) => {
         const file = e.target.files?.[0];
@@ -101,26 +97,7 @@ const UserProfile = () => {
                 dateOfBirth: user.dateOfBirth ? user.dateOfBirth.split("T")[0] : ""
             });
         }
-        fetchLoyaltyPoints();
     }, [user]);
-
-    const fetchLoyaltyPoints = async () => {
-        try {
-            setLoadingPoints(true);
-            const token = localStorage.getItem("access_token");
-            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/loyalty/points`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            const data = await res.json();
-            if (data.success) {
-                setLoyaltyPoints(data.data.points || 0);
-            }
-        } catch (error) {
-            console.error("Error fetching loyalty points:", error);
-        } finally {
-            setLoadingPoints(false);
-        }
-    };
 
     const handleProfileSubmit = async (e) => {
         e.preventDefault();
@@ -334,15 +311,11 @@ const UserProfile = () => {
 
                 {/* Balance Card */}
                 <div className="p-6">
-                    <div className="bg-gradient-to-br from-[#FAF7F4] to-[#F5EFE7] rounded-2xl p-6 border border-[#EDE8E0]">
+                        <div className="bg-gradient-to-br from-[#FAF7F4] to-[#F5EFE7] rounded-2xl p-6 border border-[#EDE8E0]">
                         <div className="flex items-center justify-between mb-4">
                             <div>
                                 <p className="text-sm text-[#A8896A] mb-1">Số dư khả dụng</p>
-                                {loadingPoints ? (
-                                    <div className="h-10 w-40 bg-[#EDE8E0] animate-pulse rounded-lg"></div>
-                                ) : (
-                                    <p className="text-3xl font-bold text-[#B86B05]">{formatCurrency(loyaltyPoints)}</p>
-                                )}
+                                <p className="text-3xl font-bold text-[#B86B05]">{formatCurrency(0)}</p>
                             </div>
                         </div>
 

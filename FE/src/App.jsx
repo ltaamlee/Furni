@@ -26,7 +26,6 @@ import ForgotPasswordPage from "./pages/auth/forgot-password";
 import ResetPasswordPage from "./pages/auth/reset-password";
 import ProfilePage from "./pages/user/profile";
 import WishlistPage from "./components/common/WishlistPage";
-import LoyaltyPointsPage from "./components/common/LoyaltyPointsPage";
 import MyReviewsPage from "./pages/user/myReviews";
 import CouponList from "./components/common/CouponList";
 import RecentlyViewedPage from "./components/common/RecentlyViewedPage";
@@ -109,7 +108,6 @@ function App() {
                         <Route path="/orders" element={<OrderHistoryPage />} />
                         <Route path="/orders/:id" element={<OrderDetailPage />} />
                         <Route path="/wishlist" element={<WishlistPage />} />
-                        <Route path="/loyalty" element={<LoyaltyPointsPage />} />
                         <Route path="/my-reviews" element={<MyReviewsPage />} />
                         <Route path="/coupons" element={<CouponList />} />
                         <Route path="/recently-viewed" element={<RecentlyViewedPage />} />

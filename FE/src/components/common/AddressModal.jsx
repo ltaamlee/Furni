@@ -7,6 +7,7 @@ const emptyFormData = {
   provinceCode: null,
   provinceName: "",
   wardName: "",
+  districtName: "",
   street: "",
   lat: null,
   lng: null,

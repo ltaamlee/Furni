@@ -104,6 +104,26 @@ const ShopSchema = new mongoose.Schema({
         min: 0,
         max: 100
     },
+    // Cấu hình vận chuyển của shop
+    shippingConfig: {
+        // Các đơn vị vận chuyển mà shop hỗ trợ (tick chọn)
+        enabledProviders: {
+            type: [String],
+            enum: ['jt', 'ghtk', 'viettel'],
+            default: ['ghtk', 'jt'] // Mặc định: GHTK + J&T
+        },
+        // Ngưỡng free ship (đơn hàng từ bao nhiêu thì miễn phí vận chuyển)
+        freeShippingThreshold: {
+            type: Number,
+            default: 500000  // 500k VND
+        },
+        // Đơn vị vận chuyển mặc định khi bàn giao
+        defaultProvider: {
+            type: String,
+            enum: ['jt', 'ghtk', 'viettel'],
+            default: 'ghtk'
+        }
+    },
 }, { timestamps: true });
 
 // Tự động tạo mã cửa hàng trước khi lưu

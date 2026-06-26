@@ -182,14 +182,22 @@ const OrderHistoryPage = () => {
                                         {/* Order Header */}
                                         <div className="flex items-center justify-between px-4 py-3 bg-[#FAF7F4] border-b border-[#EDE8E0]">
                                             <div className="flex items-center gap-3">
-                                                {order.shop?.logo ? (
-                                                    <img src={order.shop.logo} alt={order.shop.name} className="w-8 h-8 rounded-full object-cover" />
-                                                ) : (
-                                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#B86B05] to-[#95520B] flex items-center justify-center text-white text-sm font-bold">
-                                                        {order.shop?.name?.charAt(0) || "S"}
-                                                    </div>
-                                                )}
-                                                <span className="font-semibold text-[#1C1108]">{order.shop?.name || "Shop"}</span>
+                                                {/* Lấy shop info từ order hoặc từ sản phẩm đầu tiên */}
+                                                {(() => {
+                                                    const shopLogo = order.shop?.logo;
+                                                    const shopName = order.shopName || order.products?.[0]?.shopName || order.shop?.name || "Cửa hàng";
+                                                    const firstChar = shopName?.charAt(0) || "C";
+                                                    return shopLogo ? (
+                                                        <img src={shopLogo} alt={shopName} className="w-8 h-8 rounded-full object-cover" />
+                                                    ) : (
+                                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#B86B05] to-[#95520B] flex items-center justify-center text-white text-sm font-bold">
+                                                            {firstChar}
+                                                        </div>
+                                                    );
+                                                })()}
+                                                <span className="font-semibold text-[#1C1108]">
+                                                    {order.shopName || order.products?.[0]?.shopName || order.shop?.name || "Cửa hàng"}
+                                                </span>
                                             </div>
                                             <div className="flex items-center gap-3">
                                                 <span className={`text-sm font-medium px-2.5 py-1 rounded-full ${statusInfo.bg} ${statusInfo.color}`}>
@@ -222,6 +230,9 @@ const OrderHistoryPage = () => {
                                                         >
                                                             {item.product?.name || item.name || "Sản phẩm"}
                                                         </Link>
+                                                        {item.variant && (
+                                                            <p className="text-[11px] text-[#A8896A] mt-0.5">Phân loại: {item.variant}</p>
+                                                        )}
 
                                                         {/* Price display: original + discounted */}
                                                         <div className="flex items-center flex-wrap gap-1.5 mt-1">

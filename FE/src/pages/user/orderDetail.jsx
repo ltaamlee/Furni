@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { getOrderByIdApi, cancelOrderApi, confirmReceivedApi, cancelPayOSPaymentApi } from "../../utils/api";
+import OrderBillModal from "../../components/common/OrderBillModal";
 
 const OrderDetailPage = () => {
     const { id } = useParams();
@@ -10,6 +11,7 @@ const OrderDetailPage = () => {
     const [cancelling, setCancelling] = useState(false);
     const [confirming, setConfirming] = useState(false);
     const [payosCountdown, setPayosCountdown] = useState(null); // seconds remaining for PayOS
+    const [billModalOpen, setBillModalOpen] = useState(false);
 
     useEffect(() => {
         fetchOrder();
@@ -413,7 +415,7 @@ const OrderDetailPage = () => {
                                             {item.name}
                                         </Link>
                                         <p className="text-xs text-[#A8896A] mt-1">
-                                            Phân loại: Mặc định
+                                            Phân loại: {item.variant || 'Mặc định'}
                                         </p>
 
                                         {/* Price display — giá gốc + giá giảm */}
@@ -638,16 +640,34 @@ const OrderDetailPage = () => {
                     >
                         ← Danh sách đơn hàng
                     </Link>
-                    {order.status === "delivered" && (
-                        <Link
-                            to="/orders"
-                            className="px-5 py-2.5 bg-[#B86B05] text-white rounded-xl font-semibold text-sm hover:bg-[#9a5a04] transition-colors shadow-md shadow-[#B86B05]/20 flex items-center gap-1.5"
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setBillModalOpen(true)}
+                            className="px-4 py-2.5 border-2 border-[#B86B05] text-[#B86B05] rounded-xl font-semibold text-sm hover:bg-[#B86B05] hover:text-white transition-colors flex items-center gap-1.5"
                         >
-                            ⭐ Xem đánh giá đã gửi
-                        </Link>
-                    )}
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Hóa đơn
+                        </button>
+                        {order.status === "delivered" && (
+                            <Link
+                                to="/orders"
+                                className="px-5 py-2.5 bg-[#B86B05] text-white rounded-xl font-semibold text-sm hover:bg-[#9a5a04] transition-colors shadow-md shadow-[#B86B05]/20 flex items-center gap-1.5"
+                            >
+                                ⭐ Xem đánh giá đã gửi
+                            </Link>
+                        )}
+                    </div>
                 </div>
             </div>
+
+            {/* ─── Bill Modal ─── */}
+            <OrderBillModal
+                open={billModalOpen}
+                onClose={() => setBillModalOpen(false)}
+                order={order}
+            />
         </div>
     );
 };
