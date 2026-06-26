@@ -406,12 +406,32 @@ const CheckoutPage = () => {
           : (cart?.products || [])
               .filter((item) => selectedItemIds.has(item.product._id || item.product))
               .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
+        const selectedItemsForVoucher = isBuyNow
+          ? [{
+              shopId: buyNowProduct?.shop?._id || buyNowProduct?.shop,
+              subtotal: orderTotal,
+            }]
+          : (cart?.products || [])
+              .filter((item) => selectedItemIds.has(item.product._id || item.product))
+              .map((item) => ({
+                shopId: item.shop?._id || item.shop || item.product?.shop?._id || item.product?.shop,
+                subtotal: (item.price || 0) * (item.quantity || 1),
+              }));
+        const subtotalByShop = selectedItemsForVoucher.reduce((map, item) => {
+          const shopId = item.shopId?.toString();
+          if (shopId) map.set(shopId, (map.get(shopId) || 0) + item.subtotal);
+          return map;
+        }, new Map());
+        const getVoucherApplicableTotal = (voucher) => {
+          const shopId = voucher.shopId?.toString();
+          return shopId ? (subtotalByShop.get(shopId) || 0) : orderTotal;
+        };
 
         const all = res.data || [];
         setAvailableVouchers(all);
 
         const usable = all.filter(v =>
-          !v.isUsed && !v.isExpired && (!v.minOrderValue || orderTotal >= v.minOrderValue)
+          !v.isUsed && !v.isExpired && getVoucherApplicableTotal(v) > 0 && (!v.minOrderValue || getVoucherApplicableTotal(v) >= v.minOrderValue)
         );
 
         const productVouchers = usable.filter(v => v.discountType !== 'freeship');
@@ -420,12 +440,14 @@ const CheckoutPage = () => {
         const autoSelect = (list) => {
           if (list.length === 0) return null;
           return list.reduce((best, v) => {
+            const applicableTotal = getVoucherApplicableTotal(v);
+            const bestApplicableTotal = getVoucherApplicableTotal(best);
             const eff = v.discountType === 'percent'
-              ? Math.min(orderTotal * v.value / 100, v.maxDiscount || Infinity)
-              : v.value;
+              ? Math.min(applicableTotal * v.value / 100, v.maxDiscount || Infinity)
+              : Math.min(v.value, applicableTotal);
             const bestEff = best.discountType === 'percent'
-              ? Math.min(orderTotal * best.value / 100, best.maxDiscount || Infinity)
-              : best.value;
+              ? Math.min(bestApplicableTotal * best.value / 100, best.maxDiscount || Infinity)
+              : Math.min(best.value, bestApplicableTotal);
             return eff > bestEff ? v : best;
           }, list[0]);
         };
@@ -434,9 +456,10 @@ const CheckoutPage = () => {
         const bestShipping = autoSelect(shippingVouchers);
 
         if (bestProduct) {
+          const applicableTotal = getVoucherApplicableTotal(bestProduct);
           const eff = bestProduct.discountType === 'percent'
-            ? Math.min(orderTotal * bestProduct.value / 100, bestProduct.maxDiscount || Infinity)
-            : bestProduct.value;
+            ? Math.min(applicableTotal * bestProduct.value / 100, bestProduct.maxDiscount || Infinity)
+            : Math.min(bestProduct.value, applicableTotal);
           setSelectedProductCoupon(bestProduct);
           setProductCouponDiscount(Math.round(eff >= Infinity ? 0 : eff));
         }
@@ -460,7 +483,20 @@ const CheckoutPage = () => {
         : (cart?.products || [])
             .filter((item) => selectedItemIds.has(item.product._id || item.product))
             .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
-      const res = await validateVoucherApi({ code: voucher.code, orderTotal });
+      const cartItems = isBuyNow
+        ? [{
+            productId: buyNowItem?.productId,
+            price: buyNowProduct?.price || 0,
+            quantity: buyNowItem?.quantity || 1,
+          }]
+        : (cart?.products || [])
+            .filter((item) => selectedItemIds.has(item.product._id || item.product))
+            .map((item) => ({
+              productId: item.product._id || item.product,
+              price: item.price,
+              quantity: item.quantity,
+            }));
+      const res = await validateVoucherApi({ code: voucher.code, orderTotal, cartItems });
       if (res.success) {
         setSelectedProductCoupon(res.data.voucher);
         setProductCouponDiscount(res.data.discount);

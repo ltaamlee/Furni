@@ -311,14 +311,22 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     const maxDiscount = coupon.maxDiscount ?? voucher.maxDiscount;
                     const minOrderValue = coupon.minOrderValue ?? voucher.minOrderValue;
                     const couponEndDate = coupon.endDate || voucher.endDate;
+                    const applicableSubtotal = coupon.shop
+                        ? checkoutItems.reduce((sum, item) => {
+                            const product = productMap[item.product.toString()];
+                            const productShopId = product?.shop?._id || product?.shop;
+                            if (productShopId?.toString() !== coupon.shop.toString()) return sum;
+                            return sum + (item.price * item.quantity);
+                        }, 0)
+                        : subtotal;
 
                     if (!couponEndDate || new Date(couponEndDate) >= new Date()) {
-                        if (!minOrderValue || subtotal >= minOrderValue) {
+                        if (applicableSubtotal > 0 && (!minOrderValue || applicableSubtotal >= minOrderValue)) {
                             if (discountType === 'percent') {
-                                couponDiscount = Math.round(subtotal * couponValue / 100);
+                                couponDiscount = Math.round(applicableSubtotal * couponValue / 100);
                                 if (maxDiscount) couponDiscount = Math.min(couponDiscount, maxDiscount);
                             } else {
-                                couponDiscount = Math.min(couponValue, subtotal);
+                                couponDiscount = Math.min(couponValue, applicableSubtotal);
                             }
                             usedCoupon = voucher;
                         }

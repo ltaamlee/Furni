@@ -208,6 +208,7 @@ const createOrder = async (req, res) => {
         let couponDiscount = 0;
         let usedCouponCode = null;
         let usedCouponId = null;
+        let usedCouponShopId = null;
         if (couponCode) {
             const voucher = await VoucherWallet.findOne({ user: req.user._id, code: couponCode.toUpperCase() })
                 .populate('coupon');
@@ -222,17 +223,21 @@ const createOrder = async (req, res) => {
                     const maxDiscount = coupon.maxDiscount ?? voucher.maxDiscount;
                     const minOrderValue = coupon.minOrderValue ?? voucher.minOrderValue;
                     const couponEndDate = coupon.endDate || voucher.endDate;
+                    const applicableSubtotal = coupon.shop
+                        ? (shopGroups[coupon.shop.toString()]?.subtotal || 0)
+                        : totalSubtotal;
 
                     if (!couponEndDate || new Date(couponEndDate) >= new Date()) {
-                        if (!minOrderValue || totalSubtotal >= minOrderValue) {
+                        if (applicableSubtotal > 0 && (!minOrderValue || applicableSubtotal >= minOrderValue)) {
                             if (discountType === 'percent') {
-                                couponDiscount = Math.round(totalSubtotal * couponValue / 100);
+                                couponDiscount = Math.round(applicableSubtotal * couponValue / 100);
                                 if (maxDiscount) couponDiscount = Math.min(couponDiscount, maxDiscount);
                             } else {
-                                couponDiscount = Math.min(couponValue, totalSubtotal);
+                                couponDiscount = Math.min(couponValue, applicableSubtotal);
                             }
                             usedCouponCode = coupon.code || voucher.code;
                             usedCouponId = voucher._id;
+                            usedCouponShopId = coupon.shop ? coupon.shop.toString() : null;
                         }
                     }
                 }
@@ -255,9 +260,9 @@ const createOrder = async (req, res) => {
             }
 
             // Phân bổ coupon discount theo tỷ lệ subtotal của shop
-            const shopCouponDiscount = totalSubtotal > 0
-                ? Math.round(couponDiscount * group.subtotal / totalSubtotal)
-                : 0;
+            const shopCouponDiscount = usedCouponShopId
+                ? (shopId === usedCouponShopId ? couponDiscount : 0)
+                : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
             const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
 
             const order = new Order({
@@ -273,7 +278,7 @@ const createOrder = async (req, res) => {
                 paymentMethod,
                 subtotal: group.subtotal,
                 couponDiscount: shopCouponDiscount,
-                couponCode: shopId === shopKeys[0] ? usedCouponCode : null,
+                couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
                 shippingFee,
                 shippingTier,
                 shippingProvider,

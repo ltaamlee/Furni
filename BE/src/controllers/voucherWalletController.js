@@ -2,6 +2,7 @@ const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 const Coupon = require('../models/Coupon');
 const Shop = require('../models/Shop');
 const Order = require('../models/Order');
+const Product = require('../models/product');
 
 // @desc    Claim a voucher (coupon) into user's wallet
 // @route   POST /api/vouchers/claim
@@ -249,7 +250,7 @@ const getAvailableVouchers = async (req, res) => {
 
 const validateVoucher = async (req, res) => {
     try {
-        const { code, orderTotal } = req.body;
+        const { code, orderTotal, cartItems = [] } = req.body;
         const userId = req.user._id;
 
         if (!code) {
@@ -294,7 +295,31 @@ const validateVoucher = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Voucher đã hết lượt sử dụng' });
         }
 
-        if (voucherMinOrderValue && orderTotal < voucherMinOrderValue) {
+        let applicableTotal = Number(orderTotal) || 0;
+        if (coupon.shop) {
+            if (!Array.isArray(cartItems) || cartItems.length === 0) {
+                return res.status(400).json({ success: false, message: 'Voucher này chỉ áp dụng cho sản phẩm của shop phát hành' });
+            }
+
+            const productIds = cartItems.map((item) => item.productId).filter(Boolean);
+            const products = await Product.find({ _id: { $in: productIds } }).select('shop').lean();
+            const eligibleProductIds = new Set(
+                products
+                    .filter((product) => product.shop?.toString() === coupon.shop.toString())
+                    .map((product) => product._id.toString())
+            );
+
+            applicableTotal = cartItems.reduce((sum, item) => {
+                if (!eligibleProductIds.has(item.productId?.toString())) return sum;
+                return sum + ((Number(item.price) || 0) * (Number(item.quantity) || 1));
+            }, 0);
+
+            if (applicableTotal <= 0) {
+                return res.status(400).json({ success: false, message: 'Voucher này chỉ áp dụng cho sản phẩm của shop phát hành' });
+            }
+        }
+
+        if (voucherMinOrderValue && applicableTotal < voucherMinOrderValue) {
             return res.status(400).json({
                 success: false,
                 message: `Đơn hàng tối thiểu ${voucherMinOrderValue.toLocaleString('vi-VN')}đ để sử dụng voucher này`
@@ -303,12 +328,12 @@ const validateVoucher = async (req, res) => {
 
         let discount = 0;
         if (voucherDiscountType === 'percent') {
-            discount = Math.round(orderTotal * voucherValue / 100);
+            discount = Math.round(applicableTotal * voucherValue / 100);
             if (voucherMaxDiscount) {
                 discount = Math.min(discount, voucherMaxDiscount);
             }
         } else {
-            discount = voucherValue;
+            discount = Math.min(voucherValue, applicableTotal);
         }
 
         // Trả về dữ liệu từ Coupon (mới nhất)

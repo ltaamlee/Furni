@@ -261,7 +261,12 @@ const CartPage = () => {
             }, 0);
             const res = await validateVoucherApi({
                 code: couponCode,
-                orderTotal: originalSubtotal
+                orderTotal: originalSubtotal,
+                cartItems: selectedCartProducts.map((item) => ({
+                    productId: item.product._id || item.product,
+                    price: item.originalPrice || item.price,
+                    quantity: item.quantity,
+                })),
             });
             if (res.success) {
                 setSelectedCoupon(res.data.voucher);
@@ -289,7 +294,12 @@ const CartPage = () => {
             }, 0);
             const res = await validateVoucherApi({
                 code: voucher.code,
-                orderTotal: originalSubtotal
+                orderTotal: originalSubtotal,
+                cartItems: selectedCartProducts.map((item) => ({
+                    productId: item.product._id || item.product,
+                    price: item.originalPrice || item.price,
+                    quantity: item.quantity,
+                })),
             });
             if (res.success) {
                 setSelectedCoupon(res.data.voucher);
