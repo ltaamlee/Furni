@@ -80,12 +80,6 @@ router.put('/products/:id/toggle-visibility', protect, authorize('admin'), toggl
 router.route('/promotions')
   .get(getAdminPromotions)
   .post(createAdminPromotion);
-  
-
-// Khuyến mãi toàn sàn (Admin only)
-router.route('/promotions')
-  .get(getAdminPromotions)
-  .post(createAdminPromotion);
 
 router.route('/promotions/:id')
   .put(updateAdminPromotion)

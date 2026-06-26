@@ -71,7 +71,7 @@ const BestSellersPage = () => {
                             ) : (
                                 <div className="relative">
                                     <div className="flex gap-5 overflow-x-auto pb-4 scrollbar-hide">
-                                        {bestSellers.map((product) => (
+                                        {bestSellers.slice(0, 8).map((product) => (
                                             <div key={product._id} className="flex-shrink-0 w-64">
                                                 <ProductCard
                                                     product={product}

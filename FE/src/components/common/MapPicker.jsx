@@ -537,7 +537,7 @@ const SearchableCombobox = ({
     if (!query) return options;
     const q = query.toLowerCase();
     return options.filter((o) =>
-      String(o.name || o.label || o).toLowerCase().includes(q)
+      String(o.ProvinceName || o.name || o.label || o).toLowerCase().includes(q)
     );
   }, [options, query]);
 
@@ -631,7 +631,7 @@ const SearchableCombobox = ({
           <input
             ref={inputRef}
             type="text"
-            value={open ? query : (selected ? (selected.name || selected.label) : "")}
+            value={open ? query : (selected ? (selected.ProvinceName || selected.name || selected.label || "") : "")}
             onChange={(e) => {
               setQuery(e.target.value);
               setOpen(true);
@@ -734,20 +734,16 @@ const FormFields = ({
         </div>
       </div>
 
-      {/* Province - auto-detected from map/search, shown as read-only */}
-      <div>
-        <label className="block text-sm font-medium text-[#1C1108] mb-1.5">
-          Tỉnh/Thành phố
-          {formData.provinceName && (
-            <span className="ml-2 text-[#B86B05] font-normal">✓ {formData.provinceName}</span>
-          )}
-        </label>
-        <div className="w-full px-4 py-2.5 border border-[#D5C9BC] rounded-xl text-sm bg-[#FAF7F4] text-[#6B5C4C]">
-          {formData.provinceName
-            ? formData.provinceName
-            : "Chọn vị trí trên bản đồ hoặc tìm địa chỉ để tự động nhận diện"}
-        </div>
-      </div>
+      {/* Province - searchable combobox */}
+      <SearchableCombobox
+        label="Tỉnh/Thành phố"
+        value={formData.provinceCode ? String(formData.provinceCode) : ""}
+        options={provinces}
+        onChange={onProvinceChange}
+        placeholder="Chọn Tỉnh/Thành phố..."
+        loading={loadingProvinces}
+        required
+      />
 
       {/* Address (street) with MapVina Autocomplete */}
       <div className="relative" ref={suggestionRef}>

@@ -27,10 +27,11 @@ const getAdminPromotions = async (req, res) => {
             const dynamicStatus = updateStatusByDate(promo);
             if (promo.status !== dynamicStatus && promo.status !== 'paused') {
                 promo.status = dynamicStatus;
-                promo.save(); 
             }
             return promo;
         });
+
+        await Promise.all(filteredPromotions.map(promo => promo.save()));
 
         if (status) {
             filteredPromotions = filteredPromotions.filter(p => p.status === status);
@@ -70,9 +71,12 @@ const getAdminPromotions = async (req, res) => {
 // @route   POST /api/admin/promotions
 const createAdminPromotion = async (req, res) => {
     try {
-        const { name, code, discountType, value, maxDiscount, minOrderValue, startDate, endDate } = req.body;
+        const { name, code, discountType, value, maxDiscount, minOrderValue, startDate, endDate, maxUsage, status } = req.body;
 
-        const existingCoupon = await Coupon.findOne({ code: code.toUpperCase() });
+        const promoCode = (code || '').trim().toUpperCase();
+        if (!promoCode) return res.status(400).json({ success: false, message: 'Vui lòng nhập mã giảm giá!' });
+
+        const existingCoupon = await Coupon.findOne({ code: promoCode });
         if (existingCoupon) return res.status(400).json({ success: false, message: 'Mã giảm giá này đã tồn tại!' });
 
         const newPromo = await Promotion.create({
@@ -85,11 +89,12 @@ const createAdminPromotion = async (req, res) => {
             minOrderValue,
             startDate,
             endDate,
-            status: updateStatusByDate({ startDate, endDate })
+            maxUsage,
+            status: status || updateStatusByDate({ startDate, endDate })
         });
 
         const newCoupon = await Coupon.create({
-            code: code.toUpperCase(),
+            code: promoCode,
             promotion: newPromo._id,
             shop: null,
             discountType,
@@ -121,33 +126,64 @@ const deleteAdminPromotion = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
-// @desc    Cập nhật khuyến mãi 
+// @desc    Cập nhật khuyến mãi
 // @route   PUT /api/admin/promotions/:id
 const updateAdminPromotion = async (req, res) => {
     try {
-        const { discountType, value, maxDiscount, minOrderValue, startDate, endDate } = req.body;
-        
+        const { name, code, discountType, value, maxDiscount, minOrderValue, startDate, endDate, maxUsage, status } = req.body;
+
         const promo = await Promotion.findById(req.params.id);
         if (!promo) return res.status(404).json({ success: false, message: 'Không tìm thấy khuyến mãi' });
 
-        promo.discountType = discountType;
-        promo.value = value;
-        promo.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
-        promo.minOrderValue = minOrderValue;
-        promo.startDate = startDate;
-        promo.endDate = endDate;
-        promo.status = updateStatusByDate(promo); 
+        if (name !== undefined) promo.name = name;
+        if (discountType !== undefined) promo.discountType = discountType;
+        if (value !== undefined) promo.value = value;
+        if (maxDiscount !== undefined) promo.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
+        if (minOrderValue !== undefined) promo.minOrderValue = minOrderValue;
+        if (startDate !== undefined) promo.startDate = startDate;
+        if (endDate !== undefined) promo.endDate = endDate;
+        if (maxUsage !== undefined) promo.maxUsage = maxUsage;
+        if (status !== undefined) promo.status = status;
         await promo.save();
 
-        const coupon = await Coupon.findOne({ promotion: promo._id });
-        if (coupon) {
-            coupon.discountType = discountType;
-            coupon.value = value;
-            coupon.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
-            coupon.minOrderValue = minOrderValue;
-            coupon.startDate = startDate;
-            coupon.endDate = endDate;
-            await coupon.save();
+        if (code !== undefined) {
+            const promoCode = (code || '').trim().toUpperCase();
+            const coupon = await Coupon.findOne({ promotion: promo._id });
+            if (promoCode) {
+                if (coupon) {
+                    coupon.code = promoCode;
+                    coupon.discountType = discountType;
+                    coupon.value = value;
+                    coupon.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
+                    coupon.minOrderValue = minOrderValue;
+                    coupon.startDate = startDate;
+                    coupon.endDate = endDate;
+                    await coupon.save();
+                } else {
+                    await Coupon.create({
+                        code: promoCode,
+                        promotion: promo._id,
+                        shop: null,
+                        discountType,
+                        value,
+                        maxDiscount: discountType === 'percent' ? maxDiscount : 0,
+                        minOrderValue,
+                        startDate,
+                        endDate,
+                    });
+                }
+            }
+        } else {
+            const coupon = await Coupon.findOne({ promotion: promo._id });
+            if (coupon) {
+                coupon.discountType = discountType;
+                coupon.value = value;
+                coupon.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
+                coupon.minOrderValue = minOrderValue;
+                coupon.startDate = startDate;
+                coupon.endDate = endDate;
+                await coupon.save();
+            }
         }
 
         res.status(200).json({ success: true, message: 'Cập nhật khuyến mãi thành công!' });

@@ -8,6 +8,7 @@ import {
   getCartApi,
   createOrderApi,
   calculateShippingFeesApi,
+  calculateShippingTiersApi,
   createPayOSPaymentWithCartApi,
   getAddressesApi,
   getProductByIdApi,
@@ -35,6 +36,13 @@ const COLORS = {
   errorBg: "#fef2f2",
   warning: "#d97706",
   warningBg: "#fffbeb",
+};
+
+const PROVIDER_LABELS = {
+  jt: "J&T Express",
+  ghtk: "Giao Hàng Tiết Kiệm",
+  viettel: "Viettel Post",
+  ghn: "Giao Hàng Nhanh",
 };
 
 // Step labels
@@ -521,7 +529,11 @@ const CheckoutPage = () => {
             .filter((item) => selectedItemIds.has(item.product._id || item.product))
             .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
 
-      if (selectedOrderTotal === 0) return;
+      console.log('[fetchShippingFees] selectedOrderTotal:', selectedOrderTotal);
+      if (selectedOrderTotal === 0) {
+        console.log('[fetchShippingFees] BỎ QUA: selectedOrderTotal === 0');
+        return;
+      }
 
       // Determine shopId
       let shopId = null;
@@ -531,18 +543,23 @@ const CheckoutPage = () => {
         const firstSelectedItem = cart.products.find((p) => selectedItemIds.has(p.product._id || p.product));
         if (firstSelectedItem) shopId = firstSelectedItem.shop?._id || firstSelectedItem.shop;
       }
+      console.log('[fetchShippingFees] shopId:', shopId);
 
       // Fetch shop's shipping config once per shopId
       let enabledProviders = null;
       if (shopId) {
         try {
+          console.log('[fetchShippingFees] Đang gọi getShopShippingConfigApi với shopId:', shopId);
           const configRes = await getShopShippingConfigApi(shopId);
+          console.log('[fetchShippingFees] getShopShippingConfigApi response:', configRes);
           if (configRes.success) {
             enabledProviders = configRes.data.shippingConfig?.enabledProviders || null;
+            console.log('[fetchShippingFees] enabledProviders từ shop config:', enabledProviders);
             const shopThreshold = configRes.data.shippingConfig?.freeShippingThreshold;
             // Override FREE_THRESHOLD with shop's setting if set
             if (shopThreshold !== undefined && shopThreshold !== null) {
               if (selectedOrderTotal >= shopThreshold) {
+                console.log('[fetchShippingFees] Đơn >= ngưỡng miễn phí ship của shop, trả FREE');
                 const freeFees = [
                   { provider: { _id: 'default', name: 'Giao Hàng Tiết Kiệm', code: 'GHTK' }, serviceType: 'economy', serviceName: 'Miễn Phí', fee: 0, estimatedDays: { min: 3, max: 5 }, isFree: true, weight: 0 },
                   { provider: { _id: 'default2', name: 'J&T Express', code: 'JT' }, serviceType: 'express', serviceName: 'Nhanh', fee: 0, estimatedDays: { min: 1, max: 2 }, isFree: true, weight: 0 },
@@ -551,13 +568,21 @@ const CheckoutPage = () => {
                 return;
               }
             }
+          } else {
+            console.log('[fetchShippingFees] getShopShippingConfigApi FAILED:', configRes);
           }
-        } catch (_) { /* shop might not have config yet, fall through */ }
+        } catch (err) {
+          console.log('[fetchShippingFees] Lỗi getShopShippingConfigApi:', err.message);
+          /* shop might not have config yet, fall through */
+        }
+      } else {
+        console.log('[fetchShippingFees] KHÔNG CÓ shopId — bỏ qua getShopShippingConfigApi');
       }
 
       // Use shop's freeShippingThreshold or default 500k
       const FREE_THRESHOLD = 500000;
       if (selectedOrderTotal >= FREE_THRESHOLD) {
+        console.log('[fetchShippingFees] Đơn >= 500k, trả FREE');
         const freeFees = [
           { provider: { _id: 'default', name: 'Giao Hàng Tiết Kiệm', code: 'GHTK' }, serviceType: 'economy', serviceName: 'Miễn Phí', fee: 0, estimatedDays: { min: 3, max: 5 }, isFree: true, weight: 0 },
           { provider: { _id: 'default2', name: 'J&T Express', code: 'JT' }, serviceType: 'express', serviceName: 'Nhanh', fee: 0, estimatedDays: { min: 1, max: 2 }, isFree: true, weight: 0 },
@@ -575,42 +600,38 @@ const CheckoutPage = () => {
           return sum + (item.product?.weight || 0) * (item.quantity || 1);
         }, 0);
       }
+      console.log('[fetchShippingFees] totalWeight:', totalWeight);
 
       const weightBucket = Math.round(totalWeight / 500) * 500;
       const cacheKey = `${shippingInfo.provinceCode}_${weightBucket}_${selectedOrderTotal}_${shopId || 'all'}`;
       if (shippingCache.current[cacheKey]) {
+        console.log('[fetchShippingFees] Dùng cache:', cacheKey);
         setShippingFees(shippingCache.current[cacheKey]);
         return;
       }
 
       // Gọi API tính phí ship - sử dụng calculate-tiers để filter theo enabledProviders của shop
+      console.log('[fetchShippingFees] Gọi calculateShippingTiersApi với:', {
+        provinceCode: shippingInfo.provinceCode,
+        orderTotal: selectedOrderTotal,
+        weight: Math.round(totalWeight),
+        enabledProviders: enabledProviders ? enabledProviders.join(',') : null,
+      });
       const res = await calculateShippingTiersApi({
         provinceCode: shippingInfo.provinceCode,
         orderTotal: selectedOrderTotal,
         weight: Math.round(totalWeight),
         enabledProviders: enabledProviders ? enabledProviders.join(',') : null,
       });
+      console.log('[fetchShippingFees] calculateShippingTiersApi response:', res);
 
       if (res.success) {
-        // Backend trả về res.data.tiers, transform để match frontend format
         const rawTiers = res.data.tiers || [];
-        
-        const transformedFees = rawTiers.map((fee) => ({
-          provider: {
-            _id: fee.provider,
-            name: fee.providerName || PROVIDER_LABELS[fee.provider] || fee.provider,
-            code: fee.provider?.toUpperCase() || fee.provider,
-          },
-          serviceType: fee.tier === 'economy' ? 'economy' : 'express',
-          serviceName: fee.tier === 'economy' ? 'Tiết kiệm' : 'Nhanh',
-          fee: fee.fee,
-          estimatedDays: fee.estimatedDays || { min: 2, max: 5 },
-          isFree: fee.isFree || fee.fee === 0,
-          weight: Math.round(totalWeight),
-        }));
-        
-        // Nếu không có tiers, tạo fallback dựa trên enabledProviders
-        if (transformedFees.length === 0) {
+        console.log('[fetchShippingFees] rawTiers từ backend:', rawTiers);
+
+        if (rawTiers.length === 0) {
+          console.log('[fetchShippingFees] Backend trả về rỗng — dùng FALLBACK');
+          // Nếu không có tiers, tạo fallback dựa trên enabledProviders
           const defaultProviders = enabledProviders && enabledProviders.length > 0
             ? enabledProviders
             : ['ghtk', 'jt'];
@@ -627,12 +648,29 @@ const CheckoutPage = () => {
           setShippingFees(fallbackFees);
           return;
         }
-        
+
+        const transformedFees = rawTiers.map((fee) => ({
+          provider: {
+            _id: fee.provider,
+            name: fee.providerName || PROVIDER_LABELS[fee.provider] || fee.provider,
+            code: (fee.provider || '').toUpperCase(),
+          },
+          serviceType: fee.tier === 'economy' ? 'economy' : 'express',
+          serviceName: fee.tier === 'economy' ? 'Tiết kiệm' : 'Nhanh',
+          fee: fee.fee,
+          estimatedDays: fee.estimatedDays || { min: 2, max: 5 },
+          isFree: fee.isFree || fee.fee === 0,
+          weight: Math.round(totalWeight),
+        }));
+        console.log('[fetchShippingFees] transformedFees:', transformedFees);
+
         shippingCache.current[cacheKey] = transformedFees;
         setShippingFees(transformedFees);
+      } else {
+        console.log('[fetchShippingFees] API trả về success=false:', res);
       }
     } catch (error) {
-      console.error("Error fetching shipping fees:", error);
+      console.error('[fetchShippingFees] LỖI:', error.message, error.response?.data);
     }
   };
 
