@@ -137,6 +137,58 @@ const pickPromoFields = (body) => {
     return data;
 };
 
+const generateVendorCouponCode = async () => {
+    for (let i = 0; i < 8; i += 1) {
+        const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const couponCode = `SORA${randomCode}`;
+        const exists = await Coupon.exists({ code: couponCode });
+        if (!exists) return couponCode;
+    }
+    return `SORA${Date.now().toString(36).toUpperCase().slice(-6)}`;
+};
+
+const couponActiveFromPromotion = (promotion) => (
+    [Promotion.STATUS.SCHEDULED, Promotion.STATUS.RUNNING].includes(promotion.status)
+);
+
+const couponPayloadFromPromotion = (promotion, shopId) => ({
+    promotion: promotion._id,
+    shop: shopId,
+    description: promotion.description || promotion.name,
+    discountType: promotion.discountType || 'percent',
+    value: promotion.value || 0,
+    maxDiscount: promotion.discountType === 'percent' ? (promotion.maxDiscount || 0) : 0,
+    minOrderValue: promotion.minOrderValue || 0,
+    startDate: promotion.startDate,
+    endDate: promotion.endDate,
+    usageLimit: promotion.maxUsage || 0,
+    isActive: couponActiveFromPromotion(promotion),
+});
+
+const syncCouponForPromotion = async (promotion, shopId) => {
+    const coupon = await Coupon.findOne({ promotion: promotion._id });
+
+    if (promotion.type !== Promotion.TYPE.COUPON) {
+        if (coupon) {
+            coupon.isActive = false;
+            await coupon.save();
+        }
+        return null;
+    }
+
+    const payload = couponPayloadFromPromotion(promotion, shopId);
+    if (coupon) {
+        Object.assign(coupon, payload);
+        await coupon.save();
+        return coupon;
+    }
+
+    return Coupon.create({
+        code: await generateVendorCouponCode(),
+        ...payload,
+    });
+};
+
 // @desc    Lấy thông tin shop của vendor
 // @route   GET /api/vendor/shop
 // @access  Private/Vendor
@@ -395,6 +447,7 @@ const updatePromotion = async (req, res) => {
 
         Object.assign(promotion, data);
         await promotion.save();
+        await syncCouponForPromotion(promotion, shop._id);
         const populated = await populatePromotion(Promotion.findById(promotion._id));
 
         res.status(200).json({ success: true, message: 'Cập nhật khuyến mãi thành công', data: { promotion: populated } });
