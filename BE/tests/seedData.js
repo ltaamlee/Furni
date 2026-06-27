@@ -1,7 +1,7 @@
 /* ============================================================
    Seed dữ liệu DUY NHẤT cho dự án Furni (cập nhật theo model mới).
    Tạo: users (admin/2 vendor/customer) -> categories -> 2 shop -> ví
-        -> products -> promotions/coupons -> orders -> transactions -> reviews
+        -> products -> promotions -> orders -> transactions -> reviews
         -> cart -> notifications -> blogs.
 
    Dùng Model.create() (KHÔNG dùng insertMany) để các hook chạy:
@@ -21,7 +21,6 @@ const Shop = require('../src/models/shop');
 const Wallet = require('../src/models/wallet');
 const Product = require('../src/models/product');
 const Promotion = require('../src/models/promotion');
-const Coupon = require('../src/models/coupon');
 const Order = require('../src/models/order');
 const Cart = require('../src/models/cart');
 const Transaction = require('../src/models/transaction');
@@ -37,7 +36,9 @@ const USERS = [
     { fullName: 'System Admin', email: 'admin@gmail.com', phone: '0912345678', username: 'admin01', password: 'Admin123', role: 'admin', isVerified: true },
     { fullName: 'System Vendor', email: 'vendor@gmail.com', phone: '0987654321', username: 'vendor01', password: 'Vendor123', role: 'vendor', isVerified: true },
     { fullName: 'Trần Minh Decor', email: 'vendor2@gmail.com', phone: '0978123456', username: 'vendor02', password: 'Vendor123', role: 'vendor', isVerified: true },
-    { fullName: 'Nguyễn Văn Khách', email: 'customer@gmail.com', phone: '0909123457', username: 'customer01', password: 'Customer123', role: 'customer', isVerified: true }
+    { fullName: 'Nguyễn Văn Khách', email: 'customer@gmail.com', phone: '0909123457', username: 'customer01', password: 'Customer123', role: 'customer', isVerified: true },
+    { fullName: 'Khách Hàng Test', email: 'customer2@gmail.com', phone: '0988123458', username: 'customer02', password: 'Customer123', role: 'customer', isVerified: true },
+    { fullName: 'Phạm Thị An', email: 'anpham@gmail.com', phone: '0911223344', username: 'anpham01', password: 'AnPham123', role: 'customer', isVerified: true, gender: 'female', dateOfBirth: new Date('1992-08-14'), profileImage: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200' }
 ];
 
 // ── Danh mục (ảnh tham khảo từ seedProducts.js) ──────────────
@@ -141,7 +142,6 @@ const seed = async () => {
             Wallet.deleteMany({}),
             Product.deleteMany({}),
             Promotion.deleteMany({}),
-            Coupon.deleteMany({}),
             Order.deleteMany({}),
             Cart.deleteMany({}),
             Transaction.deleteMany({}),
@@ -149,7 +149,7 @@ const seed = async () => {
             Notification.deleteMany({}),
             Blog.deleteMany({})
         ]);
-        console.log('Cleared: users, categories, shops, wallets, products, promotions, coupons, orders, carts, transactions, reviews, notifications');
+        console.log('Cleared: users, categories, shops, wallets, products, promotions, orders, carts, transactions, reviews, notifications');
 
         // 2) Users (create -> hash mật khẩu)
         const users = await User.create(USERS);
@@ -222,27 +222,6 @@ const seed = async () => {
         ]);
         console.log(`Created ${promos.length + secondPromos.length} promotions for 2 shops`);
 
-        const platformCouponPromos = await Promotion.create([
-            { shop: null, name: 'Toàn Sàn FREESHIP50', description: 'Giảm 50.000₫ phí vận chuyển cho đơn từ 1.000.000₫.', type: 'coupon', discountType: 'fixed', value: 50000, maxDiscount: 0, minOrderValue: 1000000, appliesTo: 'all', startDate: daysFromNow(-2), endDate: daysFromNow(12), maxUsage: 1000, usedCount: 215, status: 'running' },
-            { shop: null, name: 'Toàn Sàn FURNI10', description: 'Giảm 10% tối đa 500.000₫ cho đơn nội thất từ 2.000.000₫.', type: 'coupon', discountType: 'percent', value: 10, maxDiscount: 500000, minOrderValue: 2000000, appliesTo: 'all', startDate: daysFromNow(-1), endDate: daysFromNow(20), maxUsage: 800, usedCount: 132, status: 'running' },
-            { shop: null, name: 'Toàn Sàn NEWHOME', description: 'Giảm ngay 300.000₫ cho đơn đầu tiên từ 3.000.000₫.', type: 'coupon', discountType: 'fixed', value: 300000, maxDiscount: 0, minOrderValue: 3000000, appliesTo: 'all', startDate: daysFromNow(-5), endDate: daysFromNow(30), maxUsage: 500, usedCount: 68, status: 'running' }
-        ]);
-
-        const coupons = await Coupon.create([
-            { code: 'FREESHIP50', promotion: platformCouponPromos[0]._id, shop: null, description: 'Giảm 50.000₫ phí vận chuyển cho đơn từ 1.000.000₫.', discountType: 'fixed', value: 50000, maxDiscount: 0, minOrderValue: 1000000, usageLimit: 1000, usedCount: 215, perUserLimit: 1, startDate: daysFromNow(-2), endDate: daysFromNow(12), isActive: true },
-            { code: 'FURNI10', promotion: platformCouponPromos[1]._id, shop: null, description: 'Giảm 10% tối đa 500.000₫ cho đơn nội thất từ 2.000.000₫.', discountType: 'percent', value: 10, maxDiscount: 500000, minOrderValue: 2000000, usageLimit: 800, usedCount: 132, perUserLimit: 1, startDate: daysFromNow(-1), endDate: daysFromNow(20), isActive: true },
-            { code: 'NEWHOME', promotion: platformCouponPromos[2]._id, shop: null, description: 'Giảm ngay 300.000₫ cho đơn đầu tiên từ 3.000.000₫.', discountType: 'fixed', value: 300000, maxDiscount: 0, minOrderValue: 3000000, usageLimit: 500, usedCount: 68, perUserLimit: 1, startDate: daysFromNow(-5), endDate: daysFromNow(30), isActive: true },
-
-            { code: 'SUMMER20', promotion: promos[1]._id, shop: shop._id, description: 'Furni Official Store giảm 20% tối đa 1.500.000₫ cho đơn từ 3.000.000₫.', discountType: 'percent', value: 20, maxDiscount: 1500000, minOrderValue: 3000000, usageLimit: 500, usedCount: 156, perUserLimit: 1, startDate: daysFromNow(-2), endDate: daysFromNow(7), isActive: true },
-            { code: 'FURNI500K', shop: shop._id, description: 'Furni Official Store giảm 500.000₫ cho đơn từ 8.000.000₫.', discountType: 'fixed', value: 500000, maxDiscount: 0, minOrderValue: 8000000, usageLimit: 120, usedCount: 24, perUserLimit: 1, startDate: daysFromNow(-1), endDate: daysFromNow(18), isActive: true },
-            { code: 'SOFA15', shop: shop._id, description: 'Ưu đãi 15% tối đa 1.000.000₫ cho khách mua sofa tại Furni Official Store.', discountType: 'percent', value: 15, maxDiscount: 1000000, minOrderValue: 5000000, usageLimit: 150, usedCount: 41, perUserLimit: 1, startDate: daysFromNow(-3), endDate: daysFromNow(15), isActive: true },
-
-            { code: 'MOCAN12', promotion: secondPromos[0]._id, shop: secondShop._id, description: 'Mộc An Living giảm 12% tối đa 1.200.000₫ cho đơn từ 4.000.000₫.', discountType: 'percent', value: 12, maxDiscount: 1200000, minOrderValue: 4000000, usageLimit: 200, usedCount: 47, perUserLimit: 1, startDate: daysFromNow(-3), endDate: daysFromNow(14), isActive: true },
-            { code: 'MOCAN300K', shop: secondShop._id, description: 'Mộc An Living giảm 300.000₫ cho đơn từ 5.000.000₫.', discountType: 'fixed', value: 300000, maxDiscount: 0, minOrderValue: 5000000, usageLimit: 100, usedCount: 18, perUserLimit: 1, startDate: daysFromNow(-1), endDate: daysFromNow(21), isActive: true },
-            { code: 'JAPANDI8', shop: secondShop._id, description: 'Mộc An Living giảm 8% tối đa 800.000₫ cho bộ sưu tập Japandi.', discountType: 'percent', value: 8, maxDiscount: 800000, minOrderValue: 3500000, usageLimit: 160, usedCount: 33, perUserLimit: 1, startDate: daysFromNow(-2), endDate: daysFromNow(25), isActive: true }
-        ]);
-        console.log(`Created ${coupons.length} coupons (${platformCouponPromos.length} toàn sàn, ${coupons.filter((c) => c.shop).length} của shop)`);
-
         // 7) Đơn hàng mẫu của khách (gắn shop cho từng dòng - Hướng B)
         const customer = users.find((u) => u.role === 'customer');
         const lineItem = (name, qty) => {
@@ -258,6 +237,33 @@ const seed = async () => {
                 products: items,
                 shippingAddress: { fullName: customer.fullName, phone: customer.phone, address: '123 Lê Lợi, Quận 1, TP. Hồ Chí Minh', city: 'TP. Hồ Chí Minh', note: '' },
                 paymentMethod, paymentStatus,
+                subtotal,
+                shippingFee,
+                totalPrice: subtotal + shippingFee,
+                totalQuantity: items.reduce((s, it) => s + it.quantity, 0),
+                status,
+                orderedAt: placedAt,
+                createdAt: placedAt,
+                updatedAt: placedAt,
+                estimatedDelivery: new Date(placedAt.getTime() + 4 * 86400000)
+            };
+        };
+        const buildCustomerOrder = (userObj, items, status, paymentMethod, ageInDays, paymentStatus = 'pending', address = null) => {
+            const subtotal = items.reduce((s, it) => s + it.price * it.quantity, 0);
+            const shippingFee = subtotal >= 500000 ? 0 : 30000;
+            const placedAt = daysFromNow(-ageInDays);
+            return {
+                user: userObj._id,
+                products: items,
+                shippingAddress: address || {
+                    fullName: userObj.fullName,
+                    phone: userObj.phone,
+                    address: '89 Trần Hưng Đạo, Quận 5, TP. Hồ Chí Minh',
+                    city: 'TP. Hồ Chí Minh',
+                    note: 'Giao trong giờ hành chính'
+                },
+                paymentMethod,
+                paymentStatus,
                 subtotal,
                 shippingFee,
                 totalPrice: subtotal + shippingFee,
@@ -287,9 +293,19 @@ const seed = async () => {
             buildOrder([lineItem('Sofa Giường Đa Năng MILANO', 1), lineItem('Tủ Giày Gỗ 4 Tầng', 1)], 'delivered', 'ZALOPAY', 71, 'paid'),
             buildOrder([lineItem('Bàn Ăn Gỗ Sồi 6 Chỗ ELEGANT', 1), lineItem('Ghế Ăn Gỗ Sồi Nordic', 4)], 'delivered', 'VNPAY', 86, 'paid')
         ];
+
+        const newCustomer = users.find((u) => u.email === 'anpham@gmail.com');
+        const NEW_ORDERS = [
+            buildCustomerOrder(newCustomer, [lineItem('Bàn Ăn Gỗ Sồi 6 Chỗ ELEGANT', 1)], 'pending', 'COD', 0),
+            buildCustomerOrder(newCustomer, [lineItem('Ghế Văn Phòng Gỗ Ergonomic', 1), lineItem('Tủ TV Gỗ Sồi Minimalist', 1)], 'confirmed', 'MOMO', 2, 'paid'),
+            buildCustomerOrder(newCustomer, [lineItem('Bàn Làm Việc Gỗ Sồi Simple Desk', 1)], 'shipping', 'ZALOPAY', 4, 'paid'),
+            buildCustomerOrder(newCustomer, [lineItem('Sofa Giường Đa Năng MILANO', 1)], 'delivered', 'VNPAY', 7, 'paid'),
+            buildCustomerOrder(newCustomer, [lineItem('Giường Ngủ Gỗ Óc Chó Size 1m8', 1)], 'cancelled', 'MOMO', 3, 'refunded')
+        ];
         // Tạo tuần tự để pre-save sinh orderNumber không trùng
         const createdOrders = [];
         for (const o of ORDERS) createdOrders.push(await Order.create(o));
+        for (const o of NEW_ORDERS) createdOrders.push(await Order.create(o));
 
         const secondLineItem = (name, qty) => {
             const p = secondByName[name];
