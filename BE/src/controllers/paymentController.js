@@ -95,6 +95,74 @@ const getPayOSInstance = () => {
     return payosInstance;
 };
 
+const markPayOSOrderPaid = async (order) => {
+    if (order.paymentStatus === 'paid') return order;
+
+    order.paymentStatus = 'paid';
+    await order.save();
+
+    const products = await Product.find({
+        _id: { $in: order.products.map(p => p.product) }
+    });
+
+    for (const item of order.products) {
+        const product = products.find(p => p._id.toString() === item.product.toString());
+        if (product && product.quantity >= item.quantity) {
+            await Product.findByIdAndUpdate(item.product, {
+                $inc: {
+                    quantity: -item.quantity,
+                    sold: item.quantity
+                }
+            });
+        }
+    }
+
+    if (order.usedCouponId) {
+        const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
+        const Coupon = require('../models/Coupon');
+        await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
+            status: VOUCHER_STATUS.USED,
+            usedAt: new Date()
+        });
+        if (order.couponCode) {
+            const voucher = await VoucherWallet.findById(order.usedCouponId);
+            if (voucher?.coupon) {
+                await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: 1 } });
+            }
+        }
+    }
+
+    return order;
+};
+
+const syncOrderWithPayOS = async (order) => {
+    if (order.paymentMethod !== 'PAYOS' || !order.payosOrderCode || order.paymentStatus === 'paid') {
+        return { order, paymentLink: null };
+    }
+
+    const payos = getPayOSInstance();
+    if (!payos) return { order, paymentLink: null };
+
+    const paymentLink = await payos.paymentRequests.get(Number(order.payosOrderCode));
+    const status = paymentLink?.status;
+
+    if (status === 'PAID') {
+        await markPayOSOrderPaid(order);
+    } else if (['CANCELLED', 'EXPIRED', 'FAILED'].includes(status) && order.paymentStatus !== 'paid') {
+        order.paymentStatus = 'failed';
+        order.status = ORDER_STATUS.CANCELLED;
+        order.cancelledAt = new Date();
+        order.statusHistory.push({
+            status: ORDER_STATUS.CANCELLED,
+            timestamp: new Date(),
+            note: `Thanh toán PayOS ${status.toLowerCase()}`
+        });
+        await order.save();
+    }
+
+    return { order, paymentLink };
+};
+
 /**
  * Tạo payment link PayOS
  * @route POST /api/payments/payos/create
@@ -113,7 +181,7 @@ const createPayOSPayment = async (req, res) => {
         }
 
         // Lấy thông tin đơn hàng
-        const order = await Order.findById(orderId);
+        let order = await Order.findById(orderId);
         
         if (!order) {
             return res.status(404).json({
@@ -222,7 +290,12 @@ const createPayOSPayment = async (req, res) => {
 const createPayOSPaymentWithCart = async (req, res) => {
     try {
         const { shippingAddress, shippingTier = 'express', shippingProvider = null, shippingFee, note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, couponCode = null } = req.body;
-        const isBuyNow = Boolean(buyNowProduct?.productId && Number(buyNowProduct.quantity) > 0);
+        const normalizedBuyNowProduct = buyNowProduct?.productId
+            ? buyNowProduct
+            : (req.body.buyNowProductId
+                ? { productId: req.body.buyNowProductId, quantity: req.body.buyNowQuantity }
+                : null);
+        const isBuyNow = Boolean(normalizedBuyNowProduct?.productId && Number(normalizedBuyNowProduct.quantity) > 0);
 
         // Kiểm tra PayOS đã được cấu hình chưa
         if (!payosConfig.isConfigured()) {
@@ -244,8 +317,8 @@ const createPayOSPaymentWithCart = async (req, res) => {
         // Kiểm tra tồn kho
         const checkoutItems = isBuyNow
             ? [{
-                product: buyNowProduct.productId,
-                quantity: Math.max(1, Number(buyNowProduct.quantity) || 1)
+                product: normalizedBuyNowProduct.productId,
+                quantity: Math.max(1, Number(normalizedBuyNowProduct.quantity) || 1)
             }]
             : pickCheckoutItems(cart, selectedProductIds, selectedProducts);
         if (checkoutItems.length === 0) {
@@ -411,7 +484,6 @@ const createPayOSPaymentWithCart = async (req, res) => {
             buyerPhone: shippingAddress?.phone || '',
             returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${order._id}`,
             cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?payment=cancelled&orderId=${order._id}`,
-            paymentMethodType: 'QRCODE',
         };
 
         const response = await payos.paymentRequests.create(paymentData);
@@ -626,6 +698,15 @@ const getPayOSPaymentStatus = async (req, res) => {
             });
         }
 
+        let paymentLinkStatus = null;
+        try {
+            const synced = await syncOrderWithPayOS(order);
+            order = synced.order;
+            paymentLinkStatus = synced.paymentLink?.status || null;
+        } catch (syncError) {
+            console.warn('PayOS status sync warning:', syncError.message);
+        }
+
         return res.status(200).json({
             success: true,
             data: {
@@ -633,6 +714,7 @@ const getPayOSPaymentStatus = async (req, res) => {
                 orderNumber: order.orderNumber,
                 paymentStatus: order.paymentStatus,
                 paymentMethod: order.paymentMethod,
+                payosStatus: paymentLinkStatus,
                 totalPrice: order.totalPrice
             }
         });

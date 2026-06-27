@@ -6,6 +6,7 @@ const OrderSuccessPage = () => {
     const { id } = useParams(); // id now contains orderNumber slug
     const navigate = useNavigate();
     const [order, setOrder] = useState(null);
+    const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -18,9 +19,42 @@ const OrderSuccessPage = () => {
                 navigate("/");
                 return;
             }
-            const res = await getOrderByNumberApi(id);
-            if (res.success) {
-                setOrder(res.data);
+            const orderNumbers = decodeURIComponent(id)
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean);
+
+            const recentRaw = localStorage.getItem("checkout_created_orders");
+            if (recentRaw) {
+                try {
+                    const recent = JSON.parse(recentRaw);
+                    const recentNumbers = Array.isArray(recent.orderNumbers) ? recent.orderNumbers : [];
+                    const recentOrders = Array.isArray(recent.orders) ? recent.orders : [];
+                    const isFresh = Date.now() - (recent.timestamp || 0) < 30 * 60 * 1000;
+                    const belongsToThisSuccess = orderNumbers.some((orderNumber) => recentNumbers.includes(orderNumber));
+                    if (isFresh && belongsToThisSuccess && recentOrders.length > 0) {
+                        applyOrders(recentOrders);
+                        return;
+                    }
+                } catch (_) {
+                    localStorage.removeItem("checkout_created_orders");
+                }
+            }
+
+            const responses = await Promise.all(orderNumbers.map((orderNumber) => getOrderByNumberApi(orderNumber)));
+            const fetchedOrders = responses
+                .filter((res) => res.success && res.data)
+                .flatMap((res) => (
+                    Array.isArray(res.data.relatedOrders) && res.data.relatedOrders.length > 0
+                        ? res.data.relatedOrders
+                        : [res.data]
+                ));
+            const uniqueFetchedOrders = Array.from(
+                new Map(fetchedOrders.map((item) => [item._id || item.orderNumber, item])).values()
+            );
+
+            if (uniqueFetchedOrders.length > 0) {
+                applyOrders(uniqueFetchedOrders);
             } else {
                 navigate("/");
             }
@@ -59,6 +93,24 @@ const OrderSuccessPage = () => {
         return texts[status] || status;
     };
 
+    const buildCombinedOrder = (list) => list.length === 1
+        ? list[0]
+        : {
+            ...list[0],
+            orderNumber: list.map((item) => item.orderNumber).join(", "),
+            products: list.flatMap((item) => item.products || []),
+            subtotal: list.reduce((sum, item) => sum + (item.subtotal || 0), 0),
+            shippingFee: list.reduce((sum, item) => sum + (item.shippingFee || 0), 0),
+            couponDiscount: list.reduce((sum, item) => sum + (item.couponDiscount || 0), 0),
+            totalPrice: list.reduce((sum, item) => sum + (item.totalPrice || 0), 0),
+            totalQuantity: list.reduce((sum, item) => sum + (item.totalQuantity || 0), 0),
+        };
+
+    const applyOrders = (list) => {
+        setOrders(list);
+        setOrder(buildCombinedOrder(list));
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -82,13 +134,58 @@ const OrderSuccessPage = () => {
                     <div className="mt-5 p-4 bg-[#FAF7F4] rounded-xl">
                         <p className="text-xs text-[#A8896A]">Mã đơn hàng</p>
                         <p className="text-xl font-extrabold text-[#B86B05]">{order?.orderNumber}</p>
+                        {orders.length > 1 && (
+                            <p className="text-xs text-[#A8896A] mt-1">Đơn hàng được tách thành {orders.length} đơn theo cửa hàng.</p>
+                        )}
                     </div>
                 </div>
+
+                {orders.length > 1 && (
+                    <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
+                        <h2 className="text-base font-bold text-[#1C1108] mb-4">Các đơn theo cửa hàng</h2>
+                        <div className="space-y-4">
+                            {orders.map((orderItem) => (
+                                <div key={orderItem._id || orderItem.orderNumber} className="border border-[#EDE8E0] rounded-xl p-4">
+                                    <div className="flex items-start justify-between gap-3 mb-3">
+                                        <div>
+                                            <p className="text-xs text-[#A8896A]">Mã đơn</p>
+                                            <p className="text-sm font-extrabold text-[#B86B05]">{orderItem.orderNumber}</p>
+                                            <p className="text-xs text-[#6B5C4C] mt-1">{orderItem.shopName || orderItem.shop?.name || "Cửa hàng"}</p>
+                                        </div>
+                                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(orderItem.status)}`}>
+                                            {getStatusText(orderItem.status)}
+                                        </span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {(orderItem.products || []).map((item, idx) => (
+                                            <div key={`${orderItem.orderNumber}-${idx}`} className="flex items-center gap-3">
+                                                <img
+                                                    src={item.image || "/placeholder.png"}
+                                                    alt={item.name}
+                                                    className="w-11 h-11 object-cover rounded-lg border border-[#EDE8E0]"
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium text-[#1C1108] line-clamp-1">{item.name}</p>
+                                                    <p className="text-xs text-[#A8896A]">x{item.quantity}</p>
+                                                </div>
+                                                <p className="text-sm font-bold text-[#1C1108]">{formatPrice(item.price * item.quantity)}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="flex justify-between pt-3 mt-3 border-t border-[#EDE8E0] text-sm">
+                                        <span className="font-semibold text-[#6B5C4C]">Tổng đơn</span>
+                                        <span className="font-extrabold text-[#B86B05]">{formatPrice(orderItem.totalPrice)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* Order Info */}
                 <div className="bg-white rounded-2xl border border-[#EDE8E0] p-6 mb-5">
                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-base font-bold text-[#1C1108]">Thông tin đơn hàng</h2>
+                        <h2 className="text-base font-bold text-[#1C1108]">Thông tin</h2>
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(order?.status)}`}>
                             {getStatusText(order?.status)}
                         </span>
@@ -118,6 +215,9 @@ const OrderSuccessPage = () => {
                                     />
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-medium text-[#1C1108] line-clamp-1">{item.name}</p>
+                                        {item.shopName && (
+                                            <p className="text-[10px] text-[#A8896A] line-clamp-1">{item.shopName}</p>
+                                        )}
                                         {item.variant && (
                                             <p className="text-[10px] text-[#A8896A]">Phân loại: {item.variant}</p>
                                         )}

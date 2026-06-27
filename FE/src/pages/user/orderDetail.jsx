@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { getOrderByIdApi, cancelOrderApi, confirmReceivedApi, cancelPayOSPaymentApi } from "../../utils/api";
+import { getOrderByIdApi, cancelOrderApi, confirmReceivedApi, cancelPayOSPaymentApi, getPayOSPaymentStatusApi } from "../../utils/api";
 import OrderBillModal from "../../components/common/OrderBillModal";
 
 const OrderDetailPage = () => {
@@ -37,7 +37,14 @@ const OrderDetailPage = () => {
         try {
             const res = await getOrderByIdApi(id);
             if (res.success) {
-                const o = res.data;
+                let o = res.data;
+                if (o.paymentMethod === "PAYOS" && o.paymentStatus === "pending") {
+                    const statusRes = await getPayOSPaymentStatusApi(id);
+                    if (statusRes.success && statusRes.data?.paymentStatus !== o.paymentStatus) {
+                        const refreshed = await getOrderByIdApi(id);
+                        if (refreshed.success) o = refreshed.data;
+                    }
+                }
                 setOrder(o);
 
                 // Compute PayOS countdown from paymentExpiresAt

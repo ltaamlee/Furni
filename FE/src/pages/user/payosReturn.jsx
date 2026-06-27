@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { getOrderByIdApi } from "../../utils/api";
+import { getOrderByIdApi, getPayOSPaymentStatusApi } from "../../utils/api";
 
 const PayOSReturnPage = () => {
   const navigate = useNavigate();
@@ -19,6 +19,16 @@ const PayOSReturnPage = () => {
   // Fetch order details
   const fetchOrderDetails = useCallback(async (id) => {
     try {
+      const statusRes = await getPayOSPaymentStatusApi(id);
+      if (statusRes.success && statusRes.data?.paymentStatus === "paid") {
+        const orderRes = await getOrderByIdApi(id);
+        if (orderRes.success) {
+          setOrder(orderRes.data);
+        }
+        setPaymentStatus("success");
+        return;
+      }
+
       const res = await getOrderByIdApi(id);
       if (res.success) {
         const o = res.data;

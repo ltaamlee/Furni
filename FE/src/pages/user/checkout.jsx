@@ -711,6 +711,10 @@ const CheckoutPage = () => {
   const handlePlaceOrder = async () => {
     try {
       setSubmitting(true);
+      const checkoutBuyNowQuantity = Math.max(1, Number(buyNowItem?.quantity) || 1);
+      const checkoutBuyNowProduct = isBuyNow && buyNowProduct
+        ? { productId: buyNowItem?.productId || buyNowProduct._id, quantity: checkoutBuyNowQuantity }
+        : null;
 
       const selectedProviderData = shippingFees.find(
         (f) =>
@@ -741,9 +745,7 @@ const CheckoutPage = () => {
                 productId: item.product._id || item.product,
                 quantity: item.quantity,
               })),
-          buyNowProduct: isBuyNow
-            ? { productId: buyNowProduct._id, quantity: buyNowProduct.quantity }
-            : null,
+          buyNowProduct: checkoutBuyNowProduct,
           couponCode: selectedProductCoupon?.code || null,
         };
 
@@ -769,24 +771,29 @@ const CheckoutPage = () => {
           shippingServiceType: shippingInfo.selectedProvider?.serviceType,
           shippingFee: selectedProviderData?.fee || 0,
           couponCode: selectedProductCoupon?.code || null,
+          selectedProductIds: isBuyNow
+            ? []
+            : selectedCartProducts.map((item) => item.product._id || item.product),
+          selectedProducts: isBuyNow
+            ? []
+            : selectedCartProducts.map((item) => ({
+                productId: item.product._id || item.product,
+                quantity: item.quantity,
+              })),
+          buyNowProduct: checkoutBuyNowProduct,
         };
-
-        if (isBuyNow && buyNowProduct) {
-          orderData.isBuyNow = true;
-          orderData.buyNowProductId = buyNowProduct._id;
-          orderData.buyNowQuantity = buyNowProduct.quantity;
-        } else {
-          orderData.selectedProductIds = selectedCartProducts.map(
-            (item) => item.product._id || item.product
-          );
-        }
 
         const res = await createOrderApi(orderData);
         if (res.success) {
           const orders = res.data.orders || [res.data].filter(Boolean);
-          const firstOrderNumber = orders[0]?.orderNumber;
-          if (firstOrderNumber) {
-            navigate(`/order-success/${firstOrderNumber}`);
+          const orderNumbers = orders.map((order) => order?.orderNumber).filter(Boolean);
+          if (orderNumbers.length > 0) {
+            localStorage.setItem("checkout_created_orders", JSON.stringify({
+              orderNumbers,
+              orders,
+              timestamp: Date.now(),
+            }));
+            navigate(`/order-success/${encodeURIComponent(orderNumbers.join(","))}`);
           } else {
             showToast("Đặt hàng thành công nhưng không lấy được mã đơn.", "info");
           }

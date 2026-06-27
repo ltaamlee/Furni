@@ -1,7 +1,7 @@
 /* ============================================================
    Seed dữ liệu DUY NHẤT cho dự án Furni (cập nhật theo model mới).
    Tạo: users (admin/2 vendor/customer) -> categories -> 2 shop -> ví
-        -> products -> promotions -> orders -> transactions -> reviews
+        -> products -> promotions/coupons -> orders -> transactions -> reviews
         -> cart -> notifications -> blogs.
 
    Dùng Model.create() (KHÔNG dùng insertMany) để các hook chạy:
@@ -21,6 +21,7 @@ const Shop = require('../src/models/shop');
 const Wallet = require('../src/models/wallet');
 const Product = require('../src/models/product');
 const Promotion = require('../src/models/promotion');
+const Coupon = require('../src/models/coupon');
 const Order = require('../src/models/order');
 const Cart = require('../src/models/cart');
 const Transaction = require('../src/models/transaction');
@@ -140,6 +141,7 @@ const seed = async () => {
             Wallet.deleteMany({}),
             Product.deleteMany({}),
             Promotion.deleteMany({}),
+            Coupon.deleteMany({}),
             Order.deleteMany({}),
             Cart.deleteMany({}),
             Transaction.deleteMany({}),
@@ -147,7 +149,7 @@ const seed = async () => {
             Notification.deleteMany({}),
             Blog.deleteMany({})
         ]);
-        console.log('Cleared: users, categories, shops, wallets, products, promotions, orders, carts, transactions, reviews, notifications');
+        console.log('Cleared: users, categories, shops, wallets, products, promotions, coupons, orders, carts, transactions, reviews, notifications');
 
         // 2) Users (create -> hash mật khẩu)
         const users = await User.create(USERS);
@@ -164,19 +166,17 @@ const seed = async () => {
         // 4) Shop của vendor + ví
         const shop = await Shop.create({ ...SHOP, slug: SHOP.name, owner: vendor._id, status: 'approved' });
         const wallet = await Wallet.create({
-            shop: shop._id,
-            owner: vendor._id,
+            user: vendor._id,
             balance: 45320000,
-            pendingBalance: 8640000,
-            bankAccounts: [{ bankName: 'Vietcombank', accountNumber: '0123456789', accountHolder: 'NGUYEN VAN VENDOR', branch: 'TP.HCM', isDefault: true }]
+            currency: 'VND',
+            accounts: [{ type: 'bank', bankName: 'Vietcombank', accountNumber: '0123456789', accountHolder: 'NGUYEN VAN VENDOR', branch: 'TP.HCM', isDefault: true }]
         });
         const secondShop = await Shop.create({ ...SECOND_SHOP, slug: SECOND_SHOP.name, owner: secondVendor._id, status: 'approved', commissionRate: 3 });
         const secondWallet = await Wallet.create({
-            shop: secondShop._id,
-            owner: secondVendor._id,
+            user: secondVendor._id,
             balance: 18750000,
-            pendingBalance: 12430000,
-            bankAccounts: [{ bankName: 'Techcombank', accountNumber: '19039876543210', accountHolder: 'TRAN MINH DECOR', branch: 'TP.HCM', isDefault: true }]
+            currency: 'VND',
+            accounts: [{ type: 'bank', bankName: 'Techcombank', accountNumber: '19039876543210', accountHolder: 'TRAN MINH DECOR', branch: 'TP.HCM', isDefault: true }]
         });
         console.log(`Created 2 shops ("${shop.name}", "${secondShop.name}") + wallets`);
 
@@ -221,6 +221,27 @@ const seed = async () => {
             { shop: secondShop._id, name: 'Flash Sale Góc Làm Việc', description: 'Giảm trực tiếp bàn nâng hạ FLEXI trong tuần này.', type: 'flash_sale', discountType: 'fixed', value: 700000, appliesTo: 'product', products: [secondByName['Bàn Làm Việc Nâng Hạ FLEXI']._id], startDate: daysFromNow(-1), endDate: daysFromNow(6), maxUsage: 30, usedCount: 9, status: 'running' }
         ]);
         console.log(`Created ${promos.length + secondPromos.length} promotions for 2 shops`);
+
+        const platformCouponPromos = await Promotion.create([
+            { shop: null, name: 'Toàn Sàn FREESHIP50', description: 'Giảm 50.000₫ phí vận chuyển cho đơn từ 1.000.000₫.', type: 'coupon', discountType: 'fixed', value: 50000, maxDiscount: 0, minOrderValue: 1000000, appliesTo: 'all', startDate: daysFromNow(-2), endDate: daysFromNow(12), maxUsage: 1000, usedCount: 215, status: 'running' },
+            { shop: null, name: 'Toàn Sàn FURNI10', description: 'Giảm 10% tối đa 500.000₫ cho đơn nội thất từ 2.000.000₫.', type: 'coupon', discountType: 'percent', value: 10, maxDiscount: 500000, minOrderValue: 2000000, appliesTo: 'all', startDate: daysFromNow(-1), endDate: daysFromNow(20), maxUsage: 800, usedCount: 132, status: 'running' },
+            { shop: null, name: 'Toàn Sàn NEWHOME', description: 'Giảm ngay 300.000₫ cho đơn đầu tiên từ 3.000.000₫.', type: 'coupon', discountType: 'fixed', value: 300000, maxDiscount: 0, minOrderValue: 3000000, appliesTo: 'all', startDate: daysFromNow(-5), endDate: daysFromNow(30), maxUsage: 500, usedCount: 68, status: 'running' }
+        ]);
+
+        const coupons = await Coupon.create([
+            { code: 'FREESHIP50', promotion: platformCouponPromos[0]._id, shop: null, description: 'Giảm 50.000₫ phí vận chuyển cho đơn từ 1.000.000₫.', discountType: 'fixed', value: 50000, maxDiscount: 0, minOrderValue: 1000000, usageLimit: 1000, usedCount: 215, perUserLimit: 1, startDate: daysFromNow(-2), endDate: daysFromNow(12), isActive: true },
+            { code: 'FURNI10', promotion: platformCouponPromos[1]._id, shop: null, description: 'Giảm 10% tối đa 500.000₫ cho đơn nội thất từ 2.000.000₫.', discountType: 'percent', value: 10, maxDiscount: 500000, minOrderValue: 2000000, usageLimit: 800, usedCount: 132, perUserLimit: 1, startDate: daysFromNow(-1), endDate: daysFromNow(20), isActive: true },
+            { code: 'NEWHOME', promotion: platformCouponPromos[2]._id, shop: null, description: 'Giảm ngay 300.000₫ cho đơn đầu tiên từ 3.000.000₫.', discountType: 'fixed', value: 300000, maxDiscount: 0, minOrderValue: 3000000, usageLimit: 500, usedCount: 68, perUserLimit: 1, startDate: daysFromNow(-5), endDate: daysFromNow(30), isActive: true },
+
+            { code: 'SUMMER20', promotion: promos[1]._id, shop: shop._id, description: 'Furni Official Store giảm 20% tối đa 1.500.000₫ cho đơn từ 3.000.000₫.', discountType: 'percent', value: 20, maxDiscount: 1500000, minOrderValue: 3000000, usageLimit: 500, usedCount: 156, perUserLimit: 1, startDate: daysFromNow(-2), endDate: daysFromNow(7), isActive: true },
+            { code: 'FURNI500K', shop: shop._id, description: 'Furni Official Store giảm 500.000₫ cho đơn từ 8.000.000₫.', discountType: 'fixed', value: 500000, maxDiscount: 0, minOrderValue: 8000000, usageLimit: 120, usedCount: 24, perUserLimit: 1, startDate: daysFromNow(-1), endDate: daysFromNow(18), isActive: true },
+            { code: 'SOFA15', shop: shop._id, description: 'Ưu đãi 15% tối đa 1.000.000₫ cho khách mua sofa tại Furni Official Store.', discountType: 'percent', value: 15, maxDiscount: 1000000, minOrderValue: 5000000, usageLimit: 150, usedCount: 41, perUserLimit: 1, startDate: daysFromNow(-3), endDate: daysFromNow(15), isActive: true },
+
+            { code: 'MOCAN12', promotion: secondPromos[0]._id, shop: secondShop._id, description: 'Mộc An Living giảm 12% tối đa 1.200.000₫ cho đơn từ 4.000.000₫.', discountType: 'percent', value: 12, maxDiscount: 1200000, minOrderValue: 4000000, usageLimit: 200, usedCount: 47, perUserLimit: 1, startDate: daysFromNow(-3), endDate: daysFromNow(14), isActive: true },
+            { code: 'MOCAN300K', shop: secondShop._id, description: 'Mộc An Living giảm 300.000₫ cho đơn từ 5.000.000₫.', discountType: 'fixed', value: 300000, maxDiscount: 0, minOrderValue: 5000000, usageLimit: 100, usedCount: 18, perUserLimit: 1, startDate: daysFromNow(-1), endDate: daysFromNow(21), isActive: true },
+            { code: 'JAPANDI8', shop: secondShop._id, description: 'Mộc An Living giảm 8% tối đa 800.000₫ cho bộ sưu tập Japandi.', discountType: 'percent', value: 8, maxDiscount: 800000, minOrderValue: 3500000, usageLimit: 160, usedCount: 33, perUserLimit: 1, startDate: daysFromNow(-2), endDate: daysFromNow(25), isActive: true }
+        ]);
+        console.log(`Created ${coupons.length} coupons (${platformCouponPromos.length} toàn sàn, ${coupons.filter((c) => c.shop).length} của shop)`);
 
         // 7) Đơn hàng mẫu của khách (gắn shop cho từng dòng - Hướng B)
         const customer = users.find((u) => u.role === 'customer');

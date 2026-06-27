@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Order = require('../models/order');
 const Cart = require('../models/cart');
 const Product = require('../models/product');
@@ -97,7 +98,12 @@ const notifyVendorsNewOrder = async (order) => {
 const createOrder = async (req, res) => {
     try {
         const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, shippingTier = 'express', shippingProvider = null, couponCode = null } = req.body;
-        const isBuyNow = Boolean(buyNowProduct?.productId && Number(buyNowProduct.quantity) > 0);
+        const normalizedBuyNowProduct = buyNowProduct?.productId
+            ? buyNowProduct
+            : (req.body.buyNowProductId
+                ? { productId: req.body.buyNowProductId, quantity: req.body.buyNowQuantity }
+                : null);
+        const isBuyNow = Boolean(normalizedBuyNowProduct?.productId && Number(normalizedBuyNowProduct.quantity) > 0);
         // Ước tính ngày giao dựa trên tier
         const estimatedDays = shippingTier === 'express' ? 3 : 7;
 
@@ -113,8 +119,8 @@ const createOrder = async (req, res) => {
         // Kiểm tra tồn kho + thu thập thông tin shop của từng sản phẩm
         const checkoutItems = isBuyNow
             ? [{
-                product: buyNowProduct.productId,
-                quantity: Math.max(1, Number(buyNowProduct.quantity) || 1)
+                product: normalizedBuyNowProduct.productId,
+                quantity: Math.max(1, Number(normalizedBuyNowProduct.quantity) || 1)
             }]
             : pickCheckoutItems(cart, selectedProductIds, selectedProducts);
         if (checkoutItems.length === 0) {
@@ -246,6 +252,7 @@ const createOrder = async (req, res) => {
 
         // Tạo 1 đơn hàng độc lập cho mỗi shop (không còn parent/child)
         const createdOrders = [];
+        const checkoutGroupId = new mongoose.Types.ObjectId().toString();
         
         // Lấy shippingFee từ frontend (đã tính từ bảng phí cố định theo khu vực)
         const frontendShippingFee = req.body.shippingFee || 0;
@@ -267,6 +274,7 @@ const createOrder = async (req, res) => {
 
             const order = new Order({
                 user: req.user._id,
+                checkoutGroupId,
                 shop: group.shop,
                 shopName: group.shopName,
                 shopCode: group.shopCode,
@@ -450,6 +458,18 @@ const getOrderByNumber = async (req, res) => {
 
         const obj = order.toObject();
 
+        let relatedOrders = [obj];
+        if (order.checkoutGroupId) {
+            const groupOrders = await Order.find({
+                checkoutGroupId: order.checkoutGroupId,
+                user: order.user
+            })
+                .populate('shop', 'name code logo')
+                .populate('products.product', 'name images slug')
+                .sort({ createdAt: 1 });
+            relatedOrders = groupOrders.map((item) => item.toObject());
+        }
+
         // Backward-compat: đơn cha cũ (rỗng) ← populate từ subOrders nếu vẫn còn
         if (!obj.isChildOrder && (!obj.products || obj.products.length === 0) && obj.subOrders?.length > 0) {
             obj.products = obj.subOrders.flatMap(sub => sub.products || []);
@@ -457,7 +477,10 @@ const getOrderByNumber = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            data: obj
+            data: {
+                ...obj,
+                relatedOrders
+            }
         });
     } catch (error) {
         res.status(500).json({

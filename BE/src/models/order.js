@@ -50,6 +50,11 @@ const orderSchema = new mongoose.Schema({
         type: String,
         unique: true
     },
+    checkoutGroupId: {
+        type: String,
+        default: null,
+        index: true
+    },
     products: [{
         product: {
             type: mongoose.Schema.Types.ObjectId,
