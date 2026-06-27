@@ -10,6 +10,49 @@ const SHOP_STATUS = {
     REJECTED: 'rejected'    // Bị từ chối
 };
 
+const SHOP_CODE_LENGTH = 4;
+const SHOP_CODE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+const randomLetters = (length) => Array.from(
+    { length },
+    () => SHOP_CODE_LETTERS[Math.floor(Math.random() * SHOP_CODE_LETTERS.length)]
+).join('');
+
+const normalizeShopNameWords = (name) => slugify(name || '', {
+    replacement: ' ',
+    lower: false,
+    strict: true,
+    locale: 'vi'
+})
+    .toUpperCase()
+    .replace(/[^A-Z\s]/g, '')
+    .split(/\s+/)
+    .filter(Boolean);
+
+const buildBaseShopCode = (name) => {
+    const words = normalizeShopNameWords(name);
+    const letters = words.join('');
+    const base = letters.slice(0, SHOP_CODE_LENGTH);
+
+    return base.padEnd(SHOP_CODE_LENGTH, randomLetters(SHOP_CODE_LENGTH)).slice(0, SHOP_CODE_LENGTH);
+};
+
+const buildUniqueShopCode = async (name) => {
+    const baseCode = buildBaseShopCode(name);
+
+    for (let attempt = 0; attempt < 30; attempt++) {
+        const suffixLength = Math.min(Math.floor(attempt / 10) + 1, SHOP_CODE_LENGTH);
+        const candidate = attempt === 0
+            ? baseCode
+            : `${baseCode.slice(0, SHOP_CODE_LENGTH - suffixLength)}${randomLetters(suffixLength)}`;
+        const existing = await mongoose.model('Shop').findOne({ code: candidate }).select('_id');
+
+        if (!existing) return candidate;
+    }
+
+    return randomLetters(SHOP_CODE_LENGTH);
+};
+
 const ShopSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -29,7 +72,8 @@ const ShopSchema = new mongoose.Schema({
         type: String,
         uppercase: true,
         trim: true,
-        default: null
+        default: null,
+        match: [/^[A-Z]+$/, 'Mã cửa hàng chỉ được gồm chữ cái A-Z!']
     },
     description: {
         type: String,
@@ -134,27 +178,7 @@ const ShopSchema = new mongoose.Schema({
 // Tự động tạo mã cửa hàng trước khi lưu
 ShopSchema.pre('save', async function(next) {
     if (this.isNew && !this.code) {
-        // Tạo mã 4 ký tự từ tên cửa hàng (viết tắt)
-        let baseCode = '';
-        
-        // Lấy chữ cái đầu của mỗi từ trong tên
-        const words = this.name.split(' ').filter(w => w.length > 0);
-        if (words.length >= 2) {
-            baseCode = words.slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
-        } else if (words.length === 1) {
-            baseCode = words[0].substring(0, 4).toUpperCase();
-        }
-        
-        // Thêm 2 ký tự ngẫu nhiên để tránh trùng lặp
-        const random = Math.random().toString(36).substring(2, 4).toUpperCase();
-        this.code = `${baseCode}${random}`;
-        
-        // Kiểm tra xem mã đã tồn tại chưa
-        const existing = await mongoose.model('Shop').findOne({ code: this.code });
-        if (existing) {
-            // Nếu trùng, thêm thêm ký tự
-            this.code = `${baseCode}${random}${Math.random().toString(36).substring(2, 3).toUpperCase()}`;
-        }
+        this.code = await buildUniqueShopCode(this.name);
     }
     next();
 });

@@ -70,11 +70,21 @@ const normalizeToCheckoutItems = async (mode, body, userId) => {
     console.log('[Checkout] cart found:', cart ? `products=${cart.products.length}` : 'null');
 
     const selected = new Set(cartItemIds.map(id => id.toString()));
-    const items = (cartItemIds.length === 0 ? cart.products : cart.products.filter(p => selected.has(p.product.toString())));
+    const items = (cartItemIds.length === 0
+        ? cart.products
+        : cart.products.filter(p =>
+            selected.has(p._id.toString()) || selected.has(p.product.toString())
+        ));
 
     return items.map(item => ({
+        cartItemId: item._id.toString(),
         productId: item.product.toString(),
-        variantId: null,
+        variantId: item.variantId ? item.variantId.toString() : null,
+        variantName: item.variant || null,
+        variantSize: item.variantSize || null,
+        variantSku: item.variantSku || null,
+        variantPrice: item.variantPrice ?? null,
+        variantStock: item.variantStock ?? null,
         quantity: item.quantity,
     }));
 };
@@ -114,20 +124,29 @@ const validateAndEnrichItems = async (checkoutItems, products, address) => {
             continue;
         }
 
-        if (product.quantity < item.quantity) {
+        const variant = item.variantId
+            ? product.variants?.find(v => v._id?.toString() === item.variantId)
+            : (item.variantName ? product.variants?.find(v => v.name === item.variantName) : null);
+        const stock = variant ? Number(variant.stock ?? 0) : Number(item.variantStock ?? product.quantity);
+
+        if (stock < item.quantity) {
             errors.push({ productId: item.productId, error: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!` });
             continue;
         }
 
-        const discountPercent = product.discountPercent || 0;
-        const originalPrice = product.originalPrice || product.price;
-        const salePrice = product.salePrice || (discountPercent > 0
+        const discountPercent = variant?.discountPercent ?? product.discountPercent ?? 0;
+        const originalPrice = item.variantPrice ?? variant?.originalPrice ?? variant?.price ?? product.originalPrice ?? product.price;
+        const salePrice = variant?.salePrice || (discountPercent > 0
             ? Math.round(originalPrice * (1 - discountPercent / 100))
-            : originalPrice);
+            : (item.variantPrice ?? product.salePrice ?? originalPrice));
 
         enriched.push({
+            cartItemId: item.cartItemId || item.productId,
             productId: item.productId,
             variantId: item.variantId,
+            variantName: item.variantName || variant?.name || null,
+            variantSize: item.variantSize || variant?.size || null,
+            variantSku: item.variantSku || variant?.sku || null,
             quantity: item.quantity,
             // Product data
             name: product.name,
@@ -141,7 +160,7 @@ const validateAndEnrichItems = async (checkoutItems, products, address) => {
             shopName: shop.name || 'Cửa hàng',
             shopAvatar: shop.avatar || null,
             // Stock
-            stock: product.quantity,
+            stock,
             // Promotion
             promotion: product.promotion || null,
         });

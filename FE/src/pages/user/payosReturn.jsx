@@ -15,16 +15,32 @@ const PayOSReturnPage = () => {
   const isSuccess = status === "success";
   const isCancelled = status === "cancelled";
 
+  const goToSuccessPage = useCallback((orders) => {
+    const list = Array.isArray(orders) && orders.length > 0 ? orders : order ? [order] : [];
+    const orderNumbers = list.map((item) => item.orderNumber).filter(Boolean);
+    if (orderNumbers.length === 0) return false;
+
+    localStorage.setItem("checkout_created_orders", JSON.stringify({
+      orders: list,
+      orderNumbers,
+      timestamp: Date.now(),
+    }));
+    navigate(`/order-success/${encodeURIComponent(orderNumbers.join(","))}?payment=success`, { replace: true });
+    return true;
+  }, [navigate, order]);
 
   // Fetch order details
   const fetchOrderDetails = useCallback(async (id) => {
     try {
       const statusRes = await getPayOSPaymentStatusApi(id);
       if (statusRes.success && statusRes.data?.paymentStatus === "paid") {
-        const orderRes = await getOrderByIdApi(id);
-        if (orderRes.success) {
-          setOrder(orderRes.data);
+        const relatedOrders = statusRes.data.relatedOrders || [];
+        if (goToSuccessPage(relatedOrders)) {
+          return;
         }
+
+        const orderRes = await getOrderByIdApi(id);
+        if (orderRes.success) setOrder(orderRes.data);
         setPaymentStatus("success");
         return;
       }
@@ -51,7 +67,7 @@ const PayOSReturnPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [navigate]);
+  }, [goToSuccessPage]);
 
   // Fetch order khi orderId thay đổi
   useEffect(() => {

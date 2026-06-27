@@ -16,10 +16,26 @@ const getProductImage = (product) => {
     return firstImage?.url || firstImage || product.image || null;
 };
 
+const getShopShippingProvider = (shippingProvider, shopId) => {
+    if (!shippingProvider || typeof shippingProvider !== 'object' || Array.isArray(shippingProvider)) {
+        return shippingProvider || null;
+    }
+
+    if (shippingProvider.code || shippingProvider.name || shippingProvider._id) {
+        return shippingProvider;
+    }
+
+    return shippingProvider[shopId.toString()] || null;
+};
+
 const removeCheckoutItemsFromCart = async (cart, checkoutItems, selectedProductIds = []) => {
     if (Array.isArray(selectedProductIds) && selectedProductIds.length > 0) {
-        const selected = new Set(checkoutItems.map((item) => item.product.toString()));
-        cart.products = cart.products.filter((item) => !selected.has(item.product.toString()));
+        const selected = new Set(selectedProductIds.map((id) => id.toString()));
+        const checkoutProductIds = new Set(checkoutItems.map((item) => item.product.toString()));
+        cart.products = cart.products.filter((item) =>
+            !selected.has(item._id.toString()) &&
+            !(selected.has(item.product.toString()) && checkoutProductIds.has(item.product.toString()))
+        );
         await cart.save();
         return;
     }
@@ -95,8 +111,11 @@ const createOrder = async (req, res) => {
             }
             const selected = new Set(cartItemIds.map(id => id.toString()));
             checkoutItems = cart.products
-                .filter(p => selected.has(p.product.toString()))
-                .map(p => ({ product: p.product, quantity: p.quantity }));
+                .filter(p => selected.has(p._id.toString()) || selected.has(p.product.toString()))
+                .map(p => {
+                    const plain = p.toObject ? p.toObject() : p;
+                    return { ...plain, product: p.product, quantity: p.quantity };
+                });
         } else {
             // Legacy CART format
             const { selectedProductIds = [], selectedProducts = [] } = req.body;
@@ -118,7 +137,10 @@ const createOrder = async (req, res) => {
                     const selected = new Set(selectedProductIds.map(id => id.toString()));
                     return selected.has(item.product.toString());
                 })
-                .map(item => ({ product: item.product, quantity: item.quantity }));
+                .map(item => {
+                    const plain = item.toObject ? item.toObject() : item;
+                    return { ...plain, product: item.product, quantity: item.quantity };
+                });
         }
 
         if (checkoutItems.length === 0) {
@@ -154,7 +176,8 @@ const createOrder = async (req, res) => {
                         : `Sản phẩm "${product.name}" hiện chưa thể mua!`
                 });
             }
-            if (product.quantity < item.quantity) {
+            const availableStock = item.variantStock ?? product.quantity;
+            if (availableStock < item.quantity) {
                 return res.status(400).json({
                     success: false,
                     message: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!`
@@ -187,10 +210,10 @@ const createOrder = async (req, res) => {
             }
 
             // Dùng discountPercent từ attachPricing (từ promotion), fallback về discount field thủ công
-            const productDiscount = pricedProduct.discountPercent || pricedProduct.discount || 0;
+            const productDiscount = item.discount ?? pricedProduct.discountPercent ?? pricedProduct.discount ?? 0;
             // originalPrice = giá gốc (chưa sale), salePrice = giá sau giảm
-            const originalPrice = pricedProduct.originalPrice || product.price;
-            const salePrice = pricedProduct.salePrice || (productDiscount > 0
+            const originalPrice = item.originalPrice ?? item.variantPrice ?? pricedProduct.originalPrice ?? product.price;
+            const salePrice = item.price ?? pricedProduct.salePrice ?? (productDiscount > 0
                 ? Math.round(originalPrice * (1 - productDiscount / 100))
                 : originalPrice);
 
@@ -203,6 +226,10 @@ const createOrder = async (req, res) => {
                 price: salePrice,
                 originalPrice: originalPrice,
                 discount: productDiscount,
+                variant: item.variant || null,
+                variantId: item.variantId || null,
+                variantSku: item.variantSku || null,
+                variantSize: item.variantSize || null,
                 name: product.name,
                 image: getProductImage(product)
             });
@@ -315,7 +342,7 @@ const createOrder = async (req, res) => {
                     couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
                     shippingFee,
                     shippingTier: effectiveTier,
-                    shippingProvider,
+                    shippingProvider: getShopShippingProvider(shippingProvider, shopId),
                     totalPrice: groupTotal,
                     totalQuantity: group.totalQuantity,
                     orderedAt: new Date(),
@@ -328,13 +355,14 @@ const createOrder = async (req, res) => {
                 }
 
                 // Trừ tiền từ ví
+                await order.save();
+
                 await wallet.deductForPayment(groupTotal, {
                     orderId: order._id,
                     orderNumber: order.orderNumber,
                     description: `Thanh toán đơn hàng #${order.orderNumber} bằng ví SORA`,
                 });
 
-                await order.save();
                 createdOrders.push(order);
             }
 
@@ -395,7 +423,7 @@ const createOrder = async (req, res) => {
                 couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
                 shippingFee,
                 shippingTier: effectiveTier,
-                shippingProvider,
+                shippingProvider: getShopShippingProvider(shippingProvider, shopId),
                 totalPrice: groupTotal,
                 totalQuantity: group.totalQuantity,
                 orderedAt: new Date(),

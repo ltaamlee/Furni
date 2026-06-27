@@ -183,9 +183,12 @@ const validateProduct = [
     .withMessage('Chiều cao phải là số'),
 
   body('weight')
-    .optional({ nullable: true })
+    .notEmpty()
+    .withMessage('Vui lòng nhập cân nặng sản phẩm')
     .isNumeric()
-    .withMessage('Cân nặng phải là số'),
+    .withMessage('Cân nặng phải là số')
+    .custom(value => Number(value) > 0)
+    .withMessage('Cân nặng phải lớn hơn 0'),
 
   body('brand')
     .optional()

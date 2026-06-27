@@ -590,13 +590,18 @@ const CheckoutPage = () => {
   };
 
   // ── Selection helpers ──
-  const handleToggleItem = (productId) => {
+  const getCheckoutItemId = (item) => item.cartItemId || item.productId;
+  const getVariantLabel = (item) => [item.variantName, item.variantSize, item.variantSku]
+    .filter(Boolean)
+    .join(" · ");
+
+  const handleToggleItem = (itemId) => {
     setSelectedItemIds(prev => {
       const next = new Set(prev);
-      if (next.has(productId)) {
-        next.delete(productId);
+      if (next.has(itemId)) {
+        next.delete(itemId);
       } else {
-        next.add(productId);
+        next.add(itemId);
       }
       localStorage.setItem("checkout_selected_items", JSON.stringify([...next]));
       return next;
@@ -606,15 +611,15 @@ const CheckoutPage = () => {
   const handleSelectShop = (shopId) => {
     const shopData = checkout?.shops?.find(s => s.shopId === shopId);
     const shopItems = shopData?.items || [];
-    const shopItemIds = new Set(shopItems.map(item => item.productId));
-    const allSelected = shopItems.length > 0 && shopItems.every(item => selectedItemIds.has(item.productId));
+    const shopItemIds = new Set(shopItems.map(item => getCheckoutItemId(item)));
+    const allSelected = shopItems.length > 0 && shopItems.every(item => selectedItemIds.has(getCheckoutItemId(item)));
 
     setSelectedItemIds(prev => {
       const newSet = new Set(prev);
       if (allSelected) {
         shopItemIds.forEach(id => newSet.delete(id));
       } else {
-        shopItems.forEach(item => newSet.add(item.productId));
+        shopItems.forEach(item => newSet.add(getCheckoutItemId(item)));
       }
       localStorage.setItem("checkout_selected_items", JSON.stringify([...newSet]));
       return newSet;
@@ -628,7 +633,7 @@ const CheckoutPage = () => {
       setSelectAll(false);
       localStorage.setItem("checkout_selected_items", JSON.stringify([]));
     } else {
-      const allIds = (checkout?.shops || []).flatMap(shop => shop.items.map(item => item.productId));
+      const allIds = (checkout?.shops || []).flatMap(shop => shop.items.map(item => getCheckoutItemId(item)));
       setSelectedItemIds(new Set(allIds));
       setSelectAll(true);
       localStorage.setItem("checkout_selected_items", JSON.stringify(allIds));
@@ -976,10 +981,11 @@ const CheckoutPage = () => {
 
                   <div className="divide-y divide-[#EDE8E0]">
                     {shop.items.map((item) => (
-                      <div key={item.productId} className="flex gap-3 p-4">
+                      <div key={getCheckoutItemId(item)} className="flex gap-3 p-4">
                         <img src={item.image || "/placeholder.png"} alt={item.name} className="w-16 h-16 object-cover rounded-[8px] shrink-0" />
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-medium text-[#1C1108] line-clamp-2">{item.name}</p>
+                          {getVariantLabel(item) && <p className="text-[11px] text-[#9E8E7E] mt-0.5">Phân loại: {getVariantLabel(item)}</p>}
                           {item.discountPercent > 0 && <p className="text-[11.5px] text-[#A8896A] mt-0.5">Giảm {item.discountPercent}%</p>}
                           <div className="flex items-center justify-between mt-1.5">
                             <div>
@@ -1105,11 +1111,11 @@ const CheckoutPage = () => {
               <div className="p-5 space-y-4">
                 <div className="space-y-2">
                   {selectedCheckoutProducts.slice(0, 3).map((item) => (
-                    <div key={item.productId} className="flex gap-2 items-center">
+                    <div key={getCheckoutItemId(item)} className="flex gap-2 items-center">
                       <img src={item.image || "/placeholder.png"} alt={item.name} className="w-10 h-10 object-cover rounded-[6px]" />
                       <div className="flex-1 min-w-0">
                         <p className="text-[12px] font-medium text-[#1C1108] line-clamp-1">{item.name}</p>
-                        {item.variantId && <p className="text-[10px] text-[#9E8E7E]">Phân loại: {item.variantId}</p>}
+                        {getVariantLabel(item) && <p className="text-[10px] text-[#9E8E7E]">Phân loại: {getVariantLabel(item)}</p>}
                         <p className="text-[10.5px] text-[#9E8E7E]">×{item.quantity}</p>
                       </div>
                     </div>

@@ -97,6 +97,10 @@ const ProductModal = ({ open, onClose, categories, editing, onSaved }) => {
     const submit = async (statusOverride) => {
         if (!form.name.trim()) return showToast("Vui lòng nhập tên sản phẩm", "error");
         if (!form.category) return showToast("Vui lòng chọn danh mục", "error");
+        const weight = Number(form.weight);
+        if (form.weight === "" || Number.isNaN(weight) || weight <= 0) {
+            return showToast("Vui lòng nhập cân nặng sản phẩm lớn hơn 0", "error");
+        }
 
         const variants = form.variants
             .filter((v) => v.name || v.price || v.stock)
@@ -110,7 +114,7 @@ const ProductModal = ({ open, onClose, categories, editing, onSaved }) => {
             style: form.style,
             description: form.description,
             material: form.material,
-            weight: form.weight === "" ? undefined : Number(form.weight),
+            weight,
             dimensions: {
                 length: form.length === "" ? undefined : Number(form.length),
                 width: form.width === "" ? undefined : Number(form.width),
@@ -206,7 +210,7 @@ const ProductModal = ({ open, onClose, categories, editing, onSaved }) => {
             <div className="text-[13px] font-bold mb-3">Thông số nội thất</div>
             <div className="grid grid-cols-2 gap-3 mb-3">
                 <div><Label>Chất liệu</Label><input className={inputClass} value={form.material} onChange={(e) => set("material", e.target.value)} placeholder="Gỗ sồi tự nhiên" /></div>
-                <div><Label>Cân nặng (kg)</Label><input type="number" className={inputClass} value={form.weight} onChange={(e) => set("weight", e.target.value)} placeholder="25" /></div>
+                <div><Label required>Cân nặng (kg)</Label><input type="number" min="0.01" step="0.01" className={inputClass} value={form.weight} onChange={(e) => set("weight", e.target.value)} placeholder="25" /></div>
             </div>
             <div className="grid grid-cols-3 gap-3">
                 <div><Label>Dài (cm)</Label><input type="number" className={inputClass} value={form.length} onChange={(e) => set("length", e.target.value)} placeholder="200" /></div>

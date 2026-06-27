@@ -7,6 +7,7 @@
 const Order = require('../models/order');
 const Cart = require('../models/cart');
 const Product = require('../models/product');
+const mongoose = require('mongoose');
 const { ORDER_STATUS } = require('../models/order');
 const { payosConfig, PAYOS_CLIENT_URL } = require('../config/payos');
 const payoutService = require('../services/payoutService');
@@ -43,7 +44,9 @@ const pickCheckoutItems = (cart, selectedProductIds = [], selectedProducts = [])
         return cart.products;
     }
     const selected = new Set(selectedProductIds.map((id) => id.toString()));
-    return cart.products.filter((item) => selected.has(item.product.toString()));
+    return cart.products.filter((item) =>
+        selected.has(item._id.toString()) || selected.has(item.product.toString())
+    );
 };
 
 const getProductImage = (product) => {
@@ -71,8 +74,12 @@ const removeCheckoutItemsFromCart = async (cart, checkoutItems, selectedProducts
     }
 
     if (Array.isArray(selectedProductIds) && selectedProductIds.length > 0) {
-        const selected = new Set(checkoutItems.map((item) => item.product.toString()));
-        cart.products = cart.products.filter((item) => !selected.has(item.product.toString()));
+        const selected = new Set(selectedProductIds.map((id) => id.toString()));
+        const checkoutProductIds = new Set(checkoutItems.map((item) => item.product.toString()));
+        cart.products = cart.products.filter((item) =>
+            !selected.has(item._id.toString()) &&
+            !(selected.has(item.product.toString()) && checkoutProductIds.has(item.product.toString()))
+        );
         await cart.save();
         return;
     }
@@ -146,10 +153,31 @@ const syncOrderWithPayOS = async (order) => {
 
     const paymentLink = await payos.paymentRequests.get(Number(order.payosOrderCode));
     const status = paymentLink?.status;
+    const relatedOrders = await Order.find({ payosOrderCode: Number(order.payosOrderCode) });
 
     if (status === 'PAID') {
-        await markPayOSOrderPaid(order);
+        for (const payosOrder of relatedOrders) {
+            await markPayOSOrderPaid(payosOrder);
+        }
+        order.paymentStatus = 'paid';
     } else if (['CANCELLED', 'EXPIRED', 'FAILED'].includes(status) && order.paymentStatus !== 'paid' && order.status !== ORDER_STATUS.CANCELLED) {
+        for (const payosOrder of relatedOrders) {
+            if (payosOrder.paymentStatus !== 'paid' && payosOrder.status !== ORDER_STATUS.CANCELLED) {
+                payosOrder.paymentStatus = 'failed';
+                payosOrder.status = ORDER_STATUS.CANCELLED;
+                payosOrder.cancelledAt = new Date();
+                payosOrder.statusHistory.push({
+                    status: ORDER_STATUS.CANCELLED,
+                    timestamp: new Date(),
+                    note: `Thanh toÃ¡n PayOS ${status.toLowerCase()}`
+                });
+                await payosOrder.save();
+            }
+        }
+        order.paymentStatus = 'failed';
+        order.status = ORDER_STATUS.CANCELLED;
+        return { order, paymentLink };
+
         order.paymentStatus = 'failed';
         order.status = ORDER_STATUS.CANCELLED;
         order.cancelledAt = new Date();
@@ -303,13 +331,30 @@ const createPayOSPayment = async (req, res) => {
  */
 const createPayOSPaymentWithCart = async (req, res) => {
     try {
-        const { shippingAddress, shippingTier = 'express', shippingProvider = null, shippingFee, shippingFeesByShop = {}, note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, couponCode = null, selectedShippingCoupon = null } = req.body;
+        const {
+            mode,
+            items,
+            cartItemIds,
+            shippingAddress,
+            shippingTier = 'express',
+            shippingProvider = null,
+            shippingFee,
+            shippingFeesByShop = {},
+            note,
+            selectedProductIds = [],
+            selectedProducts = [],
+            buyNowProduct = null,
+            couponCode = null,
+            selectedShippingCoupon = null
+        } = req.body;
         const normalizedBuyNowProduct = buyNowProduct?.productId
             ? buyNowProduct
             : (req.body.buyNowProductId
                 ? { productId: req.body.buyNowProductId, quantity: req.body.buyNowQuantity }
                 : null);
-        const isBuyNow = Boolean(normalizedBuyNowProduct?.productId && Number(normalizedBuyNowProduct.quantity) > 0);
+        const legacyBuyNowActive = Boolean(normalizedBuyNowProduct?.productId && Number(normalizedBuyNowProduct.quantity) > 0);
+        const effectiveMode = mode || (legacyBuyNowActive ? 'BUY_NOW' : 'CART');
+        const isBuyNow = effectiveMode === 'BUY_NOW';
 
         // Kiểm tra PayOS đã được cấu hình chưa
         if (!payosConfig.isConfigured()) {
@@ -329,12 +374,27 @@ const createPayOSPaymentWithCart = async (req, res) => {
         }
 
         // Kiểm tra tồn kho
-        const checkoutItems = isBuyNow
-            ? [{
+        let checkoutItems = [];
+        if (isBuyNow && Array.isArray(items) && items.length > 0) {
+            checkoutItems = items
+                .filter((item) => item.productId && Number(item.quantity) > 0)
+                .map((item) => ({
+                    product: item.productId,
+                    quantity: Math.max(1, Number(item.quantity) || 1)
+                }));
+        } else if (isBuyNow && legacyBuyNowActive) {
+            checkoutItems = [{
                 product: normalizedBuyNowProduct.productId,
                 quantity: Math.max(1, Number(normalizedBuyNowProduct.quantity) || 1)
-            }]
-            : pickCheckoutItems(cart, selectedProductIds, selectedProducts);
+            }];
+        } else if (!isBuyNow && Array.isArray(cartItemIds) && cartItemIds.length > 0) {
+            const selected = new Set(cartItemIds.map((id) => id.toString()));
+            checkoutItems = cart.products.filter((item) =>
+                selected.has(item._id.toString()) || selected.has(item.product.toString())
+            );
+        } else {
+            checkoutItems = pickCheckoutItems(cart, selectedProductIds, selectedProducts);
+        }
         if (checkoutItems.length === 0) {
             return res.status(400).json({
                 success: false,
@@ -359,28 +419,28 @@ const createPayOSPaymentWithCart = async (req, res) => {
                         : `Sản phẩm "${product.name}" hiện chưa thể mua!`
                 });
             }
-            if (product.quantity < item.quantity) {
+            const availableStock = item.variantStock ?? product.quantity;
+            if (availableStock < item.quantity) {
                 return res.status(400).json({
                     success: false,
                     message: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!`
                 });
             }
-            if (isBuyNow) {
-                const productDiscount = product.discount || 0;
+            const productDiscount = item.discount ?? product.discount ?? 0;
+            if (item.price === undefined || item.price === null || Number.isNaN(Number(item.price))) {
                 item.price = productDiscount > 0
                     ? Math.round(product.price * (1 - productDiscount / 100))
                     : product.price;
-                item.originalPrice = product.price;
-                item.discount = productDiscount;
-                item.name = product.name;
-                item.image = getProductImage(product);
             }
+            item.originalPrice = item.originalPrice ?? product.price;
+            item.discount = productDiscount;
+            item.name = item.name || product.name;
+            item.image = item.image || getProductImage(product);
             productMap[item.product.toString()] = product;
         }
 
         const subtotal = checkoutItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-        // ── Kiểm tra multi-shop: PayOS chỉ hỗ trợ 1 shop ──────────────────────────
         const shopGroups = {};
         for (const item of checkoutItems) {
             const product = productMap[item.product.toString()];
@@ -391,13 +451,6 @@ const createPayOSPaymentWithCart = async (req, res) => {
             shopGroups[shopId].items.push(item);
         }
         const shopKeys = Object.keys(shopGroups);
-
-        if (shopKeys.length > 1) {
-            return res.status(400).json({
-                success: false,
-                message: 'Thanh toán PayOS chỉ hỗ trợ 1 cửa hàng. Vui lòng chọn COD hoặc Ví SORA cho đơn hàng từ nhiều cửa hàng.'
-            });
-        }
 
         // Tính giảm giá voucher nếu có (lấy dữ liệu mới nhất từ Coupon)
         let couponDiscount = 0;
@@ -441,125 +494,154 @@ const createPayOSPaymentWithCart = async (req, res) => {
             }
         }
 
-        const discountedSubtotal = subtotal - couponDiscount;
-        // Tổng phí ship = sum các shop (FE đã tính riêng); fallback về shippingFee cũ
-        const isShippingFree = Boolean(selectedShippingCoupon);
-        const totalShippingFee = isShippingFree 
-            ? 0 
-            : (Object.values(shippingFeesByShop).reduce((sum, f) => sum + (Number(f) || 0), 0) || (shippingFee || 0));
-        const totalPrice = Math.max(0, discountedSubtotal + totalShippingFee);
+        {
+            const checkoutGroupId = new mongoose.Types.ObjectId().toString();
+            const createdOrders = [];
+            const isShippingFree = Boolean(selectedShippingCoupon);
+            const usedCouponShopId = usedCoupon?.coupon?.shop ? usedCoupon.coupon.shop.toString() : null;
+            const now = new Date();
+            const estimatedDelivery = new Date(now.getTime() + (shippingTier === 'express' ? 3 : 7) * 24 * 60 * 60 * 1000);
+            let totalPrice = 0;
 
-        // Lấy thông tin shop từ sản phẩm đầu tiên (multi-vendor: mỗi shop sẽ tạo đơn riêng)
-        const firstProduct = productMap[checkoutItems[0]?.product?.toString() || checkoutItems[0]?.product];
-        const orderShop = firstProduct?.shop?._id || firstProduct?.shop || null;
-        const orderShopName = firstProduct?.shop?.name || '';
-        const orderShopCode = firstProduct?.shop?.code || '';
+            for (const shopId of shopKeys) {
+                const group = shopGroups[shopId];
+                const groupItems = group.items || [];
+                const groupSubtotal = groupItems.reduce((sum, item) => sum + (Number(item.price) * Number(item.quantity)), 0);
+                let groupShippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
+                    ? Number(shippingFeesByShop[shopId])
+                    : (shippingFee || 0);
+                if (isShippingFree) groupShippingFee = 0;
 
-        // Tạo đơn hàng
-        const order = new Order({
-            user: req.user._id,
-            shop: orderShop,
-            shopName: orderShopName,
-            shopCode: orderShopCode,
-            products: checkoutItems.map(item => {
-                const product = productMap[item.product.toString()];
-                return {
-                    product: item.product,
-                    shop: product.shop?._id || product.shop || null,
-                    shopName: product.shop?.name || '',
-                    shopCode: product.shop?.code || '',
-                    quantity: item.quantity,
-                    price: item.price,
-                    name: item.name,
-                    image: item.image
-                };
-            }),
-            shippingAddress: {
-                ...shippingAddress,
-                note: note || ''
-            },
-            paymentMethod: 'PAYOS',
-            paymentStatus: 'pending',
-            subtotal,
-            couponDiscount,
-            couponCode: usedCoupon ? couponCode.toUpperCase() : null,
-            shippingFee: totalShippingFee,
-            shippingTier,
-            shippingProvider,
-            totalPrice,
-            totalQuantity: checkoutItems.reduce((sum, item) => sum + item.quantity, 0),
-            usedCouponId: usedCoupon ? usedCoupon._id : null,
-            orderedAt: new Date(),
-            estimatedDelivery: new Date(Date.now() + (shippingTier === 'express' ? 3 : 7) * 24 * 60 * 60 * 1000),
-            // Thanh toán PayOS hết hạn sau 30 phút
-            paymentExpiresAt: new Date(Date.now() + 30 * 60 * 1000)
-        });
+                const groupCouponDiscount = usedCouponShopId
+                    ? (shopId === usedCouponShopId ? couponDiscount : 0)
+                    : (subtotal > 0 ? Math.round(couponDiscount * groupSubtotal / subtotal) : 0);
+                const groupTotal = Math.max(0, groupSubtotal - groupCouponDiscount + groupShippingFee);
+                totalPrice += groupTotal;
 
-        await order.save();
+                const firstGroupProduct = productMap[groupItems[0]?.product?.toString()];
+                const groupShop = firstGroupProduct?.shop || null;
+                const groupShippingProvider = shippingProvider && typeof shippingProvider === 'object' && !Array.isArray(shippingProvider)
+                    ? (shippingProvider[shopId] || shippingProvider)
+                    : shippingProvider;
 
-        const payos = getPayOSInstance();
-        if (!payos) {
-            // Rollback - xóa đơn hàng nếu không khởi tạo được PayOS
-            await Order.findByIdAndDelete(order._id);
-            return res.status(500).json({
-                success: false,
-                message: 'Không thể khởi tạo PayOS'
-            });
-        }
+                const order = new Order({
+                    user: req.user._id,
+                    checkoutGroupId,
+                    shop: groupShop?._id || groupShop || null,
+                    shopName: groupShop?.name || '',
+                    shopCode: groupShop?.code || '',
+                    products: groupItems.map((item) => {
+                        const product = productMap[item.product.toString()];
+                        return {
+                            product: item.product,
+                            shop: product.shop?._id || product.shop || null,
+                            shopName: product.shop?.name || '',
+                            shopCode: product.shop?.code || '',
+                            quantity: item.quantity,
+                            price: item.price,
+                            originalPrice: item.originalPrice,
+                            discount: item.discount,
+                            variant: item.variant || null,
+                            variantId: item.variantId || null,
+                            variantSku: item.variantSku || null,
+                            variantSize: item.variantSize || null,
+                            name: item.name,
+                            image: item.image
+                        };
+                    }),
+                    shippingAddress: {
+                        ...shippingAddress,
+                        note: note || shippingAddress?.note || ''
+                    },
+                    paymentMethod: 'PAYOS',
+                    paymentStatus: 'pending',
+                    subtotal: groupSubtotal,
+                    couponDiscount: groupCouponDiscount,
+                    couponCode: usedCoupon
+                        ? (usedCouponShopId ? (shopId === usedCouponShopId ? couponCode.toUpperCase() : null) : (shopId === shopKeys[0] ? couponCode.toUpperCase() : null))
+                        : null,
+                    shippingFee: groupShippingFee,
+                    shippingTier,
+                    shippingProvider: groupShippingProvider,
+                    totalPrice: groupTotal,
+                    totalQuantity: groupItems.reduce((sum, item) => sum + Number(item.quantity), 0),
+                    usedCouponId: usedCoupon
+                        ? (usedCouponShopId ? (shopId === usedCouponShopId ? usedCoupon._id : null) : (shopId === shopKeys[0] ? usedCoupon._id : null))
+                        : null,
+                    orderedAt: now,
+                    estimatedDelivery,
+                    paymentExpiresAt: new Date(now.getTime() + 30 * 60 * 1000)
+                });
 
-        // Tạo mã đơn hàng PayOS (orderCode phải là number, tối đa 10 chữ số)
-        const payosOrderCode = Number(`${Date.now()}${Math.random().toString(36).substring(2, 6)}`.slice(0, 10));
-        order.payosOrderCode = payosOrderCode;
-        await order.save();
-
-        // Tạo payment link
-        const paymentData = {
-            orderCode: payosOrderCode,
-            amount: Math.round(totalPrice),
-            description: `TT ${order.orderNumber}`.slice(0, 25),
-            buyerName: shippingAddress?.fullName || req.user.fullName || 'Khach hang',
-            buyerEmail: req.user.email || '',
-            buyerPhone: shippingAddress?.phone || '',
-            returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${order._id}`,
-            cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?payment=cancelled&orderId=${order._id}`,
-        };
-
-        const response = await payos.paymentRequests.create(paymentData);
-
-        if (response && response.checkoutUrl) {
-            // Xóa khỏi giỏ các sản phẩm vừa tạo thanh toán, giữ lại item chưa chọn.
-            if (!isBuyNow) {
-                await removeCheckoutItemsFromCart(cart, checkoutItems, selectedProducts, selectedProductIds);
+                await order.save();
+                createdOrders.push(order);
             }
 
-            // Đánh dấu voucher là đã sử dụng (sau khi PayOS link tạo thành công)
-            if (usedCoupon) {
-                const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
-                await VoucherWallet.findByIdAndUpdate(usedCoupon._id, {
-                    status: VOUCHER_STATUS.USED,
-                    usedAt: new Date()
+            const payos = getPayOSInstance();
+            if (!payos) {
+                await Order.deleteMany({ _id: { $in: createdOrders.map((order) => order._id) } });
+                return res.status(500).json({
+                    success: false,
+                    message: 'KhÃ´ng thá»ƒ khá»Ÿi táº¡o PayOS'
                 });
             }
 
-            return res.status(200).json({
-                success: true,
-                message: 'Tạo link thanh toán thành công',
-                data: {
-                    orderId: order._id,
-                    checkoutUrl: response.checkoutUrl,
-                    paymentId: response.paymentLinkId,
-                    orderCode: payosOrderCode,
-                    qrCode: response.qrCode,
+            const payosOrderCode = Number(`${Date.now()}${Math.random().toString(36).substring(2, 6)}`.slice(0, 10));
+            for (const order of createdOrders) {
+                order.payosOrderCode = payosOrderCode;
+                await order.save();
+            }
+
+            const firstOrder = createdOrders[0];
+            const paymentData = {
+                orderCode: payosOrderCode,
+                amount: Math.round(totalPrice),
+                description: `TT ${firstOrder.orderNumber}`.slice(0, 25),
+                buyerName: shippingAddress?.fullName || req.user.fullName || 'Khach hang',
+                buyerEmail: req.user.email || '',
+                buyerPhone: shippingAddress?.phone || '',
+                returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${firstOrder._id}`,
+                cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?payment=cancelled&orderId=${firstOrder._id}`,
+            };
+
+            const response = await payos.paymentRequests.create(paymentData);
+
+            if (response && response.checkoutUrl) {
+                if (!isBuyNow) {
+                    const selectedIdsForRemoval = Array.isArray(cartItemIds) && cartItemIds.length > 0
+                        ? cartItemIds
+                        : selectedProductIds;
+                    await removeCheckoutItemsFromCart(cart, checkoutItems, selectedProducts, selectedIdsForRemoval);
                 }
+
+                if (usedCoupon) {
+                    const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
+                    await VoucherWallet.findByIdAndUpdate(usedCoupon._id, {
+                        status: VOUCHER_STATUS.USED,
+                        usedAt: new Date()
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    message: 'Táº¡o link thanh toÃ¡n thÃ nh cÃ´ng',
+                    data: {
+                        orderId: firstOrder._id,
+                        orders: createdOrders,
+                        checkoutUrl: response.checkoutUrl,
+                        paymentId: response.paymentLinkId,
+                        orderCode: payosOrderCode,
+                        qrCode: response.qrCode,
+                    }
+                });
+            }
+
+            await Order.deleteMany({ _id: { $in: createdOrders.map((order) => order._id) } });
+            return res.status(500).json({
+                success: false,
+                message: 'KhÃ´ng thá»ƒ táº¡o link thanh toÃ¡n'
             });
         }
-
-        // Rollback
-        await Order.findByIdAndDelete(order._id);
-        return res.status(500).json({
-            success: false,
-            message: 'Không thể tạo link thanh toán'
-        });
 
     } catch (error) {
         console.error('PayOS create payment with cart error:', error);
@@ -594,7 +676,8 @@ const payOSWebhook = async (req, res) => {
         console.log('PayOS Webhook received:', req.body);
 
         // Tìm đơn hàng theo mã PayOS (orderCode từ webhook là number)
-        const order = await Order.findOne({ payosOrderCode: Number(orderCode) });
+        const orders = await Order.find({ payosOrderCode: Number(orderCode) });
+        const order = orders[0];
 
         if (!order) {
             console.log('Order not found for PayOS orderCode:', orderCode);
@@ -606,6 +689,11 @@ const payOSWebhook = async (req, res) => {
 
         // Xử lý theo trạng thái thanh toán (PayOS v2: success=true, code='00')
         if (success === true && code === '00') {
+            for (const payosOrder of orders) {
+                await markPayOSOrderPaid(payosOrder);
+                console.log('Order paid successfully:', payosOrder.orderNumber);
+            }
+
             // Thanh toán thành công
             if (order.paymentStatus !== 'paid') {
                 order.paymentStatus = 'paid';
@@ -651,6 +739,21 @@ const payOSWebhook = async (req, res) => {
                 }
             }
         } else if (success === false || (code && code !== '00')) {
+            for (const payosOrder of orders) {
+                if (payosOrder.paymentStatus !== 'paid' && payosOrder.status !== ORDER_STATUS.CANCELLED) {
+                    payosOrder.paymentStatus = 'failed';
+                    payosOrder.status = ORDER_STATUS.CANCELLED;
+                    payosOrder.cancelledAt = new Date();
+                    payosOrder.statusHistory.push({
+                        status: ORDER_STATUS.CANCELLED,
+                        timestamp: new Date(),
+                        note: 'Thanh toÃ¡n PayOS tháº¥t báº¡i/bá»‹ há»§y táº¡i cá»•ng thanh toÃ¡n'
+                    });
+                    await payosOrder.save();
+                    console.log('Order payment failed/cancelled:', payosOrder.orderNumber);
+                }
+            }
+
             // Thanh toán thất bại hoặc bị hủy tại cổng PayOS
             // Chỉ xử lý nếu chưa bị hủy (tránh trùng lặp khi webhook fire nhiều lần)
             if (order.paymentStatus !== 'paid' && order.status !== ORDER_STATUS.CANCELLED) {
@@ -729,7 +832,7 @@ const getPayOSPaymentStatus = async (req, res) => {
     try {
         const { orderId } = req.params;
 
-        const order = await Order.findById(orderId);
+        let order = await Order.findById(orderId);
 
         if (!order) {
             return res.status(404).json({
@@ -754,6 +857,17 @@ const getPayOSPaymentStatus = async (req, res) => {
             console.warn('PayOS status sync warning:', syncError.message);
         }
 
+        const relatedOrders = order.payosOrderCode
+            ? await Order.find({
+                payosOrderCode: Number(order.payosOrderCode),
+                user: order.user
+            })
+                .populate('shop', 'name code logo')
+                .populate('products.product', 'name images slug')
+                .sort({ createdAt: 1 })
+            : [order];
+        const relatedOrderObjects = relatedOrders.map((item) => item.toObject ? item.toObject() : item);
+
         return res.status(200).json({
             success: true,
             data: {
@@ -762,7 +876,9 @@ const getPayOSPaymentStatus = async (req, res) => {
                 paymentStatus: order.paymentStatus,
                 paymentMethod: order.paymentMethod,
                 payosStatus: paymentLinkStatus,
-                totalPrice: order.totalPrice
+                totalPrice: order.totalPrice,
+                relatedOrders: relatedOrderObjects,
+                orderNumbers: relatedOrderObjects.map((item) => item.orderNumber).filter(Boolean)
             }
         });
 
@@ -809,6 +925,30 @@ const cancelPayOSPayment = async (req, res) => {
         }
 
         // Chỉ hủy nếu chưa bị hủy hoặc chưa thanh toán (tránh trùng lặp khi webhook cũng gọi)
+        if (order.paymentStatus !== 'paid') {
+            const relatedOrders = order.payosOrderCode
+                ? await Order.find({ payosOrderCode: order.payosOrderCode })
+                : [order];
+            for (const payosOrder of relatedOrders) {
+                if (payosOrder.status !== ORDER_STATUS.CANCELLED) {
+                    payosOrder.status = ORDER_STATUS.CANCELLED;
+                    payosOrder.paymentStatus = 'failed';
+                    payosOrder.cancelledAt = new Date();
+                    payosOrder.statusHistory.push({
+                        status: ORDER_STATUS.CANCELLED,
+                        timestamp: new Date(),
+                        note: 'Huy thanh toan PayOS'
+                    });
+                    await payosOrder.save();
+                }
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: 'Da huy thanh toan PayOS'
+            });
+        }
+
         if (order.status === ORDER_STATUS.CANCELLED) {
             return res.status(400).json({
                 success: false,

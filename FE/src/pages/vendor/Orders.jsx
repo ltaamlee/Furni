@@ -50,6 +50,44 @@ const CANCELLABLE = ["pending", "confirmed", "preparing"];
 const msgOf = (res) => (Array.isArray(res?.message) ? res.message.join(", ") : res?.message);
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString("vi-VN") : "");
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "");
+const getOrderShopId = (order) => String(order?.shop?._id || order?.shop || order?.products?.[0]?.shop || "");
+const getShippingProvider = (order) => {
+    const provider = order?.shippingProvider;
+    if (!provider || typeof provider === "string") return provider || null;
+    if (provider.code || provider.name || provider._id) return provider;
+    const shopProvider = provider[getOrderShopId(order)];
+    if (shopProvider) return shopProvider;
+    return Object.values(provider).find(Boolean) || null;
+};
+const providerCodeOf = (provider) => {
+    if (!provider) return "";
+    if (typeof provider === "string") return provider.toLowerCase();
+    return String(provider.code || provider._id || "").toLowerCase();
+};
+const providerNameOf = (provider) => {
+    const code = providerCodeOf(provider);
+    const option = PROVIDER_OPTIONS.find((p) => p.key === code);
+    if (option) return option.name;
+    if (provider && typeof provider === "object") return provider.name || provider.code || "—";
+    return provider || "—";
+};
+const providerShortOf = (provider) => {
+    const code = providerCodeOf(provider);
+    const option = PROVIDER_OPTIONS.find((p) => p.key === code);
+    if (option) return option.short;
+    if (provider && typeof provider === "object") return provider.code || provider.name || "";
+    return provider || "";
+};
+const getShopSubtotal = (order) => {
+    if (typeof order?.shopSubtotal === "number") return order.shopSubtotal;
+    if (typeof order?.subtotal === "number") return order.subtotal;
+    return (order?.products || []).reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 0), 0);
+};
+const getShopRevenue = (order) => {
+    if (typeof order?.shopRevenue === "number") return order.shopRevenue;
+    const rate = Math.max(0, 10 - Number(order?.commissionRate || 0));
+    return Math.round(getShopSubtotal(order) * rate / 100);
+};
 
 const SectionHdr = ({ children }) => (
     <div className="text-[12px] font-bold text-[#6B5C4C] uppercase tracking-[0.06em] mb-2.5">{children}</div>
@@ -103,6 +141,7 @@ const OrderDetail = ({ open, onClose, order, onAction, busy }) => {
     const addr = order.shippingAddress || {};
     const next = NEXT_ACTION[order.status];
     const canCancel = CANCELLABLE.includes(order.status);
+    const shippingProvider = getShippingProvider(order);
 
     return (
         <SlideOver
@@ -154,17 +193,17 @@ const OrderDetail = ({ open, onClose, order, onAction, busy }) => {
 
             <SectionHdr>Tóm tắt</SectionHdr>
             <DetailCard>
-                <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Tạm tính (sản phẩm shop)</span><span>{formatVND(order.shopSubtotal || 0)}</span></div>
+                <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Tạm tính (sản phẩm shop)</span><span>{formatVND(getShopSubtotal(order))}</span></div>
                 <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Phương thức TT</span><Badge tone={pay.tone}>{pay.label}</Badge></div>
                 <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Tổng cả đơn (mọi shop)</span><span className="text-[#9E8E7E]">{formatVND(order.totalPrice || 0)}</span></div>
-                <div className="flex justify-between border-t border-[#EDE8E0] mt-1 pt-2.5 font-bold text-sm"><span>Doanh thu shop</span><span className="text-[#B86B05] text-[15px]">{formatVND(order.shopSubtotal || 0)}</span></div>
+                <div className="flex justify-between border-t border-[#EDE8E0] mt-1 pt-2.5 font-bold text-sm"><span>Doanh thu shop</span><span className="text-[#B86B05] text-[15px]">{formatVND(getShopRevenue(order))}</span></div>
             </DetailCard>
 
             {/* Shipping info if already shipped */}
-            {(order.shippingProvider || order.trackingNumber) && (
+            {(shippingProvider || order.trackingNumber) && (
                 <div className="bg-teal-50 rounded-xl p-4 border border-teal-200 mb-4">
                     <p className="text-xs font-semibold text-teal-700 mb-1">Đơn vị vận chuyển</p>
-                    <p className="text-sm font-bold text-teal-800">{PROVIDER_OPTIONS.find(p => p.key === order.shippingProvider)?.name || order.shippingProvider || '—'}</p>
+                    <p className="text-sm font-bold text-teal-800">{providerNameOf(shippingProvider)}</p>
                     {order.trackingNumber && (
                         <p className="text-xs text-teal-600 mt-1">Mã vận đơn: <span className="font-mono font-semibold">{order.trackingNumber}</span></p>
                     )}
@@ -289,6 +328,7 @@ const Orders = () => {
                             const next = NEXT_ACTION[o.status];
                             // Get shop order code from first product
                             const shopOrderCode = first?.shopOrderCode || o.shopOrderCode;
+                            const shippingProvider = getShippingProvider(o);
                             return (
                                 <tr key={o._id} className="border-b border-[#EDE8E0] last:border-0 hover:bg-[#FDFAF7]">
                                     <td className="px-3.5 py-3">
@@ -305,7 +345,7 @@ const Orders = () => {
                                         <div className="text-[13px] truncate max-w-[220px]">{first?.name || "—"} {first && <span className="text-[11.5px] text-[#9E8E7E]">×{first.quantity}</span>}</div>
                                         {more > 0 && <div className="text-[11.5px] text-[#9E8E7E]">+{more} sản phẩm khác</div>}
                                     </td>
-                                    <td className="px-3.5 py-3 font-bold whitespace-nowrap">{formatVND(o.shopSubtotal || 0)}</td>
+                                    <td className="px-3.5 py-3 font-bold whitespace-nowrap">{formatVND(getShopRevenue(o))}</td>
                                     <td className="px-3.5 py-3">
                                         <div className="text-[13px]">{fmtDate(o.orderedAt || o.createdAt)}</div>
                                     </td>
@@ -315,7 +355,7 @@ const Orders = () => {
                                         <div className="flex gap-1">
                                             {next ? (
                                                 <Btn variant="primary" size="xs" disabled={busy} onClick={() => doAction(o, next.to)}>
-                                                    {next.label}{o.shippingProvider && next.to === 'shipping' ? ` (${PROVIDER_OPTIONS.find(p => p.key === o.shippingProvider)?.short || o.shippingProvider})` : ''}
+                                                    {next.label}{shippingProvider && next.to === 'shipping' ? ` (${providerShortOf(shippingProvider)})` : ''}
                                                 </Btn>
                                             ) : (
                                                 <Btn variant="outline" size="xs" onClick={() => openDetail(o)}>Chi tiết</Btn>

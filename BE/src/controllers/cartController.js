@@ -5,6 +5,15 @@ const { currentSalePrice, attachPricing } = require('../utils/pricing');
 
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
+const getCartItemId = (item) => item?._id?.toString?.() || item?.id?.toString?.() || '';
+
+const findCartItem = (cart, identifier) => {
+    const id = identifier?.toString();
+    return cart.products.find((item) =>
+        getCartItemId(item) === id || item.product.toString() === id
+    );
+};
+
 // Middleware-like guard for customer-only routes
 const requireCustomer = (req, res, next) => {
     if (req.user.role === 'vendor' || req.user.role === 'admin') {
@@ -87,7 +96,10 @@ const getCart = async (req, res) => {
             }
 
             return {
+                _id: item._id,
+                cartItemId: getCartItemId(item),
                 product: item.product._id,
+                productId: item.product._id?.toString?.() || item.product.toString(),
                 quantity: item.quantity,
                 price: salePrice,
                 originalPrice: originalPrice,
@@ -102,7 +114,15 @@ const getCart = async (req, res) => {
                 promotionName: product.promotion?.name || item.promotionName || null,
                 addedAt: item.addedAt || cart.createdAt,
                 weight: product?.weight || 0, // Thêm weight để tính phí vận chuyển
-                ...(item.variant ? { variant: item.variant, variantPrice: item.variantPrice, variantStock: item.variantStock } : {})
+                ...(item.variant ? {
+                    variant: item.variant,
+                    variantId: item.variantId || null,
+                    variantIndex: item.variantIndex ?? null,
+                    variantSku: item.variantSku || null,
+                    variantSize: item.variantSize || null,
+                    variantPrice: item.variantPrice,
+                    variantStock: item.variantStock
+                } : {})
             };
         }))).filter(Boolean);
 
@@ -224,17 +244,30 @@ const addToCart = async (req, res) => {
                     discount: discount,
                     promotionId: product.promotion?._id || product.promotionId || null,
                     promotionName: product.promotion?.name || product.promotionName || null,
+                    ...(selectedVariant ? {
+                        variant: selectedVariant.name || null,
+                        variantId: selectedVariant._id || null,
+                        variantIndex: Number(variantIndex),
+                        variantSku: selectedVariant.sku || null,
+                        variantSize: selectedVariant.size || null,
+                        variantPrice: selectedVariant.price || null,
+                        variantStock: selectedVariant.stock || 0,
+                    } : {})
                 }]
             });
         } else {
             // Tìm sản phẩm trùng: cùng productId VÀ cùng variant (nếu có)
             const variantName = selectedVariant?.name || null;
+            const variantId = selectedVariant?._id?.toString?.() || null;
+            const normalizedVariantIndex = selectedVariant ? Number(variantIndex) : null;
             const existingProduct = cart.products.find(
                 (item) => {
                     if (item.product.toString() !== productId.toString()) return false;
                     // Không có variant: so sánh variantName (null) với item.variant
                     if (!variantName) return !item.variant;
                     // Có variant: so sánh theo tên
+                    if (variantId && item.variantId?.toString?.() === variantId) return true;
+                    if (item.variantIndex !== null && item.variantIndex !== undefined && item.variantIndex === normalizedVariantIndex) return true;
                     return item.variant === variantName;
                 }
             );
@@ -255,11 +288,19 @@ const addToCart = async (req, res) => {
                 existingProduct.promotionName = product.promotion?.name || product.promotionName || null;
                 if (selectedVariant) {
                     existingProduct.variant = selectedVariant.name || null;
+                    existingProduct.variantId = selectedVariant._id || null;
+                    existingProduct.variantIndex = Number(variantIndex);
+                    existingProduct.variantSku = selectedVariant.sku || null;
+                    existingProduct.variantSize = selectedVariant.size || null;
                     existingProduct.variantPrice = selectedVariant.price || null;
                     existingProduct.variantStock = selectedVariant.stock || 0;
                 } else {
                     // Nếu không chọn variant → xóa variant info
                     existingProduct.variant = null;
+                    existingProduct.variantId = null;
+                    existingProduct.variantIndex = null;
+                    existingProduct.variantSku = null;
+                    existingProduct.variantSize = null;
                     existingProduct.variantPrice = null;
                     existingProduct.variantStock = null;
                 }
@@ -280,6 +321,10 @@ const addToCart = async (req, res) => {
                     addedAt: new Date(),
                     ...(selectedVariant ? {
                         variant: selectedVariant.name || null,
+                        variantId: selectedVariant._id || null,
+                        variantIndex: Number(variantIndex),
+                        variantSku: selectedVariant.sku || null,
+                        variantSize: selectedVariant.size || null,
                         variantPrice: selectedVariant.price || null,
                         variantStock: selectedVariant.stock || 0,
                     } : {})
@@ -333,9 +378,7 @@ const updateCartItem = async (req, res) => {
             });
         }
 
-        const cartItem = cart.products.find(
-            (item) => item.product.toString() === productId.toString()
-        );
+        const cartItem = findCartItem(cart, productId);
 
         if (!cartItem) {
             return res.status(404).json({
@@ -344,7 +387,7 @@ const updateCartItem = async (req, res) => {
             });
         }
 
-        const product = await Product.findById(productId);
+        const product = await Product.findById(cartItem.product);
         if (!product) {
             return res.status(404).json({
                 success: false,
@@ -406,7 +449,7 @@ const removeFromCart = async (req, res) => {
         }
 
         const productIndex = cart.products.findIndex(
-            (item) => item.product.toString() === productId.toString()
+            (item) => getCartItemId(item) === productId.toString() || item.product.toString() === productId.toString()
         );
 
         if (productIndex === -1) {
