@@ -209,7 +209,7 @@ const orderSchema = new mongoose.Schema({
     },
     // Provider thực tế shop chọn khi bàn giao cho đơn vị vận chuyển (J&T, GHTK, Viettel)
     shippingProvider: {
-        type: String,
+        type: mongoose.Schema.Types.Mixed,
         default: null
     },
     // Tracking number từ đơn vị vận chuyển (sau khi shop bàn giao)

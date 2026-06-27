@@ -129,14 +129,17 @@ const calculateFee = async (req, res) => {
 // ──────────────────────────────────────────────────────────
 const calculateAllFees = async (req, res) => {
     try {
-        const { provinceCode, weight = 1000, enabledProviders } = req.query;
+        const { provinceCode, weight = 1000, enabledProviders, shopProvinceCode, isUrbanZone } = req.query;
 
         if (!provinceCode) {
             return res.status(400).json({ success: false, message: 'Thiếu provinceCode!' });
         }
 
         const code = Number(provinceCode);
-        const region = getRegionForProvince(code);
+        const customerRegion = getRegionForProvince(code);
+        const shopCode = shopProvinceCode ? Number(shopProvinceCode) : code;
+        const shopRegion = getRegionForProvince(shopCode);
+        const urbanZone = Boolean(isUrbanZone);
         const rates = await getCachedRates();
 
         // Parse enabledProviders if provided (comma-separated string)
@@ -145,17 +148,29 @@ const calculateAllFees = async (req, res) => {
             enabled = enabledProviders.split(',').map(p => p.trim()).filter(Boolean);
         }
 
-        const results = rates
-            .filter(r => r.region === region)
-            .filter(r => enabled.length === 0 || enabled.includes(r.provider))
+        // Filter rates matching shop region (phí tính từ vùng shop đi) + enabled providers
+        const regionRates = rates.filter(r => r.region === shopRegion)
+            .filter(r => enabled.length === 0 || enabled.includes(r.provider.toLowerCase()));
+
+        // Determine distance multiplier (same logic as calculateTiers)
+        const isSameProvince = shopCode === Number(provinceCode);
+        const isSameRegion = shopRegion === customerRegion;
+        let distanceMultiplier = isSameRegion ? (isSameProvince ? (urbanZone ? 0.7 : 1.0) : 1.0) : 1.3;
+
+        const results = regionRates
             .map(r => {
                 const additional500gBlocks = Math.max(0, Math.ceil((Number(weight) - 1000) / 500));
-                const fee = Math.round(r.baseFee + r.feePer500g * additional500gBlocks);
+                const rawFee = r.baseFee + r.feePer500g * additional500gBlocks;
+                const fee = Math.round(rawFee * distanceMultiplier);
                 return {
                     provider: r.provider,
+                    providerName: PROVIDER_LABELS[r.provider] || r.provider,
                     serviceType: r.serviceType,
+                    tier: r.serviceType,
                     fee,
-                    estimatedDays: r.estimatedDays
+                    baseFee: r.baseFee,
+                    estimatedDays: r.estimatedDays,
+                    isFree: false,
                 };
             });
 
@@ -163,9 +178,12 @@ const calculateAllFees = async (req, res) => {
         if (results.length === 0) {
             results.push({
                 provider: 'GHN',
+                providerName: 'Giao Hàng Nhanh',
                 serviceType: 'express',
+                tier: 'express',
                 fee: getShippingFee(code),
-                estimatedDays: { min: 2, max: 5 }
+                estimatedDays: { min: 2, max: 4 },
+                isFree: false,
             });
         }
 
@@ -335,17 +353,50 @@ const updateShippingStatus = async (req, res) => {
 // ──────────────────────────────────────────────────────────
 const calculateTiers = async (req, res) => {
     try {
-        const { provinceCode, weight = 1000, orderTotal = 0, enabledProviders } = req.query;
+        const {
+            provinceCode,
+            weight = 1000,
+            orderTotal = 0,
+            enabledProviders,
+            // Thêm thông tin shop để tính urban/rural
+            shopProvinceCode,
+            isUrbanZone = false,
+        } = req.query;
+
+        console.log('========== BACKEND: calculateTiers ==========');
+        console.log('📥 Request params:');
+        console.log('   - provinceCode (Tỉnh KHÁCH):', provinceCode);
+        console.log('   - shopProvinceCode (Tỉnh SHOP):', shopProvinceCode);
+        console.log('   - weight:', weight);
+        console.log('   - orderTotal:', orderTotal);
+        console.log('   - enabledProviders:', enabledProviders);
+        console.log('   - isUrbanZone:', isUrbanZone);
+        console.log('=============================================');
 
         if (!provinceCode) {
             return res.status(400).json({ success: false, message: 'Thiếu provinceCode!' });
         }
 
-        const code = Number(provinceCode);
-        const region = getRegionForProvince(code);
+        const customerCode = Number(provinceCode);
+        const customerRegion = getRegionForProvince(customerCode);
+
+        // Shop provinceCode để tính vùng của shop (luôn dùng shop vì phí tính từ shop đi)
+        const shopCode = shopProvinceCode ? Number(shopProvinceCode) : customerCode;
+        const shopRegion = getRegionForProvince(shopCode);
+        const urbanZone = Boolean(isUrbanZone);
+
         const w = Number(weight);
         const additional500gBlocks = Math.max(0, Math.ceil((w - 1000) / 500));
         const rates = await getCachedRates();
+
+        console.log('🔍 Phân tích vùng:');
+        console.log('   - customerCode:', customerCode, '→ region:', customerRegion);
+        console.log('   - shopCode:', shopCode, '→ shopRegion:', shopRegion);
+        console.log('   - isSameProvince:', shopCode === customerCode);
+        console.log('   - isSameRegion:', shopRegion === customerRegion);
+        console.log('   - urbanZone:', urbanZone);
+        console.log('   - additional500gBlocks:', additional500gBlocks);
+        console.log('   - Số rates trong cache:', rates.length);
 
         // Parse enabledProviders if provided
         let enabled = [];
@@ -353,9 +404,49 @@ const calculateTiers = async (req, res) => {
             enabled = enabledProviders.split(',').map(p => p.trim()).filter(Boolean);
         }
 
-        // Filter rates matching region (and enabled providers if specified)
-        const regionRates = rates.filter(r => r.region === region)
-            .filter(r => enabled.length === 0 || enabled.includes(r.provider));
+        // Xác định hệ số phí dựa trên vùng giao hàng
+        // urbanZone: shop ở nội thành → giao trong tỉnh giảm 30%
+        // crossRegion: shop và khách khác vùng → tăng 30%
+        let distanceMultiplier = 1.0;
+        let distanceLabel = 'ngoại thành';
+
+        const isSameProvince = shopCode === customerCode;
+        const isSameRegion = shopRegion === customerRegion;
+
+        if (isSameProvince) {
+            // Cùng tỉnh
+            if (urbanZone) {
+                distanceMultiplier = 0.7; // Nội thành giao nội tỉnh: giảm 30%
+                distanceLabel = 'nội thành';
+            } else {
+                distanceMultiplier = 1.0; // Ngoại thành giao nội tỉnh: giữ nguyên
+                distanceLabel = 'ngoại thành';
+            }
+        } else if (isSameRegion) {
+            // Khác tỉnh nhưng cùng vùng
+            distanceMultiplier = 1.0;
+            distanceLabel = 'cùng vùng';
+        } else {
+            // Khác vùng: tăng 30%
+            distanceMultiplier = 1.3;
+            distanceLabel = 'khác vùng';
+        }
+
+        console.log('💰 Distance multiplier:', distanceMultiplier, `(${distanceLabel})`);
+
+        // Filter rates matching shop region (phí tính từ vùng shop đi) + enabled providers
+        const regionRates = rates.filter(r => r.region === shopRegion)
+            .filter(r => enabled.length === 0 || enabled.includes(r.provider.toLowerCase()));
+
+        console.log('📦 Rates phù hợp (shopRegion=', shopRegion, '):', regionRates.length);
+        if (regionRates.length > 0) {
+            console.log('   Chi tiết rates:', regionRates.map(r => ({
+                provider: r.provider,
+                serviceType: r.serviceType,
+                baseFee: r.baseFee,
+                feePer500g: r.feePer500g
+            })));
+        }
 
         // For each tier, pick the cheapest provider from filtered rates
         const tierResults = ['economy', 'express'].map(tier => {
@@ -363,55 +454,78 @@ const calculateTiers = async (req, res) => {
             if (!tierRates.length) return null;
 
             const cheapest = tierRates.reduce((best, r) => {
-                const fee = Math.round(r.baseFee + r.feePer500g * additional500gBlocks);
-                const bestFee = Math.round(best.baseFee + best.feePer500g * additional500gBlocks);
+                const fee = Math.round((r.baseFee + r.feePer500g * additional500gBlocks) * distanceMultiplier);
+                const bestFee = Math.round((best.baseFee + best.feePer500g * additional500gBlocks) * distanceMultiplier);
                 return fee < bestFee ? r : best;
             });
 
-            const fee = Math.round(cheapest.baseFee + cheapest.feePer500g * additional500gBlocks);
+            const baseFee = cheapest.baseFee + cheapest.feePer500g * additional500gBlocks;
+            const fee = Math.round(baseFee * distanceMultiplier);
+            
+            console.log(`   🏷️ Tier [${tier}]:`, {
+                provider: cheapest.provider,
+                baseFee: cheapest.baseFee,
+                feePer500g: cheapest.feePer500g,
+                additionalBlocks: additional500gBlocks,
+                rawFee: baseFee,
+                multiplier: distanceMultiplier,
+                finalFee: fee
+            });
+
             return {
                 tier,
                 provider: cheapest.provider,
                 providerName: PROVIDER_LABELS[cheapest.provider] || cheapest.provider,
                 fee,
+                baseFee: Math.round(baseFee),
                 estimatedDays: cheapest.estimatedDays,
-                isFree: Number(orderTotal) >= 500000
+                isFree: false,
+                distanceLabel,
             };
         }).filter(Boolean);
 
+        console.log('📋 Kết quả tiers trước fallback:', JSON.stringify(tierResults, null, 2));
+
         // Fallback if no rates in DB
         if (tierResults.length === 0) {
+            console.log('⚠️ Không có rates trong DB, dùng FALLBACK!');
             const fallbackProviders = enabled.length > 0 ? enabled : ['ghtk'];
+            const baseFee = getShippingFee(shopCode);
             tierResults.push(
                 {
                     tier: 'economy',
                     provider: fallbackProviders[0],
                     providerName: PROVIDER_LABELS[fallbackProviders[0]] || fallbackProviders[0],
-                    fee: Math.round(getShippingFee(code) * 0.85),
+                    fee: Math.round(baseFee * 0.85 * distanceMultiplier),
+                    baseFee: Math.round(baseFee * 0.85),
                     estimatedDays: { min: 4, max: 7 },
-                    isFree: Number(orderTotal) >= 500000
+                    isFree: false,
+                    distanceLabel,
                 },
                 {
                     tier: 'express',
                     provider: fallbackProviders[0],
                     providerName: PROVIDER_LABELS[fallbackProviders[0]] || fallbackProviders[0],
-                    fee: getShippingFee(code),
+                    fee: Math.round(baseFee * distanceMultiplier),
+                    baseFee,
                     estimatedDays: { min: 1, max: 3 },
-                    isFree: Number(orderTotal) >= 500000
+                    isFree: false,
+                    distanceLabel,
                 }
             );
         }
 
-        // Apply free shipping rule
-        tierResults.forEach(t => {
-            if (t.isFree) t.fee = 0;
-        });
+        console.log('✅ Kết quả cuối cùng:', JSON.stringify(tierResults, null, 2));
+        console.log('=============================================\n');
 
         res.status(200).json({
             success: true,
             data: {
-                provinceCode: code,
-                region,
+                provinceCode: customerCode,
+                shopProvinceCode: shopCode,
+                customerRegion,
+                shopRegion,
+                distanceLabel,
                 weight: w,
                 tiers: tierResults
             }

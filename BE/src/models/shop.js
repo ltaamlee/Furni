@@ -122,6 +122,11 @@ const ShopSchema = new mongoose.Schema({
             type: String,
             enum: ['jt', 'ghtk', 'viettel'],
             default: 'ghtk'
+        },
+        // Cửa hàng có ở khu vực nội thành không → phí giao nội tỉnh giảm 30%
+        isUrbanZone: {
+            type: Boolean,
+            default: false
         }
     },
 }, { timestamps: true });

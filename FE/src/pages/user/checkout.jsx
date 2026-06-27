@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useRef } from "react";
+import { useState, useEffect, useContext, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../../components/context/authContext";
 import { useToast } from "../../components/context/ToastContext";
@@ -15,6 +15,7 @@ import {
   validateVoucherApi,
   getAvailableVouchersApi,
   getShopShippingConfigApi,
+  calculateShippingTiersApi,
 } from "../../utils/api";
 
 // Màu sắc đồng bộ với vendor register
@@ -27,14 +28,18 @@ const COLORS = {
   textLight: "#6B5C4C",
   border: "#EDE8E0",
   borderDark: "#D5C9BC",
-  bgLight: "#FAF7F4",
-  bgCard: "#FFFFFF",
-  success: "#16a34a",
-  successBg: "#dcfce7",
-  error: "#dc2626",
-  errorBg: "#fef2f2",
-  warning: "#d97706",
-  warningBg: "#fffbeb",
+};
+
+const PROVIDER_LABELS = {
+  ghtk: "Giao Hàng Tiết Kiệm",
+  jt: "J&T Express",
+  viettel: "Viettel Post",
+  ghn: "Giao Hàng Nhanh",
+};
+
+const TIER_LABELS = {
+  economy: "Tiết Kiệm",
+  express: "Nhanh",
 };
 
 // Step labels
@@ -55,6 +60,7 @@ const CheckoutPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [cart, setCart] = useState(null);
   const [shippingFees, setShippingFees] = useState([]);
+  const [shippingFeesByShop, setShippingFeesByShop] = useState({}); // { [shopId]: FeeItem[] }
   const [selectedItemIds, setSelectedItemIds] = useState(new Set());
   const [buyNowItem, setBuyNowItem] = useState(null);
   const [buyNowProduct, setBuyNowProduct] = useState(null);
@@ -65,7 +71,6 @@ const CheckoutPage = () => {
   const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [isBuyNow, setIsBuyNow] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
-  const [shopShippingConfig, setShopShippingConfig] = useState(null); // { enabledProviders, freeShippingThreshold }
 
   // Use ref for restored coupon so fetchCart closure always has the fresh value
   const restoredCouponRef = useRef(null); // { code, type, discount }
@@ -83,6 +88,8 @@ const CheckoutPage = () => {
 
   const isBuyNowRef = useRef(false);
 
+  const [selectAll, setSelectAll] = useState(false);
+
   const [customerInfo, setCustomerInfo] = useState({
     fullName: user?.fullName || "",
     phone: user?.phone || "",
@@ -95,10 +102,53 @@ const CheckoutPage = () => {
     provinceName: "",
     wardName: "",
     note: "",
-    selectedProvider: null,
+    selectedShippingByShop: {}, // { [shopId]: { code, serviceType } }
   });
 
   const [paymentMethod, setPaymentMethod] = useState("COD");
+
+  // ── Shop-level modals (must be before any return / JSX) ──
+  const [shippingModal, setShippingModal] = useState({ open: false, shopId: null });
+  const [shopVoucherModal, setShopVoucherModal] = useState({ open: false, shopId: null });
+  const [shopProductCoupons, setShopProductCoupons] = useState({});
+  const [shopNotes, setShopNotes] = useState({});
+
+  const openShippingModal = (shopId) => setShippingModal({ open: true, shopId });
+  const closeShippingModal = () => setShippingModal({ open: false, shopId: null });
+  const openShopVoucherModal = (shopId) => setShopVoucherModal({ open: true, shopId });
+  const closeShopVoucherModal = () => setShopVoucherModal({ open: false, shopId: null });
+
+  const handleSelectShopProductVoucher = async (voucher, shopId) => {
+    try {
+      const shopItems = (cart?.products || [])
+        .filter(item => selectedItemIds.has(item.product._id || item.product) && (item.shop?._id || item.shop) === shopId);
+      const shopSubtotal = shopItems.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
+      const res = await validateVoucherApi({
+        code: voucher.code,
+        orderTotal: shopSubtotal,
+        cartItems: shopItems.map(item => ({
+          productId: item.product._id || item.product,
+          price: item.price,
+          quantity: item.quantity,
+        })),
+      });
+      if (res.success) {
+        setShopProductCoupons(prev => ({ ...prev, [shopId]: { coupon: res.data.voucher, discount: res.data.discount } }));
+        showToast(`Áp dụng mã ${voucher.code} thành công! Giảm ${formatPrice(res.data.discount)}`, "success");
+        closeShopVoucherModal();
+      }
+    } catch (error) {
+      showToast(error.response?.data?.message || "Không thể áp dụng mã này!", "error");
+    }
+  };
+
+  const handleRemoveShopProductCoupon = (shopId) => {
+    setShopProductCoupons(prev => {
+      const next = { ...prev };
+      delete next[shopId];
+      return next;
+    });
+  };
 
   const formatPrice = (price) => {
     return new Intl.NumberFormat("vi-VN").format(price) + " đ";
@@ -276,6 +326,17 @@ const CheckoutPage = () => {
     isBuyNowRef.current = isBuyNow;
   }, [isBuyNow]);
 
+  // Keep selectAll in sync with selectedItemIds
+  useEffect(() => {
+    if (!cart) return;
+    const availableProducts = cart.products.filter(item => item.shopIsActive !== false);
+    if (availableProducts.length === 0) { setSelectAll(false); return; }
+    const allSelected = availableProducts.every(item =>
+      selectedItemIds.has(item.product._id || item.product)
+    );
+    setSelectAll(allSelected);
+  }, [selectedItemIds, cart]);
+
   useEffect(() => {
     const selectedSubtotal = isBuyNow
       ? (buyNowProduct?.price || 0) * (buyNowItem?.quantity || 1)
@@ -375,6 +436,7 @@ const CheckoutPage = () => {
           originalPrice,
           discount,
           quantity: quantity || 1,
+          weight: product.weight || 0,
           shop: product.shop?._id || product.shop,
           shopName: product.shop?.name || "Cửa hàng",
         });
@@ -545,142 +607,315 @@ const CheckoutPage = () => {
     }
   };
 
+  // ── Selection helpers ──
+  const handleToggleItem = (productId) => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(productId)) {
+        next.delete(productId);
+      } else {
+        next.add(productId);
+      }
+      localStorage.setItem("checkout_selected_items", JSON.stringify([...next]));
+      return next;
+    });
+    // Reset shipping cache since selection changed
+    shippingCache.current = {};
+    setShippingFees([]);
+  };
+
+  const handleSelectShop = (shopId) => {
+    if (!cart) return;
+    const shopItems = cart.products.filter(item =>
+      (item.shop?._id || item.shop) === shopId && item.shopIsActive !== false
+    );
+    const shopItemIds = shopItems.map(item => item.product._id || item.product);
+    const allSelected = shopItemIds.every(id => selectedItemIds.has(id));
+
+    setSelectedItemIds(prev => {
+      const newSet = new Set(prev);
+      if (allSelected) {
+        shopItemIds.forEach(id => newSet.delete(id));
+      } else {
+        shopItemIds.forEach(id => newSet.add(id));
+      }
+      localStorage.setItem("checkout_selected_items", JSON.stringify([...newSet]));
+      return newSet;
+    });
+    shippingCache.current = {};
+    setShippingFees([]);
+  };
+
+  const handleSelectAll = () => {
+    if (!cart) return;
+    if (selectAll) {
+      setSelectedItemIds(new Set());
+      setSelectAll(false);
+      localStorage.setItem("checkout_selected_items", JSON.stringify([]));
+    } else {
+      const allIds = cart.products
+        .filter(item => item.shopIsActive !== false)
+        .map(item => item.product._id || item.product);
+      setSelectedItemIds(new Set(allIds));
+      setSelectAll(true);
+      localStorage.setItem("checkout_selected_items", JSON.stringify(allIds));
+    }
+    shippingCache.current = {};
+    setShippingFees([]);
+  };
+
+  // ── Group cart products by shop ──
+  const groupedCart = useMemo(() => {
+    if (!cart?.products) return [];
+    const groups = {};
+    cart.products.forEach(item => {
+      const shopId = item.shop?._id || item.shop || 'unknown';
+      const shopName = item.shop?.name || item.shopName || 'Cửa hàng';
+      const shopAvatar = item.shop?.avatar || item.shopAvatar || null;
+      if (!groups[shopId]) {
+        groups[shopId] = { shopId, shopName, shopAvatar, items: [] };
+      }
+      groups[shopId].items.push(item);
+    });
+    return Object.values(groups);
+  }, [cart]);
+
   const shippingCache = useRef({});
 
   const fetchShippingFees = async () => {
     if (!shippingInfo.provinceCode) return;
     if (isBuyNow && !buyNowProduct) return;
     try {
-      const selectedOrderTotal = isBuyNow
-        ? (buyNowProduct?.price || 0) * (buyNowItem?.quantity || 1)
-        : (cart?.products || [])
-            .filter((item) => selectedItemIds.has(item.product._id || item.product))
-            .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
+      // ── Bước 1: Thu thập danh sách shop cần tính phí ──
+      // Mỗi shop có: id, config (providers, province, urban), weight, subtotal
+      let shopGroups = []; // [{ id, enabledProviders, shopProvinceCode, isUrbanZone, weight, subtotal }]
 
-      if (selectedOrderTotal === 0) return;
+      console.log('========== FETCH SHIPPING FEES ==========');
+      console.log('🔵 shippingInfo.provinceCode (Tỉnh KHÁCH):', shippingInfo.provinceCode);
+      console.log('🔵 shippingInfo.provinceName:', shippingInfo.provinceName);
 
-      // Determine shopId
-      let shopId = null;
       if (isBuyNow && buyNowProduct) {
-        shopId = buyNowProduct.shop;
-      } else if (cart?.products?.length > 0) {
-        const firstSelectedItem = cart.products.find((p) => selectedItemIds.has(p.product._id || p.product));
-        if (firstSelectedItem) shopId = firstSelectedItem.shop?._id || firstSelectedItem.shop;
-      }
-
-      // Fetch shop's shipping config once per shopId
-      let enabledProviders = null;
-      if (shopId) {
+        const shopId = buyNowProduct.shop;
+        shopGroups = [{
+          id: shopId,
+          enabledProviders: null,
+          shopProvinceCode: null,
+          isUrbanZone: false,
+          weight: (buyNowProduct.weight || 0) * (buyNowItem?.quantity || 1),
+          subtotal: (buyNowProduct.price || 0) * (buyNowItem?.quantity || 1),
+        }];
+        // Lấy config shop
         try {
           const configRes = await getShopShippingConfigApi(shopId);
+          console.log('📦 BuyNow - Shop Config Response:', configRes);
           if (configRes.success) {
-            enabledProviders = configRes.data.shippingConfig?.enabledProviders || null;
-            const shopThreshold = configRes.data.shippingConfig?.freeShippingThreshold;
-            // Override FREE_THRESHOLD with shop's setting if set
-            if (shopThreshold !== undefined && shopThreshold !== null) {
-              if (selectedOrderTotal >= shopThreshold) {
-                const freeFees = [
-                  { provider: { _id: 'default', name: 'Giao Hàng Tiết Kiệm', code: 'GHTK' }, serviceType: 'economy', serviceName: 'Miễn Phí', fee: 0, estimatedDays: { min: 3, max: 5 }, isFree: true, weight: 0 },
-                  { provider: { _id: 'default2', name: 'J&T Express', code: 'JT' }, serviceType: 'express', serviceName: 'Nhanh', fee: 0, estimatedDays: { min: 1, max: 2 }, isFree: true, weight: 0 },
-                ];
-                setShippingFees(freeFees);
-                return;
-              }
-            }
+            shopGroups[0].enabledProviders = configRes.data.shippingConfig?.enabledProviders || null;
+            shopGroups[0].shopProvinceCode = configRes.data.shopProvinceCode || null;
+            shopGroups[0].isUrbanZone = configRes.data.shippingConfig?.isUrbanZone || false;
           }
-        } catch (_) { /* shop might not have config yet, fall through */ }
-      }
-
-      // Use shop's freeShippingThreshold or default 500k
-      const FREE_THRESHOLD = 500000;
-      if (selectedOrderTotal >= FREE_THRESHOLD) {
-        const freeFees = [
-          { provider: { _id: 'default', name: 'Giao Hàng Tiết Kiệm', code: 'GHTK' }, serviceType: 'economy', serviceName: 'Miễn Phí', fee: 0, estimatedDays: { min: 3, max: 5 }, isFree: true, weight: 0 },
-          { provider: { _id: 'default2', name: 'J&T Express', code: 'JT' }, serviceType: 'express', serviceName: 'Nhanh', fee: 0, estimatedDays: { min: 1, max: 2 }, isFree: true, weight: 0 },
-        ];
-        setShippingFees(freeFees);
-        return;
-      }
-
-      let totalWeight = 0;
-      if (isBuyNow && buyNowProduct) {
-        totalWeight = (buyNowProduct.weight || 0) * (buyNowItem?.quantity || 1);
+        } catch (_) { /* no config */ }
       } else if (cart?.products?.length > 0) {
-        totalWeight = cart.products.reduce((sum, item) => {
-          if (!selectedItemIds.has(item.product._id || item.product)) return sum;
-          return sum + (item.product?.weight || 0) * (item.quantity || 1);
-        }, 0);
-      }
+        const selectedProducts = cart.products.filter(
+          (item) => selectedItemIds.has(item.product._id || item.product) && item.shopIsActive !== false
+        );
+        // Nhóm theo shop
+        const shopMap = {};
+        for (const item of selectedProducts) {
+          const shopId = item.shop?._id || item.shop || item.product?.shop?._id || item.product?.shop;
+          if (!shopId) continue;
+          const shopIdStr = shopId.toString();
+          if (!shopMap[shopIdStr]) {
+            shopMap[shopIdStr] = {
+              id: shopIdStr,
+              enabledProviders: null,
+              shopProvinceCode: null,
+              isUrbanZone: false,
+              weight: 0,
+              subtotal: 0,
+            };
+          }
+          // Lấy weight từ item.weight (đã được BE trả về), fallback về item.product?.weight
+          const itemWeight = item.weight || item.product?.weight || 0;
+          shopMap[shopIdStr].weight += itemWeight * (item.quantity || 1);
+          shopMap[shopIdStr].subtotal += (item.price || 0) * (item.quantity || 1);
+        }
+        shopGroups = Object.values(shopMap);
 
-      const weightBucket = Math.round(totalWeight / 500) * 500;
-      const cacheKey = `${shippingInfo.provinceCode}_${weightBucket}_${selectedOrderTotal}_${shopId || 'all'}`;
-      if (shippingCache.current[cacheKey]) {
-        setShippingFees(shippingCache.current[cacheKey]);
-        return;
-      }
-
-      // Gọi API tính phí ship - sử dụng calculate-tiers để filter theo enabledProviders của shop
-      const res = await calculateShippingTiersApi({
-        provinceCode: shippingInfo.provinceCode,
-        orderTotal: selectedOrderTotal,
-        weight: Math.round(totalWeight),
-        enabledProviders: enabledProviders ? enabledProviders.join(',') : null,
-      });
-
-      if (res.success) {
-        // Backend trả về res.data.tiers, transform để match frontend format
-        const rawTiers = res.data.tiers || [];
-        
-        const transformedFees = rawTiers.map((fee) => ({
-          provider: {
-            _id: fee.provider,
-            name: fee.providerName || PROVIDER_LABELS[fee.provider] || fee.provider,
-            code: fee.provider?.toUpperCase() || fee.provider,
-          },
-          serviceType: fee.tier === 'economy' ? 'economy' : 'express',
-          serviceName: fee.tier === 'economy' ? 'Tiết kiệm' : 'Nhanh',
-          fee: fee.fee,
-          estimatedDays: fee.estimatedDays || { min: 2, max: 5 },
-          isFree: fee.isFree || fee.fee === 0,
-          weight: Math.round(totalWeight),
+        // Fetch config cho mỗi shop song song
+        await Promise.all(shopGroups.map(async (group) => {
+          try {
+            const configRes = await getShopShippingConfigApi(group.id);
+            console.log(`📦 Shop [${group.id}] Config Response:`, configRes);
+            if (configRes.success) {
+              group.enabledProviders = configRes.data.shippingConfig?.enabledProviders || null;
+              group.shopProvinceCode = configRes.data.shopProvinceCode || null;
+              group.isUrbanZone = configRes.data.shippingConfig?.isUrbanZone || false;
+            }
+          } catch (_) { /* no config */ }
         }));
-        
-        // Nếu không có tiers, tạo fallback dựa trên enabledProviders
-        if (transformedFees.length === 0) {
-          const defaultProviders = enabledProviders && enabledProviders.length > 0
-            ? enabledProviders
-            : ['ghtk', 'jt'];
-          const fallbackFees = defaultProviders.map((p, idx) => ({
-            provider: { _id: p, name: PROVIDER_LABELS[p] || p, code: p.toUpperCase() },
-            serviceType: idx === 0 ? 'economy' : 'express',
-            serviceName: idx === 0 ? 'Tiết kiệm' : 'Nhanh',
-            fee: Math.round(selectedOrderTotal * (idx === 0 ? 0.15 : 0.2)),
-            estimatedDays: idx === 0 ? { min: 4, max: 7 } : { min: 1, max: 3 },
-            isFree: false,
-            weight: Math.round(totalWeight),
-          }));
-          shippingCache.current[cacheKey] = fallbackFees;
-          setShippingFees(fallbackFees);
+      }
+
+      console.log('🏪 shopGroups sau khi xử lý:', JSON.stringify(shopGroups, null, 2));
+
+      if (shopGroups.length === 0) return;
+
+      // ── Bước 2: Gọi API tính phí cho MỖI shop ──
+      const allShopFees = {}; // { [shopId]: FeeItem[] }
+      await Promise.all(shopGroups.map(async (group) => {
+        // Cache key: dựa trên province của khách + shop + weight + subtotal
+        const cacheKey = `${shippingInfo.provinceCode}_${group.id}_${Math.round(group.weight)}_${group.subtotal}`;
+
+        // Cache hit
+        if (shippingCache.current[cacheKey]) {
+          console.log(`⚡ Cache HIT cho shop [${group.id}]`);
+          allShopFees[group.id] = shippingCache.current[cacheKey];
           return;
         }
-        
-        shippingCache.current[cacheKey] = transformedFees;
-        setShippingFees(transformedFees);
+
+        const normalizedProviders = group.enabledProviders
+          ? group.enabledProviders.map(p => p.toLowerCase())
+          : null;
+
+        console.log('========================================');
+        console.log(`📍 Gọi API cho Shop [${group.id}]`);
+        console.log(`   - Tỉnh KHÁCH (provinceCode): ${shippingInfo.provinceCode} (${shippingInfo.provinceName})`);
+        console.log(`   - Tỉnh SHOP (shopProvinceCode): ${group.shopProvinceCode || 'null'}`);
+        console.log(`   - Weight: ${group.weight} kg`);
+        console.log(`   - Weight (gram): ${Math.round(group.weight * 1000)}g`);
+        console.log(`   - Subtotal: ${group.subtotal}đ`);
+        console.log(`   - isUrbanZone: ${group.isUrbanZone}`);
+        console.log(`   - Enabled Providers: ${JSON.stringify(normalizedProviders)}`);
+        console.log('========================================');
+
+        try {
+          // provinceCode = tỉnh của KHÁCH (nơi giao hàng đến)
+          // shopProvinceCode = tỉnh của SHOP (nơi hàng xuất phát)
+          const res = await calculateShippingTiersApi({
+            provinceCode: shippingInfo.provinceCode ? String(shippingInfo.provinceCode) : undefined,
+            shopProvinceCode: group.shopProvinceCode ? String(group.shopProvinceCode) : undefined,
+            weight: Math.max(1, Math.round(group.weight * 1000)), // Chuyển kg → gram
+            enabledProviders: normalizedProviders ? normalizedProviders.join(',') : undefined,
+            isUrbanZone: group.isUrbanZone ? 'true' : 'false',
+          });
+
+            console.log(`📥 API Response cho Shop [${group.id}]:`, res);
+
+            if (res.success) {
+              const rawTiers = res.data?.tiers || [];
+              console.log(`🔍 Raw tiers từ API cho Shop [${group.id}]:`, JSON.stringify(rawTiers, null, 2));
+              const transformed = rawTiers.map((tier) => {
+                // Hiển thị phí thực tế
+                console.log(`   Tier [${tier.tier}]: fee=${tier.fee}`);
+                return {
+                  provider: {
+                    _id: tier.provider,
+                    name: tier.providerName || PROVIDER_LABELS[tier.provider] || tier.provider,
+                    code: tier.provider?.toUpperCase() || tier.provider,
+                  },
+                  serviceType: tier.tier,
+                  serviceName: TIER_LABELS[tier.tier] || tier.tier,
+                  fee: tier.fee,
+                  estimatedDays: tier.estimatedDays || { min: 2, max: 5 },
+                  isFree: false,
+                  weight: Math.round(group.weight),
+                  distanceLabel: tier.distanceLabel || '',
+                  shopId: group.id,
+                };
+              });
+
+              // Fallback nếu BE không trả tiers
+              if (transformed.length === 0) {
+                console.log(`⚠️ Không có tiers từ API cho Shop [${group.id}], dùng fallback!`);
+                const fallbackProviders = normalizedProviders && normalizedProviders.length > 0
+                  ? normalizedProviders
+                  : ['ghtk', 'jt'];
+                transformed.push(
+                  { provider: { _id: fallbackProviders[0], name: PROVIDER_LABELS[fallbackProviders[0]] || fallbackProviders[0], code: fallbackProviders[0].toUpperCase() }, serviceType: 'economy', serviceName: 'Tiết Kiệm', fee: Math.round(group.subtotal * 0.15), estimatedDays: { min: 4, max: 7 }, isFree: false, weight: Math.round(group.weight), distanceLabel: '', shopId: group.id },
+                  { provider: { _id: fallbackProviders[0], name: PROVIDER_LABELS[fallbackProviders[0]] || fallbackProviders[0], code: fallbackProviders[0].toUpperCase() }, serviceType: 'express', serviceName: 'Nhanh', fee: Math.round(group.subtotal * 0.2), estimatedDays: { min: 1, max: 3 }, isFree: false, weight: Math.round(group.weight), distanceLabel: '', shopId: group.id },
+                );
+              }
+
+              console.log(`✅ Transformed fees cho Shop [${group.id}]:`, JSON.stringify(transformed, null, 2));
+
+              shippingCache.current[cacheKey] = transformed;
+              allShopFees[group.id] = transformed;
+            } else {
+              console.log(`❌ API failed cho Shop [${group.id}]:`, res.message);
+              allShopFees[group.id] = [];
+            }
+          } catch (err) {
+            console.error(`💥 Error gọi API cho Shop [${group.id}]:`, err);
+            allShopFees[group.id] = [];
+          }
+      }));
+
+      setShippingFeesByShop(allShopFees);
+
+      // ── Bước 3: Trộn tất cả fees thành 1 list (thứ tự: economy rẻ nhất → express rẻ nhất) ──
+      const flatFees = Object.values(allShopFees).flat();
+      
+      console.log('========================================');
+      console.log('📋 TẤT CẢ PHÍ VẬN CHUYỂN (flatFees):', JSON.stringify(flatFees, null, 2));
+      
+      if (flatFees.length === 0) {
+        console.log('⚠️ Không có phí vận chuyển nào!');
+        return;
+      }
+
+      // Sắp xếp: economy trước, trong cùng tier thì fee thấp → cao
+      flatFees.sort((a, b) => {
+        if (a.serviceType === 'economy' && b.serviceType === 'express') return -1;
+        if (a.serviceType === 'express' && b.serviceType === 'economy') return 1;
+        return a.fee - b.fee;
+      });
+
+      console.log('📋 PHÍ SAU KHI SẮP XẾP (rẻ nhất → đắt nhất):');
+      flatFees.forEach((fee, i) => {
+        console.log(`   ${i + 1}. [${fee.serviceName}] ${fee.provider.name}: ${fee.fee.toLocaleString('vi-VN')}đ`);
+      });
+      console.log('========================================');
+
+      setShippingFees(flatFees);
+
+      // Auto-select cheapest provider per shop if none selected yet
+      const currentSelection = shippingInfo.selectedShippingByShop || {};
+      const shopIdsNeedingSelection = shopGroups
+        .filter(g => !currentSelection[g.id])
+        .map(g => g.id);
+
+      if (shopIdsNeedingSelection.length > 0 && flatFees.length > 0) {
+        const newSelection = { ...currentSelection };
+        shopIdsNeedingSelection.forEach(shopId => {
+          const shopFees = flatFees.filter(f => f.shopId === shopId);
+          if (shopFees.length > 0) {
+            const cheapest = shopFees[0]; // already sorted cheapest-first
+            newSelection[shopId] = {
+              code: cheapest.provider.code,
+              serviceType: cheapest.serviceType,
+            };
+            console.log(`🎯 Auto-select cheapest for shop [${shopId}]: [${cheapest.serviceName}] ${cheapest.provider.name}: ${cheapest.fee.toLocaleString('vi-VN')}đ`);
+          }
+        });
+        setShippingInfo(prev => ({
+          ...prev,
+          selectedShippingByShop: newSelection,
+        }));
       }
     } catch (error) {
-      console.error("Error fetching shipping fees:", error);
+      console.error("💥 Error fetching shipping fees:", error);
     }
   };
 
   const selectAddress = (addr) => {
     setSelectedAddressId(addr._id);
+    shippingCache.current = {}; // clear cache when address changes
     setShippingInfo((prev) => ({
       ...prev,
-      address: addr.street || "",
+      address: addr.formattedAddress || addr.street || "",
       provinceCode: addr.provinceCode ? String(addr.provinceCode) : null,
       provinceName: addr.provinceName || "",
       wardName: addr.wardName || "",
-      selectedProvider: null,
+      selectedShippingByShop: {},
     }));
     setShippingFees([]);
     setCustomerInfo((prev) => ({
@@ -696,13 +931,37 @@ const CheckoutPage = () => {
       showToast("Vui lòng chọn địa chỉ giao hàng!", "warning");
       return;
     }
+    const selectedAddr = addresses.find((a) => a._id === selectedAddressId);
+    if (!selectedAddr) {
+      showToast("Vui lòng chọn địa chỉ giao hàng!", "warning");
+      return;
+    }
+    const addressText = selectedAddr.formattedAddress || selectedAddr.street || "";
+    if (!addressText.trim()) {
+      showToast("Địa chỉ này chưa có thông tin. Vui lòng chỉnh sửa địa chỉ trước!", "warning");
+      return;
+    }
+    setShippingInfo((prev) => ({
+      ...prev,
+      address: addressText,
+      provinceCode: selectedAddr.provinceCode ? String(selectedAddr.provinceCode) : prev.provinceCode,
+      provinceName: selectedAddr.provinceName || prev.provinceName,
+      wardName: selectedAddr.wardName || prev.wardName,
+    }));
+    setCustomerInfo((prev) => ({
+      ...prev,
+      fullName: selectedAddr.fullName || prev.fullName,
+      phone: selectedAddr.phone || prev.phone,
+    }));
     setStep(2);
   };
 
   const handleStep2Submit = (e) => {
     e.preventDefault();
-    if (!shippingInfo.selectedProvider) {
-      showToast("Vui lòng chọn phương thức vận chuyển!", "warning");
+    const shopIds = Object.keys(shippingFeesByShop);
+    const missingShops = shopIds.filter(shopId => !shippingInfo.selectedShippingByShop?.[shopId]);
+    if (missingShops.length > 0) {
+      showToast("Vui lòng chọn phương thức vận chuyển cho tất cả các shop!", "warning");
       return;
     }
     setStep(3);
@@ -710,18 +969,30 @@ const CheckoutPage = () => {
 
   const handlePlaceOrder = async () => {
     try {
+      // Validate address before submitting
+      if (!shippingInfo.address || !shippingInfo.address.trim()) {
+        showToast("Vui lòng chọn địa chỉ giao hàng trước!", "warning");
+        setStep(1);
+        return;
+      }
+      if (!customerInfo.fullName?.trim()) {
+        showToast("Vui lòng nhập họ tên người nhận!", "warning");
+        setStep(1);
+        return;
+      }
+      if (!customerInfo.phone?.trim()) {
+        showToast("Vui lòng nhập số điện thoại!", "warning");
+        setStep(1);
+        return;
+      }
+
       setSubmitting(true);
       const checkoutBuyNowQuantity = Math.max(1, Number(buyNowItem?.quantity) || 1);
       const checkoutBuyNowProduct = isBuyNow && buyNowProduct
         ? { productId: buyNowItem?.productId || buyNowProduct._id, quantity: checkoutBuyNowQuantity }
         : null;
 
-      const selectedProviderData = shippingFees.find(
-        (f) =>
-          f.provider.code === shippingInfo.selectedProvider?.code &&
-          f.serviceType === shippingInfo.selectedProvider?.serviceType
-      );
-
+      // selectedShippingByShop chứa { [shopId]: { code, serviceType } }
       if (paymentMethod === "PAYOS") {
         const payosData = {
           shippingAddress: {
@@ -733,9 +1004,9 @@ const CheckoutPage = () => {
             wardName: shippingInfo.wardName,
             note: shippingInfo.note,
           },
-          shippingProvider: shippingInfo.selectedProvider?.code,
-          shippingServiceType: shippingInfo.selectedProvider?.serviceType,
-          shippingFee: selectedProviderData?.fee || 0,
+          shippingProvider: shippingInfo.selectedShippingByShop,
+          shippingServiceType: null,
+          shippingFeesByShop: shopShippingFees,
           selectedProductIds: isBuyNow
             ? []
             : selectedCartProducts.map((item) => item.product._id || item.product),
@@ -747,6 +1018,7 @@ const CheckoutPage = () => {
               })),
           buyNowProduct: checkoutBuyNowProduct,
           couponCode: selectedProductCoupon?.code || null,
+          selectedShippingCoupon: selectedShippingCoupon ? true : null,
         };
 
         const res = await createPayOSPaymentWithCartApi(payosData);
@@ -767,10 +1039,11 @@ const CheckoutPage = () => {
             note: shippingInfo.note,
           },
           paymentMethod,
-          shippingProvider: shippingInfo.selectedProvider?.code,
-          shippingServiceType: shippingInfo.selectedProvider?.serviceType,
-          shippingFee: selectedProviderData?.fee || 0,
+          shippingProvider: shippingInfo.selectedShippingByShop,
+          shippingServiceType: null,
+          shippingFeesByShop: shopShippingFees,
           couponCode: selectedProductCoupon?.code || null,
+          selectedShippingCoupon: selectedShippingCoupon ? true : null,
           selectedProductIds: isBuyNow
             ? []
             : selectedCartProducts.map((item) => item.product._id || item.product),
@@ -864,20 +1137,69 @@ const CheckoutPage = () => {
     (sum, item) => sum + item.checkoutQuantity, 0
   );
 
-  const selectedProviderData = shippingFees.find(
-    (f) =>
-      f.provider.code === shippingInfo.selectedProvider?.code &&
-      f.serviceType === shippingInfo.selectedProvider?.serviceType
-  );
-  const shippingFee = selectedProviderData?.fee || 0;
+  // shippingFees now contains items from ALL shops, each tagged with shopId
+  // selectedShippingByShop: { [shopId]: { code, serviceType } }
+  const shopShippingFees = Object.keys(shippingFeesByShop).reduce((map, shopId) => {
+    const sel = shippingInfo.selectedShippingByShop?.[shopId];
+    if (!sel) { map[shopId] = 0; return map; }
+    const feeItem = shippingFeesByShop[shopId].find(
+      (f) =>
+        f.provider.code?.toLowerCase() === sel.code?.toLowerCase() &&
+        f.serviceType === sel.serviceType
+    );
+    map[shopId] = feeItem?.fee || 0;
+    return map;
+  }, {});
+  const shippingFee = Object.values(shopShippingFees).reduce((sum, f) => sum + f, 0);
+
+  // ── Global computed values (must be after all useMemo / useRef) ──
+  const totalProductCouponDiscount = Object.values(shopProductCoupons).reduce((sum, v) => sum + (v.discount || 0), 0) + productCouponDiscount;
+  const totalBeforeShipping = selectedSubtotal - totalProductCouponDiscount;
   const effectiveShippingFee = selectedShippingCoupon ? 0 : shippingFee;
-  const total = Math.max(0, selectedSubtotal + effectiveShippingFee - productCouponDiscount);
+  const grandTotal = Math.max(0, totalBeforeShipping + effectiveShippingFee);
+
+  // Tìm fee item đầu tiên đang được chọn (để hiển thị ở step 3)
+  // Với per-shop shipping: lấy shop đầu tiên có selection
+  const selectedProviderData = (() => {
+    const shopIds = Object.keys(shippingInfo.selectedShippingByShop || {});
+    if (shopIds.length === 0) return null;
+    const firstShopId = shopIds[0];
+    const sel = shippingInfo.selectedShippingByShop[firstShopId];
+    return shippingFees.find(
+      (f) =>
+        f.shopId === firstShopId &&
+        f.provider.code?.toLowerCase() === sel?.code?.toLowerCase() &&
+        f.serviceType === sel?.serviceType
+    );
+  })();
+
+  // Helper: get shopName from groupedCart by shopId
+  const getShopName = (shopId) => {
+    const shop = groupedCart.find(s => s.shopId === shopId);
+    return shop?.shopName || "Cửa hàng";
+  };
+
+  // Helper: get selected shipping option label for a shop
+  const getSelectedShippingLabel = (shopId) => {
+    const sel = shippingInfo.selectedShippingByShop?.[shopId];
+    if (!sel) return null;
+    const shopFees = shippingFeesByShop[shopId] || [];
+    const fee = shopFees.find(
+      f => f.provider.code?.toLowerCase() === sel.code?.toLowerCase() && f.serviceType === sel.serviceType
+    );
+    if (!fee) return null;
+    return `${fee.provider.name} – ${fee.serviceName} (${formatPrice(fee.fee)})`;
+  };
+
+  const modalShippingShopId = shippingModal.shopId;
+  const modalShippingFees = modalShippingShopId ? (shippingFeesByShop[modalShippingShopId] || []) : [];
+  const modalShippingSel = shippingInfo.selectedShippingByShop?.[modalShippingShopId];
 
   return (
-    <div className="min-h-screen bg-[#FAF7F4]">
+    <div className="min-h-screen bg-[#FAF7F4] pb-28">
       {/* Header */}
       <div className="bg-white border-b border-[#EDE8E0] px-4 sm:px-8 h-[58px] flex items-center justify-center">
-        <h1 className="text-[15px] font-bold text-[#1C1108]">Thanh toán</h1>
+        <h1 className="text-[15px] font-bold text-[#1C1108]">Checkout</h1>
       </div>
 
       {/* Step bar */}
@@ -953,191 +1275,458 @@ const CheckoutPage = () => {
                       </div>
                     )}
 
+                    {/* Products summary (only in cart mode) */}
+                    {!isBuyNow && cart && (
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[13px] font-bold text-[#1C1108]">
+                            Sản phẩm đã chọn ({selectedItemIds.size})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleSelectAll}
+                            className="text-[12px] text-[#95520B] hover:underline font-medium"
+                          >
+                            {selectAll ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                          </button>
+                        </div>
+
+                        {selectedItemIds.size === 0 ? (
+                          <div className="text-center py-6 bg-[#FAF7F4] rounded-[10px] border border-dashed border-[#D5C9BC]">
+                            <p className="text-[13px] text-[#9E8E7E] mb-2">Chưa chọn sản phẩm nào</p>
+                            <button
+                              type="button"
+                              onClick={() => navigate("/cart")}
+                              className="text-[12px] text-[#95520B] hover:underline font-medium"
+                            >
+                              ← Quay lại giỏ hàng để chọn
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {groupedCart.map((shop) => {
+                              const shopItemIds = shop.items.map(item => item.product._id || item.product);
+                              const shopAllSelected = shopItemIds.every(id => selectedItemIds.has(id));
+                              const shopPartialSelected = shopItemIds.some(id => selectedItemIds.has(id)) && !shopAllSelected;
+                              const shopSubtotal = shop.items
+                                .filter(item => selectedItemIds.has(item.product._id || item.product))
+                                .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
+
+                              return (
+                                <div key={shop.shopId} className="border border-[#EDE8E0] rounded-[10px] overflow-hidden">
+                                  {/* Shop header */}
+                                  <div className="bg-[#FAF7F4] px-4 py-2.5 border-b border-[#EDE8E0]">
+                                    <div className="flex items-center gap-2.5">
+                                      {/* Shop select checkbox */}
+                                      <label
+                                        onClick={(e) => { e.stopPropagation(); handleSelectShop(shop.shopId); }}
+                                        className="cursor-pointer flex items-center gap-2 flex-1"
+                                      >
+                                        <div className="relative">
+                                          <div className={`w-4.5 h-4.5 rounded border-2 flex items-center justify-center transition-all ${
+                                            shopAllSelected
+                                              ? 'bg-[#B86B05] border-[#B86B05]'
+                                              : shopPartialSelected
+                                              ? 'bg-[#B86B05] border-[#B86B05]'
+                                              : 'border-[#D5C9BC] bg-white'
+                                          }`}>
+                                            {shopAllSelected && (
+                                              <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-2.5 h-2.5">
+                                                <path d="M5 13l4 4L19 7" />
+                                              </svg>
+                                            )}
+                                            {shopPartialSelected && (
+                                              <div className="w-2 h-0.5 bg-white rounded-full" />
+                                            )}
+                                          </div>
+                                        </div>
+                                        {shop.shopAvatar ? (
+                                          <img src={shop.shopAvatar} alt={shop.shopName} className="w-5 h-5 rounded-full object-cover" />
+                                        ) : (
+                                          <div className="w-5 h-5 rounded-full bg-[#D5C9BC] flex items-center justify-center">
+                                            <span className="text-[8px] font-bold text-[#6B5C4C]">
+                                              {shop.shopName.charAt(0).toUpperCase()}
+                                            </span>
+                                          </div>
+                                        )}
+                                        <span className="text-[12.5px] font-semibold text-[#1C1108]">{shop.shopName}</span>
+                                        {shopPartialSelected && (
+                                          <span className="text-[11px] text-[#9E8E7E]">({shopItemIds.filter(id => selectedItemIds.has(id)).length}/{shopItemIds.length})</span>
+                                        )}
+                                      </label>
+                                      <span className="text-[11.5px] text-[#9E8E7E] ml-auto">{formatPrice(shopSubtotal)}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Products in this shop */}
+                                  {shop.items.map((item) => {
+                                    const itemId = item.product._id || item.product;
+                                    const isSelected = selectedItemIds.has(itemId);
+                                    if (!isSelected) return null;
+                                    return (
+                                      <div key={itemId} className="flex items-center gap-3 px-4 py-3 bg-white border-b border-[#EDE8E0] last:border-b-0">
+                                        <label
+                                          onClick={(e) => { e.stopPropagation(); handleToggleItem(itemId); }}
+                                          className="cursor-pointer shrink-0"
+                                        >
+                                          <div className={`w-4.5 h-4.5 rounded border-2 flex items-center justify-center transition-all ${
+                                            isSelected ? 'bg-[#B86B05] border-[#B86B05]' : 'border-[#D5C9BC] bg-white'
+                                          }`}>
+                                            {isSelected && (
+                                              <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-2.5 h-2.5">
+                                                <path d="M5 13l4 4L19 7" />
+                                              </svg>
+                                            )}
+                                          </div>
+                                        </label>
+                                        <img
+                                          src={item.product?.images?.[0] || item.image || "/placeholder.png"}
+                                          alt={item.product?.name || item.name}
+                                          className="w-12 h-12 object-cover rounded-[8px] shrink-0"
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-[12.5px] font-medium text-[#1C1108] line-clamp-1">
+                                            {item.product?.name || item.name}
+                                          </p>
+                                          {item.variant && (
+                                            <p className="text-[11px] text-[#A8896A] mt-0.5">Phân loại: {item.variant}</p>
+                                          )}
+                                          <div className="flex items-center gap-2 mt-0.5">
+                                            <span className="text-[12px] font-semibold text-[#95520B]">{formatPrice(item.price)}</span>
+                                            <span className="text-[11px] text-[#9E8E7E]">×{item.quantity}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+
+                            {selectedItemIds.size > 0 && (
+                              <div className="flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => navigate("/cart")}
+                                  className="text-[12px] text-[#95520B] hover:underline font-medium"
+                                >
+                                  Chỉnh sửa giỏ hàng →
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* BuyNow product summary */}
+                    {isBuyNow && buyNowProduct && (
+                      <div className="mt-4">
+                        <span className="text-[13px] font-bold text-[#1C1108] mb-2 block">Sản phẩm</span>
+                        <div className="flex items-center gap-3 p-3 bg-[#FAF7F4] rounded-[10px] border border-[#EDE8E0]">
+                          <img
+                            src={buyNowProduct.image || "/placeholder.png"}
+                            alt={buyNowProduct.name}
+                            className="w-14 h-14 object-cover rounded-[8px] shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12.5px] font-semibold text-[#1C1108] line-clamp-1">{buyNowProduct.name}</p>
+                            <p className="text-[11.5px] text-[#9E8E7E] mt-0.5">Shop: {buyNowProduct.shopName}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[13px] font-bold text-[#95520B]">{formatPrice(buyNowProduct.price)}</span>
+                              <span className="text-[11px] text-[#9E8E7E]">×{buyNowQuantity}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex gap-3 pt-2">
                       <BtnGhost onClick={() => navigate(isBuyNow ? `/product/${buyNowProduct?._id}` : "/cart")}>← Quay lại</BtnGhost>
-                      <BtnPrimary onClick={handleStep1Submit} type="button" disabled={!selectedAddressId} className="flex-1">Tiếp tục →</BtnPrimary>
+                      <BtnPrimary onClick={handleStep1Submit} type="button" disabled={!selectedAddressId || selectedItemIds.size === 0} className="flex-1">Tiếp tục →</BtnPrimary>
                     </div>
                   </form>
                 </div>
               </div>
             )}
 
-            {/* STEP 2: Shipping */}
+            {/* STEP 2: Shopee-style blocks */}
             {step === 2 && (
-              <div className={cardClass}>
-                <CardHdr title="Phương thức vận chuyển" sub="Chọn cách giao hàng phù hợp" />
+              <div className="space-y-4">
 
-                <div className="p-6 space-y-5">
-                  {/* Shipping methods */}
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <SectionTitle>Vận chuyển</SectionTitle>
-                      <button type="button" onClick={() => setStep(1)} className="text-[12px] text-[#95520B] hover:underline font-medium">Đổi địa chỉ</button>
+                {/* Address card */}
+                <div className={cardClass}>
+                  <div className="px-5 py-4 border-b border-[#EDE8E0] flex items-center justify-between bg-gradient-to-br from-[#3a1d06] to-[#7B440C] text-white">
+                    <div>
+                      <h2 className="text-[14px] font-extrabold">Địa chỉ giao hàng</h2>
+                      <p className="text-[11.5px] opacity-80 mt-0.5">Xác nhận địa chỉ nhận hàng</p>
                     </div>
-
-                    <div className="space-y-2.5">
-                      {!shippingInfo.provinceCode ? (
-                        <p className="text-[13px] text-[#9E8E7E] py-6 text-center bg-[#FAF7F4] rounded-[10px]">Vui lòng chọn địa chỉ giao hàng trước</p>
-                      ) : shippingFees.length === 0 ? (
-                        <div className="flex items-center justify-center py-8 bg-[#FAF7F4] rounded-[10px]">
-                          <div className="w-5 h-5 border-2 border-[#D5C9BC] border-t-[#95520B] rounded-full animate-spin mr-2.5" />
-                          <span className="text-[12.5px] text-[#9E8E7E]">Đang tải phương thức...</span>
+                    <button onClick={() => setStep(1)} className="text-[12px] font-medium text-white/80 hover:text-white border border-white/40 px-3 py-1 rounded-[6px] transition-colors">Thay đổi</button>
+                  </div>
+                  <div className="p-5">
+                    {addresses.find(a => a._id === selectedAddressId) ? (
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-bold text-[14px] text-[#1C1108]">{customerInfo.fullName}</span>
+                          <span className="text-[#9E8E7E]">·</span>
+                          <span className="text-[13px] text-[#6B5C4C]">{customerInfo.phone}</span>
                         </div>
-                      ) : (
-                        shippingFees.map((fee) => {
-                          const isSelected = shippingInfo.selectedProvider?.code === fee.provider.code && shippingInfo.selectedProvider?.serviceType === fee.serviceType;
-                          return (
-                            <div
-                              key={`${fee.provider.code}-${fee.serviceType}`}
-                              onClick={() => setShippingInfo((prev) => ({ ...prev, selectedProvider: { code: fee.provider.code, serviceType: fee.serviceType } }))}
-                              className={`flex items-start gap-3 p-4 rounded-[10px] border-2 cursor-pointer transition-all ${
-                                isSelected ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"
-                              }`}
-                            >
-                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${
-                                isSelected ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"
-                              }`}>
-                                {isSelected && <div className="w-2.5 h-2.5 bg-white rounded-full" />}
-                              </div>
-                              <div className="flex-1">
-                                <div className="flex justify-between items-start">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold text-[13px] text-[#1C1108]">{fee.provider.name}</span>
-                                    <span className="px-2 py-0.5 bg-[#FAF7F4] text-[#6B5C4C] text-[11px] font-medium rounded-full">{fee.serviceName}</span>
-                                    {fee.isFree && (
-                                      <span className="px-2 py-0.5 bg-[#dcfce7] text-[#16a34a] text-[11px] font-bold rounded-full">MIỄN PHÍ</span>
-                                    )}
-                                  </div>
-                                  <span className={`font-bold text-[15px] ${fee.isFree ? "text-[#16a34a]" : "text-[#95520B]"}`}>
-                                    {fee.isFree ? "0 đ" : formatPrice(fee.fee)}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-3 mt-1.5">
-                                  <p className="text-[11.5px] text-[#9E8E7E]">Giao {fee.estimatedDays.min}–{fee.estimatedDays.max} ngày</p>
-                                  {fee.weight > 0 && (
-                                    <p className="text-[11.5px] text-[#9E8E7E]">{(fee.weight / 1000).toFixed(2)} kg</p>
-                                  )}
-                                </div>
+                        <p className="text-[12.5px] text-[#6B5C4C]">{shippingInfo.address}, {shippingInfo.wardName}, {shippingInfo.provinceName}</p>
+                      </div>
+                    ) : (
+                      <button onClick={() => setStep(1)} className="text-[13px] text-[#95520B] font-medium hover:underline">+ Thêm địa chỉ giao hàng</button>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Per-shop blocks (Shopee style) ── */}
+                {groupedCart.map((shop) => {
+                  const shopId = shop.shopId;
+                  const shopItems = shop.items.filter(item =>
+                    selectedItemIds.has(item.product._id || item.product) && item.shopIsActive !== false
+                  );
+                  if (shopItems.length === 0) return null;
+
+                  const shopSel = shippingInfo.selectedShippingByShop?.[shopId];
+                  const shopFees = shippingFeesByShop[shopId] || [];
+                  const selectedFee = shopSel
+                    ? shopFees.find(f => f.provider.code?.toLowerCase() === shopSel.code?.toLowerCase() && f.serviceType === shopSel.serviceType)
+                    : null;
+
+                  const shopProductSubtotal = shopItems.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
+                  const shopShippingFee = selectedFee?.fee || 0;
+                  const shopCouponData = shopProductCoupons[shopId];
+                  const shopDiscount = shopCouponData?.discount || 0;
+                  const shopTotal = Math.max(0, shopProductSubtotal + shopShippingFee - shopDiscount);
+
+                  return (
+                    <div key={shopId} className={cardClass}>
+                      {/* Shop header */}
+                      <div className="px-5 pt-4 pb-3 border-b border-[#EDE8E0] bg-[#FAF7F4]">
+                        <div className="flex items-center gap-2">
+                          {shop.shopAvatar ? (
+                            <img src={shop.shopAvatar} alt={shop.shopName} className="w-6 h-6 rounded-full object-cover" />
+                          ) : (
+                            <div className="w-6 h-6 rounded-full bg-[#D5C9BC] flex items-center justify-center">
+                              <span className="text-[10px] font-bold text-[#6B5C4C]">{shop.shopName.charAt(0).toUpperCase()}</span>
+                            </div>
+                          )}
+                          <span className="font-bold text-[13px] text-[#1C1108]">{shop.shopName}</span>
+                        </div>
+                      </div>
+
+                      {/* Products */}
+                      <div className="divide-y divide-[#EDE8E0]">
+                        {shopItems.map((item) => (
+                          <div key={item.product._id || item.product} className="flex gap-3 p-4">
+                            <img
+                              src={item.product?.images?.[0] || item.image || "/placeholder.png"}
+                              alt={item.product?.name || item.name}
+                              className="w-16 h-16 object-cover rounded-[8px] shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-medium text-[#1C1108] line-clamp-2">{item.product?.name || item.name}</p>
+                              {item.variant && (
+                                <p className="text-[11.5px] text-[#A8896A] mt-0.5">Phân loại: {item.variant}</p>
+                              )}
+                              <div className="flex items-center justify-between mt-1.5">
+                                <span className="text-[13px] font-bold text-[#95520B]">{formatPrice(item.price)}</span>
+                                <span className="text-[12px] text-[#9E8E7E]">×{item.quantity}</span>
                               </div>
                             </div>
-                          );
-                        })
-                      )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Message */}
+                      <div className="px-4 py-3 border-t border-[#EDE8E0]">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-[#9E8E7E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                          <input
+                            type="text"
+                            value={shopNotes[shopId] || ""}
+                            onChange={(e) => setShopNotes(prev => ({ ...prev, [shopId]: e.target.value }))}
+                            className="flex-1 text-[12.5px] text-[#6B5C4C] placeholder-[#9E8E7E] focus:outline-none bg-transparent"
+                            placeholder="Lời nhắn cho shop..."
+                          />
+                        </div>
+                      </div>
+
+                      {/* Shipping method */}
+                      <div className="px-4 py-3 border-t border-[#EDE8E0] flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-[12.5px] text-[#6B5C4C]">
+                          <svg className="w-4 h-4 text-[#9E8E7E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                          </svg>
+                          <span>Giao hàng</span>
+                        </div>
+                        <button
+                          onClick={() => openShippingModal(shopId)}
+                          className="text-[12.5px] font-semibold text-[#95520B] hover:underline flex items-center gap-1"
+                        >
+                          {!shopSel ? (
+                            <span className="text-red-500">Chọn phương thức giao hàng</span>
+                          ) : (
+                            <>
+                              <span>{selectedFee?.provider.name} – {selectedFee?.serviceName}</span>
+                              <span className="font-bold">{formatPrice(selectedFee?.fee || 0)}</span>
+                            </>
+                          )}
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </div>
+
+                      {/* Voucher */}
+                      <div className="px-4 py-3 border-t border-[#EDE8E0] flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-[12.5px] text-[#6B5C4C]">
+                          <svg className="w-4 h-4 text-[#9E8E7E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                          </svg>
+                          <span>Voucher của shop</span>
+                        </div>
+                        {shopCouponData ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[12px] font-bold text-[#16a34a]">{shopCouponData.coupon.code} · -{formatPrice(shopDiscount)}</span>
+                            <button onClick={() => handleRemoveShopProductCoupon(shopId)} className="text-[#9E8E7E] hover:text-red-500">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => openShopVoucherModal(shopId)} className="text-[12.5px] font-semibold text-[#95520B] hover:underline flex items-center gap-1">
+                            Chọn voucher shop
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Shop total */}
+                      <div className="px-4 py-3 border-t border-[#EDE8E0] flex items-center justify-end gap-3 bg-[#FAF7F4]">
+                        <span className="text-[12px] text-[#6B5C4C]">Tổng số tiền:</span>
+                        <span className="text-[15px] font-extrabold text-[#95520B]">{formatPrice(shopTotal)}</span>
+                      </div>
                     </div>
-                  </div>
+                  );
+                })}
 
-                  {/* Voucher */}
-                  <div>
-                    <SectionTitle>Voucher</SectionTitle>
-                    
-                    <button
-                      type="button"
-                      onClick={() => setShowProductVoucherModal(true)}
-                      className="w-full px-4 py-3 border-2 border-dashed border-[#D5C9BC] rounded-[10px] text-[13px] text-[#6B5C4C] hover:border-[#95520B] hover:text-[#95520B] transition-all flex items-center justify-center gap-2 bg-white"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                      </svg>
-                      {selectedProductCoupon || selectedShippingCoupon ? "Thay đổi voucher" : availableVouchers.length > 0 ? "Chọn voucher" : "Không có voucher"}
-                    </button>
+                {/* Global Shopee voucher */}
+                <div className={cardClass}>
+                  <div className="px-5 py-4 border-b border-[#EDE8E0] bg-[#FAF7F4]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-[#95520B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                        </svg>
+                        <span className="text-[13px] font-bold text-[#1C1108]">Mã giảm giá Furni</span>
+                      </div>
+                      <button onClick={() => setShowProductVoucherModal(true)} className="text-[12px] text-[#95520B] font-medium hover:underline">
+                        {selectedProductCoupon || selectedShippingCoupon ? "Thay đổi" : "Chọn voucher"}
+                      </button>
+                    </div>
 
-                    {/* Applied coupons badges */}
-                    {selectedProductCoupon && (
-                      <div className="mt-2.5 flex items-center justify-between bg-[#fff8f0] border border-[#95520B] rounded-[10px] p-3">
+                    {(selectedProductCoupon || selectedShippingCoupon) && (
+                      <div className="mt-2.5 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 bg-[#95520B] rounded-lg flex items-center justify-center">
                             <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                             </svg>
                           </div>
-                          <div>
-                            <p className="font-bold text-[12px] text-[#95520B]">{selectedProductCoupon.code}</p>
-                            <p className="text-[11.5px] text-[#6B5C4C]">Giảm {formatPrice(productCouponDiscount)}</p>
-                          </div>
+                          {selectedProductCoupon && (
+                            <div>
+                              <p className="font-bold text-[12px] text-[#95520B]">{selectedProductCoupon.code}</p>
+                              <p className="text-[11px] text-[#6B5C4C]">Giảm {formatPrice(productCouponDiscount)}</p>
+                            </div>
+                          )}
+                          {selectedShippingCoupon && (
+                            <div>
+                              <p className="font-bold text-[12px] text-blue-600">{selectedShippingCoupon.code}</p>
+                              <p className="text-[11px] text-blue-500">Miễn phí vận chuyển</p>
+                            </div>
+                          )}
                         </div>
-                        <button onClick={handleRemoveProductCoupon} className="text-[#9E8E7E] hover:text-[#dc2626] p-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                      </div>
-                    )}
-
-                    {selectedShippingCoupon && (
-                      <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-300 rounded-[10px] p-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
-                            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                            </svg>
-                          </div>
-                          <div>
-                            <p className="font-bold text-[12px] text-blue-700">{selectedShippingCoupon.code}</p>
-                            <p className="text-[11.5px] text-blue-600">Miễn phí vận chuyển</p>
-                          </div>
+                        <div className="flex gap-2">
+                          {(selectedProductCoupon || selectedShippingCoupon) && (
+                            <button
+                              onClick={selectedShippingCoupon ? handleRemoveShippingCoupon : handleRemoveProductCoupon}
+                              className="text-[#9E8E7E] hover:text-red-500"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          )}
                         </div>
-                        <button onClick={handleRemoveShippingCoupon} className="text-[#9E8E7E] hover:text-[#dc2626] p-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
                       </div>
                     )}
                   </div>
 
                   {/* Note */}
-                  <div>
-                    <SectionTitle>Ghi chú</SectionTitle>
-                    <input
-                      type="text"
-                      value={shippingInfo.note}
-                      onChange={(e) => setShippingInfo((prev) => ({ ...prev, note: e.target.value }))}
-                      className={inputClass}
-                      placeholder="Ví dụ: Giao giờ hành chính..."
-                    />
+                  <div className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-[#9E8E7E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                      <input
+                        type="text"
+                        value={shippingInfo.note}
+                        onChange={(e) => setShippingInfo(prev => ({ ...prev, note: e.target.value }))}
+                        className="flex-1 text-[12.5px] text-[#6B5C4C] placeholder-[#9E8E7E] focus:outline-none bg-transparent"
+                        placeholder="Lưu ý cho đơn hàng..."
+                      />
+                    </div>
                   </div>
+                </div>
 
-                  {/* Payment method */}
-                  <div>
-                    <SectionTitle>THANH TOÁN ĐƠN HÀNG</SectionTitle>
-                    <div className="space-y-2.5">
-                      <div
-                        onClick={() => setPaymentMethod("COD")}
-                        className={`flex items-center gap-3 p-4 rounded-[10px] border-2 cursor-pointer transition-all ${
-                          paymentMethod === "COD" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"
-                        }`}
-                      >
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${paymentMethod === "COD" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>
-                          {paymentMethod === "COD" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán khi nhận hàng (COD)</p>
-                        </div>
+                {/* Payment method */}
+                <div className={cardClass}>
+                  <div className="px-5 py-4 border-b border-[#EDE8E0] bg-[#FAF7F4]">
+                    <h2 className="text-[14px] font-extrabold text-[#1C1108]">Phương thức thanh toán</h2>
+                  </div>
+                  <div className="p-4 space-y-2.5">
+                    <div
+                      onClick={() => setPaymentMethod("COD")}
+                      className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${
+                        paymentMethod === "COD" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${paymentMethod === "COD" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>
+                        {paymentMethod === "COD" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}
                       </div>
-
-                      <div
-                        onClick={() => setPaymentMethod("PAYOS")}
-                        className={`flex items-center gap-3 p-4 rounded-[10px] border-2 cursor-pointer transition-all ${
-                          paymentMethod === "PAYOS" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"
-                        }`}
-                      >
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${paymentMethod === "PAYOS" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>
-                          {paymentMethod === "PAYOS" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán online qua PayOS</p>
-                          <p className="text-[11.5px] text-[#9E8E7E]">Ví điện tử, Ngân hàng, QR Code</p>
-                        </div>
+                      <div className="flex-1">
+                        <p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán khi nhận hàng (COD)</p>
+                        <p className="text-[11.5px] text-[#9E8E7E]">Trả tiền mặt khi nhận được hàng</p>
                       </div>
                     </div>
 
-                    {paymentMethod === "PAYOS" && (
-                      <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-[8px]">
-                        <p className="text-[12px] text-blue-700">Bạn sẽ được chuyển đến cổng thanh toán PayOS an toàn.</p>
+                    <div
+                      onClick={() => setPaymentMethod("PAYOS")}
+                      className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${
+                        paymentMethod === "PAYOS" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${paymentMethod === "PAYOS" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>
+                        {paymentMethod === "PAYOS" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}
                       </div>
-                    )}
+                      <div className="flex-1">
+                        <p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán online qua PayOS</p>
+                        <p className="text-[11.5px] text-[#9E8E7E]">Ví điện tử, Ngân hàng, QR Code</p>
+                      </div>
+                    </div>
                   </div>
+                </div>
 
-                  <div className="flex gap-3 pt-2">
-                    <BtnGhost onClick={() => setStep(1)}>← Quay lại</BtnGhost>
-                    <BtnPrimary onClick={handleStep2Submit} type="button" disabled={!shippingInfo.selectedProvider} className="flex-1">Tiếp tục →</BtnPrimary>
-                  </div>
+                <div className="flex gap-3 pt-1">
+                  <BtnGhost onClick={() => setStep(1)}>← Quay lại</BtnGhost>
+                  <BtnPrimary
+                    onClick={handleStep2Submit}
+                    type="button"
+                    disabled={Object.keys(shippingFeesByShop).some(shopId => !shippingInfo.selectedShippingByShop?.[shopId])}
+                    className="flex-1"
+                  >
+                    Tiếp tục →
+                  </BtnPrimary>
                 </div>
               </div>
             )}
@@ -1159,14 +1748,37 @@ const CheckoutPage = () => {
                     <p className="text-[12.5px] text-[#6B5C4C] mt-1">{shippingInfo.address}, {shippingInfo.wardName}, {shippingInfo.provinceName}</p>
                   </div>
 
-                  {/* Shipping summary */}
+                  {/* Shipping summary — per shop */}
                   <div className="bg-[#FAF7F4] rounded-[10px] p-4">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-[13px] font-bold text-[#1C1108]">Vận chuyển</h4>
                       <button type="button" onClick={() => setStep(2)} className="text-[12px] text-[#95520B] hover:underline">Đổi</button>
                     </div>
-                    <p className="text-[13px] text-[#6B5C4C]">{selectedProviderData?.provider.name} – {selectedProviderData?.serviceName}</p>
-                    <p className="text-[12px] text-[#9E8E7E]">Dự kiến: {selectedProviderData?.estimatedDays?.min}–{selectedProviderData?.estimatedDays?.max} ngày</p>
+                    <div className="space-y-2">
+                      {Object.keys(shippingFeesByShop).map((shopId) => {
+                        const shopName = getShopName(shopId);
+                        const label = getSelectedShippingLabel(shopId);
+                        const fee = selectedShippingCoupon ? 0 : (shopShippingFees[shopId] || 0);
+                        return (
+                          <div key={shopId} className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <p className="text-[12.5px] font-semibold text-[#6B5C4C]">{shopName}</p>
+                              {label && <p className="text-[12px] text-[#1C1108]">{label}</p>}
+                            </div>
+                            <p className="text-[12.5px] font-bold text-[#95520B] shrink-0 ml-2">
+                              {selectedShippingCoupon ? <span className="text-green-600">Miễn phí</span> : formatPrice(fee)}
+                            </p>
+                          </div>
+                        );
+                      })}
+                      {/* Tổng phí vận chuyển */}
+                      <div className="flex items-center justify-between pt-2 border-t border-[#D5C9BC]">
+                        <span className="text-[12.5px] font-bold text-[#1C1108]">Tổng vận chuyển</span>
+                        <span className="text-[12.5px] font-bold text-[#95520B]">
+                          {effectiveShippingFee === 0 ? <span className="text-green-600">Miễn phí</span> : formatPrice(effectiveShippingFee)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Products */}
@@ -1196,6 +1808,32 @@ const CheckoutPage = () => {
                           <p className="font-bold text-[13px] text-[#1C1108]">{formatPrice(item.price * item.checkoutQuantity)}</p>
                         </div>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Payment summary */}
+                  <div className="bg-[#FAF7F4] rounded-[10px] p-4">
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-[12.5px]">
+                        <span className="text-[#6B5C4C]">Tạm tính</span>
+                        <span className="font-medium text-[#1C1108]">{formatPrice(selectedSubtotal)}</span>
+                      </div>
+                      {totalProductCouponDiscount > 0 && (
+                        <div className="flex justify-between text-[12.5px] text-green-600">
+                          <span>Giảm giá voucher</span>
+                          <span className="font-medium">-{formatPrice(totalProductCouponDiscount)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-[12.5px]">
+                        <span className="text-[#6B5C4C]">Phí vận chuyển</span>
+                        <span className="font-medium text-[#1C1108]">
+                          {effectiveShippingFee === 0 ? <span className="text-green-600">Miễn phí</span> : formatPrice(effectiveShippingFee)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center pt-2 border-t border-[#D5C9BC]">
+                        <span className="text-[13px] font-bold text-[#1C1108]">Tổng thanh toán</span>
+                        <span className="text-[15px] font-extrabold text-[#95520B]">{formatPrice(grandTotal)}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -1268,7 +1906,7 @@ const CheckoutPage = () => {
 
                 <div className="border-t border-[#EDE8E0] pt-3 flex justify-between items-center">
                   <span className="font-bold text-[#1C1108]">Tổng thanh toán</span>
-                  <span className="font-extrabold text-[18px] text-[#95520B]">{formatPrice(total)}</span>
+                  <span className="font-extrabold text-[18px] text-[#95520B]">{formatPrice(grandTotal)}</span>
                 </div>
               </div>
 
@@ -1284,6 +1922,132 @@ const CheckoutPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Shipping method modal */}
+      {shippingModal.open && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={closeShippingModal} />
+          <div className="relative bg-white w-full sm:max-w-md rounded-t-[16px] sm:rounded-[16px] max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#EDE8E0]">
+              <h3 className="text-[15px] font-bold text-[#1C1108]">Chọn phương thức vận chuyển</h3>
+              <button onClick={closeShippingModal} className="text-[#9E8E7E] hover:text-[#1C1108]">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {modalShippingFees.length === 0 ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="w-5 h-5 border-2 border-[#D5C9BC] border-t-[#95520B] rounded-full animate-spin mr-2.5" />
+                  <span className="text-[13px] text-[#9E8E7E]">Đang tải...</span>
+                </div>
+              ) : (
+                modalShippingFees.map((fee) => {
+                  const isSelected =
+                    modalShippingSel?.code?.toLowerCase() === fee.provider.code?.toLowerCase() &&
+                    modalShippingSel?.serviceType === fee.serviceType;
+                  return (
+                    <div
+                      key={`${fee.provider.code}-${fee.serviceType}`}
+                      onClick={() => {
+                        setShippingInfo(prev => ({
+                          ...prev,
+                          selectedShippingByShop: {
+                            ...prev.selectedShippingByShop,
+                            [modalShippingShopId]: { code: fee.provider.code, serviceType: fee.serviceType },
+                          },
+                        }));
+                        closeShippingModal();
+                      }}
+                      className={`flex items-center gap-3 p-4 rounded-[10px] border-2 cursor-pointer transition-all ${
+                        isSelected ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                        isSelected ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"
+                      }`}>
+                        {isSelected && <div className="w-2.5 h-2.5 bg-white rounded-full" />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-[13px] text-[#1C1108]">{fee.serviceName}</span>
+                            {fee.distanceLabel && (
+                              <span className="px-2 py-0.5 bg-[#FAF7F4] text-[#6B5C4C] text-[11px] font-medium rounded-full">{fee.distanceLabel}</span>
+                            )}
+                          </div>
+                          <span className="font-bold text-[15px] text-[#95520B]">{formatPrice(fee.fee)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[11.5px] text-[#9E8E7E]">{fee.provider.name}</span>
+                          <span className="text-[11px] text-[#D5C9BC]">·</span>
+                          <span className="text-[11.5px] text-[#9E8E7E]">Giao {fee.estimatedDays?.min}–{fee.estimatedDays?.max} ngày</span>
+                          {fee.weight > 0 && (
+                            <>
+                              <span className="text-[11px] text-[#D5C9BC]">·</span>
+                              <span className="text-[11.5px] text-[#9E8E7E]">{fee.weight} kg</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shop voucher modal */}
+      {shopVoucherModal.open && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={closeShopVoucherModal} />
+          <div className="relative bg-white w-full sm:max-w-md rounded-t-[16px] sm:rounded-[16px] max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#EDE8E0]">
+              <h3 className="text-[15px] font-bold text-[#1C1108]">Voucher của shop</h3>
+              <button onClick={closeShopVoucherModal} className="text-[#9E8E7E] hover:text-[#1C1108]">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {availableVouchers.filter(v => {
+                const shopId = shopVoucherModal.shopId;
+                return !v.isUsed && !v.isExpired && v.discountType !== 'freeship' && (String(v.shopId || '') === String(shopId) || !v.shopId);
+              }).length === 0 ? (
+                <p className="text-center text-[13px] text-[#9E8E7E] py-6">Không có voucher nào cho shop này</p>
+              ) : (
+                availableVouchers
+                  .filter(v => {
+                    const shopId = shopVoucherModal.shopId;
+                    return !v.isUsed && !v.isExpired && v.discountType !== 'freeship' && (String(v.shopId || '') === String(shopId) || !v.shopId);
+                  })
+                  .map(v => (
+                    <div
+                      key={v._id || v.code}
+                      onClick={() => handleSelectShopProductVoucher(v, shopVoucherModal.shopId)}
+                      className="flex items-center gap-3 p-4 rounded-[10px] border-2 border-[#EDE8E0] bg-white hover:border-[#95520B] cursor-pointer transition-all"
+                    >
+                      <div className="w-10 h-10 bg-[#95520B] rounded-lg flex items-center justify-center shrink-0">
+                        <span className="text-white font-extrabold text-[13px]">%</span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-[13px] text-[#1C1108]">{v.code}</p>
+                        <p className="text-[11.5px] text-[#6B5C4C]">
+                          {v.discountType === 'percent' ? `Giảm ${v.value}%` : `Giảm ${formatPrice(v.value)}`}
+                          {v.minOrderValue ? ` • Đơn từ ${formatPrice(v.minOrderValue)}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <AddressModal
         isOpen={showAddressModal}

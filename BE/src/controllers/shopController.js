@@ -63,10 +63,10 @@ const getShopShippingConfig = async (req, res) => {
 
         let shop;
         if (mongoose.isValidObjectId(id)) {
-            shop = await Shop.findById(id).select('shippingConfig name');
+            shop = await Shop.findById(id).select('shippingConfig name provinceCode');
         }
         if (!shop) {
-            shop = await Shop.findOne({ slug: id }).select('shippingConfig name');
+            shop = await Shop.findOne({ slug: id }).select('shippingConfig name provinceCode');
         }
         if (!shop) {
             return res.status(404).json({ success: false, message: 'Không tìm thấy cửa hàng' });
@@ -77,6 +77,7 @@ const getShopShippingConfig = async (req, res) => {
             data: {
                 shopId: shop._id,
                 shopName: shop.name,
+                shopProvinceCode: shop.provinceCode,
                 shippingConfig: shop.shippingConfig || {}
             }
         });

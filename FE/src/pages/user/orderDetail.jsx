@@ -589,6 +589,18 @@ const OrderDetailPage = () => {
                             <span className="text-[#6B5C4C]">Tổng tiền sản phẩm</span>
                             <span className="text-[#1C1108] font-medium">{formatPrice(order.subtotal)}</span>
                         </div>
+                        {order.couponDiscount > 0 && (
+                            <div className="flex justify-between text-sm text-green-600">
+                                <span className="text-[#6B5C4C]">Giảm giá voucher</span>
+                                <span className="font-medium">-{formatPrice(order.couponDiscount)}</span>
+                            </div>
+                        )}
+                        {order.couponCode && (
+                            <div className="flex justify-between text-sm text-[#6B5C4C]">
+                                <span>Mã voucher</span>
+                                <span className="font-mono font-medium">{order.couponCode}</span>
+                            </div>
+                        )}
                         <div className="flex justify-between text-sm">
                             <span className="text-[#6B5C4C]">Phí vận chuyển</span>
                             <span className={`font-medium ${order.shippingFee === 0 ? "text-green-600" : "text-[#1C1108]"}`}>
@@ -624,10 +636,16 @@ const OrderDetailPage = () => {
                                 <span className="text-[#6B5C4C]">{formatDate(order.deliveredAt)}</span>
                             </div>
                         )}
-                        {order.shippingProvider && (
+                        {order.shippingProvider && typeof order.shippingProvider === "string" && (
                             <div className="flex justify-between">
                                 <span className="text-[#A8896A]">Đơn vị vận chuyển</span>
                                 <span className="text-[#6B5C4C]">{order.shippingProvider}</span>
+                            </div>
+                        )}
+                        {order.shippingProvider && typeof order.shippingProvider === "object" && (
+                            <div className="flex justify-between">
+                                <span className="text-[#A8896A]">Đơn vị vận chuyển</span>
+                                <span className="text-[#6B5C4C]">Nhiều đơn vị</span>
                             </div>
                         )}
                         {order.trackingNumber && (

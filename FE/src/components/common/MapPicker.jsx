@@ -58,18 +58,15 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
 
   // Sync formData when value prop changes (for editing existing address)
   useEffect(() => {
-    const hasChanges = value.provinceCode !== formData.provinceCode;
+    const newProvinceCode = value.provinceCode != null ? String(value.provinceCode) : null;
+    const currentProvinceCode = formData.provinceCode != null ? String(formData.provinceCode) : null;
+    const hasChanges = newProvinceCode !== currentProvinceCode;
 
     if (hasChanges) {
-      console.log('[MapPicker] Syncing formData:', {
-        from: { provinceCode: formData.provinceCode },
-        to: { provinceCode: value.provinceCode }
-      });
-
       const newFormData = {
         fullName: value.fullName ?? "",
         phone: value.phone ?? "",
-        provinceCode: value.provinceCode ?? null,
+        provinceCode: newProvinceCode,
         provinceName: value.provinceName ?? "",
         wardName: value.wardName ?? "",
         street: value.street ?? "",
@@ -138,19 +135,19 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
   }, [apiKey]);
 
   // Cascade fill: province matched → done (no ward dropdown anymore)
+  // Runs whenever provinces load OR reverseLoading toggles (meaning geocode just completed)
   useEffect(() => {
-    if (!reverseLoading && provinces.length > 0) {
-      if (formData._provinceNamePending) {
-        const matched = provinces.find(
-          (p) => p.ProvinceName.toLowerCase() === formData._provinceNamePending.toLowerCase()
-        );
-        if (matched) {
-          setFormData((f) => ({ ...f, provinceCode: matched.ProvinceID, provinceName: matched.ProvinceName, _provinceNamePending: undefined }));
-        } else {
-          setFormData((f) => ({ ...f, provinceName: formData._provinceNamePending, _provinceNamePending: undefined }));
-        }
-      }
-    }
+    if (!formData._provinceNamePending || provinces.length === 0) return;
+
+    const pending = formData._provinceNamePending;
+    const matched = provinces.find(
+      (p) => p.ProvinceName.toLowerCase() === pending.toLowerCase()
+    );
+    const fixed = matched
+      ? { provinceCode: String(matched.ProvinceID), provinceName: matched.ProvinceName, _provinceNamePending: undefined }
+      : { provinceName: pending, _provinceNamePending: undefined };
+    setFormData((f) => ({ ...f, ...fixed }));
+    onChange({ ...formData, ...fixed });
   }, [provinces, reverseLoading]);
 
   // Sync marker position when value changes externally
@@ -330,9 +327,13 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
             (p) => p.ProvinceName.toLowerCase() === provinceName.toLowerCase()
           );
           if (matched) {
-            setFormData((f) => ({ ...f, provinceCode: String(matched.ProvinceID), provinceName: matched.ProvinceName, _provinceNamePending: undefined }));
+            const fixed = { provinceCode: String(matched.ProvinceID), provinceName: matched.ProvinceName, _provinceNamePending: undefined };
+            setFormData((f) => ({ ...f, ...fixed }));
+            onChange({ ...updated, ...fixed });
           } else if (provinces.length > 0) {
-            setFormData((f) => ({ ...f, provinceName, _provinceNamePending: provinceName }));
+            const fixed = { provinceName, _provinceNamePending: undefined };
+            setFormData((f) => ({ ...f, ...fixed }));
+            onChange({ ...updated, ...fixed });
           }
         }
       }
@@ -407,14 +408,18 @@ const MapPicker = ({ value = {}, onChange = () => {}, apiKey }) => {
         // Update search input so user sees the detected address
         setSearchQuery(street || result.formatted_address || "");
 
-        if (provinceName && !sameProvince) {
+        if (provinceName && provinces.length > 0) {
           const matched = provinces.find(
             (p) => p.ProvinceName.toLowerCase() === provinceName.toLowerCase()
           );
           if (matched) {
-            setFormData((f) => ({ ...f, provinceCode: String(matched.ProvinceID), provinceName: matched.ProvinceName, _provinceNamePending: undefined }));
+            const fixed = { provinceCode: String(matched.ProvinceID), provinceName: matched.ProvinceName, _provinceNamePending: undefined };
+            setFormData((f) => ({ ...f, ...fixed }));
+            onChange({ ...updated, ...fixed });
           } else if (provinces.length > 0) {
-            setFormData((f) => ({ ...f, provinceName, _provinceNamePending: provinceName }));
+            const fixed = { provinceName, _provinceNamePending: undefined };
+            setFormData((f) => ({ ...f, ...fixed }));
+            onChange({ ...updated, ...fixed });
           }
         }
       }
@@ -537,7 +542,7 @@ const SearchableCombobox = ({
     if (!query) return options;
     const q = query.toLowerCase();
     return options.filter((o) =>
-      String(o.name || o.label || o).toLowerCase().includes(q)
+      String(o.ProvinceName || o.name || o.label || o).toLowerCase().includes(q)
     );
   }, [options, query]);
 
@@ -631,7 +636,7 @@ const SearchableCombobox = ({
           <input
             ref={inputRef}
             type="text"
-            value={open ? query : (selected ? (selected.name || selected.label) : "")}
+            value={open ? query : (selected ? (selected.ProvinceName || selected.name || selected.label) : "")}
             onChange={(e) => {
               setQuery(e.target.value);
               setOpen(true);
@@ -734,20 +739,22 @@ const FormFields = ({
         </div>
       </div>
 
-      {/* Province - auto-detected from map/search, shown as read-only */}
-      <div>
-        <label className="block text-sm font-medium text-[#1C1108] mb-1.5">
-          Tỉnh/Thành phố
-          {formData.provinceName && (
-            <span className="ml-2 text-[#B86B05] font-normal">✓ {formData.provinceName}</span>
-          )}
-        </label>
-        <div className="w-full px-4 py-2.5 border border-[#D5C9BC] rounded-xl text-sm bg-[#FAF7F4] text-[#6B5C4C]">
-          {formData.provinceName
-            ? formData.provinceName
-            : "Chọn vị trí trên bản đồ hoặc tìm địa chỉ để tự động nhận diện"}
-        </div>
-      </div>
+      {/* Province - searchable combobox + auto-detected from map/search */}
+      <SearchableCombobox
+        label="Tỉnh/Thành phố"
+        value={formData.provinceCode}
+        options={provinces.map((p) => ({
+          ProvinceID: p.ProvinceID,
+          ProvinceName: p.ProvinceName,
+        }))}
+        onChange={onProvinceChange}
+        placeholder="Chọn hoặc tìm tỉnh/thành phố..."
+        disabled={loadingProvinces}
+        loading={loadingProvinces}
+        required
+        searchable
+        allowClear
+      />
 
       {/* Address (street) with MapVina Autocomplete */}
       <div className="relative" ref={suggestionRef}>

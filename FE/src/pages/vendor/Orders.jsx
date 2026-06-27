@@ -88,21 +88,24 @@ const Timeline = ({ order }) => {
     );
 };
 
-const PROVIDER_OPTIONS = [
-    { key: 'ghtk', name: 'Giao Hàng Tiết Kiệm', short: 'GHTK', desc: 'Phổ biến, giá rẻ', color: 'from-green-400 to-green-600' },
-    { key: 'jt', name: 'J&T Express', short: 'J&T', desc: 'Nhanh, công nghệ', color: 'from-orange-400 to-orange-600' },
-    { key: 'viettel', name: 'Viettel Post', short: 'Viettel', desc: 'Phủ rộng, bưu cục nhiều', color: 'from-red-400 to-red-600' },
-];
+const TIER_META = {
+    economy: { label: 'Tiết Kiệm', desc: 'Phí thấp, giao chậm hơn', tone: 'text-green-700' },
+    express: { label: 'Nhanh', desc: 'Phí cao hơn, giao nhanh', tone: 'text-orange-700' },
+};
 
-/* ---- Popup: chọn đơn vị vận chuyển khi giao hàng ---- */
+/* ---- Popup: xác nhận giao hàng — tier bị khóa, chỉ chọn provider ---- */
 const ChooseProviderModal = ({ open, onClose, order, shopShippingConfig, onConfirm }) => {
-    const [selected, setSelected] = useState(order?.shippingProvider || shopShippingConfig?.defaultProvider || null);
+    const [selected, setSelected] = useState(
+        order?.shippingProvider || shopShippingConfig?.defaultProvider || null
+    );
     const [trackingNum, setTrackingNum] = useState("");
 
-    if (!open) return null;
+    if (!open || !order) return null;
 
     const availableProviders = shopShippingConfig?.enabledProviders || ['ghtk', 'jt', 'viettel'];
     const options = PROVIDER_OPTIONS.filter(p => availableProviders.includes(p.key));
+    const shippingTier = order.shippingTier || 'express';
+    const tierMeta = TIER_META[shippingTier] || TIER_META.express;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -127,7 +130,27 @@ const ChooseProviderModal = ({ open, onClose, order, shopShippingConfig, onConfi
                 </div>
 
                 {/* Body */}
-                <div className="px-6 py-5 space-y-4">
+                <div className="px-6 py-5 space-y-5">
+                    {/* Shipping tier — locked, user đã chọn rồi */}
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide">Phương thức giao hàng</span>
+                            <span className="text-[10px] bg-slate-200 text-slate-500 px-2 py-0.5 rounded-full font-medium">Đã chọn</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-[10px] text-white ${
+                                shippingTier === 'economy' ? 'bg-green-500' : 'bg-orange-500'
+                            }`}>
+                                {shippingTier === 'economy' ? 'TK' : 'NH'}
+                            </div>
+                            <div>
+                                <p className={`font-bold text-[14px] ${tierMeta.tone}`}>{tierMeta.label}</p>
+                                <p className="text-[11.5px] text-slate-400">{tierMeta.desc}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Provider selection */}
                     <div>
                         <p className="text-sm font-semibold text-slate-700 mb-3">Chọn đơn vị vận chuyển</p>
                         <div className="space-y-2">
@@ -366,33 +389,38 @@ const Orders = () => {
         }
     };
 
-    // Kick off "Giao hàng" flow — open provider picker modal
+    // Kick off "Giao hàng" flow — luôn mở modal để chọn provider
     const doActionShipping = (order) => {
-        setShippingProviderModal({ order });
         setPanelOpen(false);
+        // Luôn mở modal cho phép vendor chọn/chọn lại provider
+        setShippingProviderModal(order);
     };
 
     // Confirm "Giao hàng" with selected provider
     const doConfirmShipping = async (provider, trackingNum) => {
         if (!shippingProviderModal) return;
-        const order = shippingProviderModal.order;
+        // shippingProviderModal is the order itself (set directly in doActionShipping)
+        const order = shippingProviderModal;
+        const effectiveProvider = provider || order.shippingProvider;
         try {
             setBusy(true);
             const res = await updateVendorOrderStatusApi(order._id, 'shipping', {
-                shippingProvider: provider,
+                shippingProvider: effectiveProvider,
                 trackingNumber: trackingNum || null,
             });
             if (res.success) {
-                showToast(`Đã bàn giao cho ${PROVIDER_OPTIONS.find(p => p.key === provider)?.name || provider}`, "success");
+                showToast(`Đã bàn giao cho ${PROVIDER_OPTIONS.find(p => p.key === effectiveProvider)?.name || effectiveProvider}`, "success");
+                setShippingProviderModal(null);
                 await fetchOrders();
             } else {
                 showToast(msgOf(res) || "Cập nhật thất bại", "error");
+                setShippingProviderModal(null);
             }
         } catch {
             showToast("Có lỗi xảy ra", "error");
+            setShippingProviderModal(null);
         } finally {
             setBusy(false);
-            setShippingProviderModal(null);
         }
     };
 
@@ -461,7 +489,9 @@ const Orders = () => {
                                         <div className="flex gap-1">
                                             {next ? (
                                                 next.to === 'shipping' ? (
-                                                    <Btn variant="primary" size="xs" disabled={busy} onClick={() => doActionShipping(o)}>Giao hàng</Btn>
+                                                    <Btn variant="primary" size="xs" disabled={busy} onClick={() => doActionShipping(o)}>
+                                                        Giao hàng{o.shippingProvider ? ` (${PROVIDER_OPTIONS.find(p => p.key === o.shippingProvider)?.short || o.shippingProvider})` : ''}
+                                                    </Btn>
                                                 ) : (
                                                     <Btn variant="primary" size="xs" disabled={busy} onClick={() => doAction(o, next.to)}>{next.label}</Btn>
                                                 )
@@ -500,7 +530,7 @@ const Orders = () => {
             <ChooseProviderModal
                 open={!!shippingProviderModal}
                 onClose={() => setShippingProviderModal(null)}
-                order={shippingProviderModal?.order}
+                order={shippingProviderModal}
                 shopShippingConfig={shopShippingConfig}
                 onConfirm={doConfirmShipping}
             />

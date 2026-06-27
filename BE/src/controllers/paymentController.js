@@ -289,7 +289,7 @@ const createPayOSPayment = async (req, res) => {
  */
 const createPayOSPaymentWithCart = async (req, res) => {
     try {
-        const { shippingAddress, shippingTier = 'express', shippingProvider = null, shippingFee, note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, couponCode = null } = req.body;
+        const { shippingAddress, shippingTier = 'express', shippingProvider = null, shippingFee, shippingFeesByShop = {}, note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, couponCode = null, selectedShippingCoupon = null } = req.body;
         const normalizedBuyNowProduct = buyNowProduct?.productId
             ? buyNowProduct
             : (req.body.buyNowProductId
@@ -409,7 +409,12 @@ const createPayOSPaymentWithCart = async (req, res) => {
         }
 
         const discountedSubtotal = subtotal - couponDiscount;
-        const totalPrice = Math.max(0, discountedSubtotal + (shippingFee || 0));
+        // Tổng phí ship = sum các shop (FE đã tính riêng); fallback về shippingFee cũ
+        const isShippingFree = Boolean(selectedShippingCoupon);
+        const totalShippingFee = isShippingFree 
+            ? 0 
+            : (Object.values(shippingFeesByShop).reduce((sum, f) => sum + (Number(f) || 0), 0) || (shippingFee || 0));
+        const totalPrice = Math.max(0, discountedSubtotal + totalShippingFee);
 
         // Lấy thông tin shop từ sản phẩm đầu tiên (multi-vendor: mỗi shop sẽ tạo đơn riêng)
         const firstProduct = productMap[checkoutItems[0]?.product?.toString() || checkoutItems[0]?.product];
@@ -445,7 +450,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
             subtotal,
             couponDiscount,
             couponCode: usedCoupon ? couponCode.toUpperCase() : null,
-            shippingFee: shippingFee || 0,
+            shippingFee: totalShippingFee,
             shippingTier,
             shippingProvider,
             totalPrice,

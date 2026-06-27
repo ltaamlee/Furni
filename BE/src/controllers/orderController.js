@@ -97,7 +97,8 @@ const notifyVendorsNewOrder = async (order) => {
 // @access  Private
 const createOrder = async (req, res) => {
     try {
-        const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, shippingTier = 'express', shippingProvider = null, couponCode = null } = req.body;
+        const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, shippingTier = 'express', shippingServiceType, shippingProvider = null, couponCode = null, selectedShippingCoupon = null } = req.body;
+        const effectiveTier = shippingServiceType || shippingTier || 'express';
         const normalizedBuyNowProduct = buyNowProduct?.productId
             ? buyNowProduct
             : (req.body.buyNowProductId
@@ -105,7 +106,7 @@ const createOrder = async (req, res) => {
                 : null);
         const isBuyNow = Boolean(normalizedBuyNowProduct?.productId && Number(normalizedBuyNowProduct.quantity) > 0);
         // Ước tính ngày giao dựa trên tier
-        const estimatedDays = shippingTier === 'express' ? 3 : 7;
+        const estimatedDays = effectiveTier === 'express' ? 3 : 7;
 
         // Lấy cart của user
         const cart = isBuyNow ? null : await Cart.findOne({ user: req.user._id });
@@ -254,16 +255,21 @@ const createOrder = async (req, res) => {
         const createdOrders = [];
         const checkoutGroupId = new mongoose.Types.ObjectId().toString();
         
-        // Lấy shippingFee từ frontend (đã tính từ bảng phí cố định theo khu vực)
-        const frontendShippingFee = req.body.shippingFee || 0;
+        // Lấy shippingFee per-shop từ frontend (FE đã tính riêng cho mỗi shop)
+        const shippingFeesByShop = req.body.shippingFeesByShop || {};
+        // Kiểm tra xem có dùng shipping coupon (freeship) không
+        const isShippingFree = Boolean(selectedShippingCoupon);
         
         for (const shopId of shopKeys) {
             const group = shopGroups[shopId];
 
-            // Dùng phí ship từ frontend, chỉ kiểm tra miễn phí nếu >= 500k
-            let shippingFee = frontendShippingFee;
-            if (group.subtotal >= 500000) {
-                shippingFee = 0; // Miễn phí vận chuyển
+            // Lấy phí ship từ FE (đã tính sẵn)
+            // Chỉ set = 0 khi có voucher freeship (selectedShippingCoupon)
+            let shippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
+                ? Number(shippingFeesByShop[shopId])
+                : (req.body.shippingFee || 0);
+            if (isShippingFree) {
+                shippingFee = 0; // Miễn phí vận chuyển khi có voucher freeship
             }
 
             // Phân bổ coupon discount theo tỷ lệ subtotal của shop
@@ -288,7 +294,7 @@ const createOrder = async (req, res) => {
                 couponDiscount: shopCouponDiscount,
                 couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
                 shippingFee,
-                shippingTier,
+                shippingTier: effectiveTier,
                 shippingProvider,
                 totalPrice: groupTotal,
                 totalQuantity: group.totalQuantity,

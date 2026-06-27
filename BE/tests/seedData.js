@@ -36,9 +36,7 @@ const USERS = [
     { fullName: 'System Admin', email: 'admin@gmail.com', phone: '0912345678', username: 'admin01', password: 'Admin123', role: 'admin', isVerified: true },
     { fullName: 'System Vendor', email: 'vendor@gmail.com', phone: '0987654321', username: 'vendor01', password: 'Vendor123', role: 'vendor', isVerified: true },
     { fullName: 'Trần Minh Decor', email: 'vendor2@gmail.com', phone: '0978123456', username: 'vendor02', password: 'Vendor123', role: 'vendor', isVerified: true },
-    { fullName: 'Nguyễn Văn Khách', email: 'customer@gmail.com', phone: '0909123457', username: 'customer01', password: 'Customer123', role: 'customer', isVerified: true },
-    { fullName: 'Khách Hàng Test', email: 'customer2@gmail.com', phone: '0988123458', username: 'customer02', password: 'Customer123', role: 'customer', isVerified: true },
-    { fullName: 'Phạm Thị An', email: 'anpham@gmail.com', phone: '0911223344', username: 'anpham01', password: 'AnPham123', role: 'customer', isVerified: true, gender: 'female', dateOfBirth: new Date('1992-08-14'), profileImage: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200' }
+    { fullName: 'Nguyễn Văn Khách', email: 'customer@gmail.com', phone: '0909123457', username: 'customer01', password: 'Customer123', role: 'customer', isVerified: true }
 ];
 
 // ── Danh mục (ảnh tham khảo từ seedProducts.js) ──────────────
@@ -248,33 +246,6 @@ const seed = async () => {
                 estimatedDelivery: new Date(placedAt.getTime() + 4 * 86400000)
             };
         };
-        const buildCustomerOrder = (userObj, items, status, paymentMethod, ageInDays, paymentStatus = 'pending', address = null) => {
-            const subtotal = items.reduce((s, it) => s + it.price * it.quantity, 0);
-            const shippingFee = subtotal >= 500000 ? 0 : 30000;
-            const placedAt = daysFromNow(-ageInDays);
-            return {
-                user: userObj._id,
-                products: items,
-                shippingAddress: address || {
-                    fullName: userObj.fullName,
-                    phone: userObj.phone,
-                    address: '89 Trần Hưng Đạo, Quận 5, TP. Hồ Chí Minh',
-                    city: 'TP. Hồ Chí Minh',
-                    note: 'Giao trong giờ hành chính'
-                },
-                paymentMethod,
-                paymentStatus,
-                subtotal,
-                shippingFee,
-                totalPrice: subtotal + shippingFee,
-                totalQuantity: items.reduce((s, it) => s + it.quantity, 0),
-                status,
-                orderedAt: placedAt,
-                createdAt: placedAt,
-                updatedAt: placedAt,
-                estimatedDelivery: new Date(placedAt.getTime() + 4 * 86400000)
-            };
-        };
         const ORDERS = [
             buildOrder([lineItem('Sofa Gỗ Sồi 3 Chỗ CLASSIC', 1)], 'pending', 'VNPAY', 0, 'paid'),
             buildOrder([lineItem('Bàn Ăn Tròn Gỗ Keo 4 Chỗ', 1), lineItem('Ghế Ăn Gỗ Sồi Nordic', 2)], 'preparing', 'COD', 1),
@@ -293,19 +264,9 @@ const seed = async () => {
             buildOrder([lineItem('Sofa Giường Đa Năng MILANO', 1), lineItem('Tủ Giày Gỗ 4 Tầng', 1)], 'delivered', 'ZALOPAY', 71, 'paid'),
             buildOrder([lineItem('Bàn Ăn Gỗ Sồi 6 Chỗ ELEGANT', 1), lineItem('Ghế Ăn Gỗ Sồi Nordic', 4)], 'delivered', 'VNPAY', 86, 'paid')
         ];
-
-        const newCustomer = users.find((u) => u.email === 'anpham@gmail.com');
-        const NEW_ORDERS = [
-            buildCustomerOrder(newCustomer, [lineItem('Bàn Ăn Gỗ Sồi 6 Chỗ ELEGANT', 1)], 'pending', 'COD', 0),
-            buildCustomerOrder(newCustomer, [lineItem('Ghế Văn Phòng Gỗ Ergonomic', 1), lineItem('Tủ TV Gỗ Sồi Minimalist', 1)], 'confirmed', 'MOMO', 2, 'paid'),
-            buildCustomerOrder(newCustomer, [lineItem('Bàn Làm Việc Gỗ Sồi Simple Desk', 1)], 'shipping', 'ZALOPAY', 4, 'paid'),
-            buildCustomerOrder(newCustomer, [lineItem('Sofa Giường Đa Năng MILANO', 1)], 'delivered', 'VNPAY', 7, 'paid'),
-            buildCustomerOrder(newCustomer, [lineItem('Giường Ngủ Gỗ Óc Chó Size 1m8', 1)], 'cancelled', 'MOMO', 3, 'refunded')
-        ];
         // Tạo tuần tự để pre-save sinh orderNumber không trùng
         const createdOrders = [];
         for (const o of ORDERS) createdOrders.push(await Order.create(o));
-        for (const o of NEW_ORDERS) createdOrders.push(await Order.create(o));
 
         const secondLineItem = (name, qty) => {
             const p = secondByName[name];

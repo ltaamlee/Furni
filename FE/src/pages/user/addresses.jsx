@@ -103,6 +103,7 @@ const AddressesPage = () => {
             phone: address.phone || "",
             provinceCode: address.provinceCode || null,
             provinceName: address.provinceName || address.province || "",
+            districtName: address.districtName || address.district || "",
             wardName: address.wardName || address.ward || "",
             street: address.street || "",
             lat: address.lat || null,
@@ -166,12 +167,19 @@ const AddressesPage = () => {
     };
 
     const formatAddress = (address) => {
+        // Try component-wise display first
         const parts = [
             address.street,
             address.wardName || address.ward,
             address.districtName || address.district,
             address.provinceName || address.province,
         ].filter(Boolean);
+
+        if (parts.length >= 3) return parts.join(", ");
+
+        // Fallback to formattedAddress for legacy addresses
+        if (address.formattedAddress) return address.formattedAddress;
+
         return parts.join(", ");
     };
 

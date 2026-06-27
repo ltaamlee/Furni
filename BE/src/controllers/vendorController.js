@@ -662,15 +662,15 @@ const updateMyOrderStatus = async (req, res) => {
         }
 
         // Khi chuyển sang 'shipping', phải chọn đơn vị vận chuyển
+        // Nếu khách đã chọn khi checkout thì dùng luôn, không bắt chọn lại
         if (status === 'shipping') {
-            if (!shippingProvider) {
-                return res.status(400).json({ success: false, message: 'Vui lòng chọn đơn vị vận chuyển!' });
-            }
+            const effectiveProvider = shippingProvider || order.shippingProvider;
             const VALID_PROVIDERS = ['jt', 'ghtk', 'viettel'];
-            if (!VALID_PROVIDERS.includes(shippingProvider)) {
-                return res.status(400).json({ success: false, message: 'Đơn vị vận chuyển không hợp lệ!' });
+            if (effectiveProvider) {
+                if (!VALID_PROVIDERS.includes(effectiveProvider)) {
+                    return res.status(400).json({ success: false, message: 'Đơn vị vận chuyển không hợp lệ!' });
+                }
             }
-        }
 
         // Nếu huỷ: hoàn tồn kho cho các sản phẩm trong đơn
         if (status === ORDER_STATUS.CANCELLED && order.products) {
@@ -683,12 +683,13 @@ const updateMyOrderStatus = async (req, res) => {
         order.status = status;
         if (note) order.statusHistory.push({ status, timestamp: new Date(), note });
         if (status === 'shipping') {
-            order.shippingProvider = shippingProvider;
+            const effectiveProvider = shippingProvider || order.shippingProvider;
+            if (effectiveProvider) order.shippingProvider = effectiveProvider;
             if (trackingNumber) order.trackingNumber = trackingNumber;
         }
         await order.save();
-
-        res.status(200).json({ success: true, message: 'Cập nhật trạng thái thành công', data: { status: order.status } });
+        }
+        res.status(200).json({ success: true, message: 'Cập nhật trạng thái thành công', data: { status: order.status, shippingProvider: order.shippingProvider } });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi khi cập nhật trạng thái', error: error.message });
     }
@@ -1038,7 +1039,7 @@ const updateShippingConfig = async (req, res) => {
         const shop = await getOwnerShop(req.user._id);
         if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
 
-        const { enabledProviders, freeShippingThreshold, defaultProvider } = req.body;
+        const { enabledProviders, freeShippingThreshold, defaultProvider, isUrbanZone } = req.body;
 
         // Validate enabledProviders
         if (enabledProviders !== undefined) {
@@ -1083,6 +1084,9 @@ const updateShippingConfig = async (req, res) => {
         }
         if (defaultProvider !== undefined) {
             shop.shippingConfig = { ...(shop.shippingConfig || {}), defaultProvider };
+        }
+        if (isUrbanZone !== undefined) {
+            shop.shippingConfig = { ...(shop.shippingConfig || {}), isUrbanZone: Boolean(isUrbanZone) };
         }
 
         await shop.save();

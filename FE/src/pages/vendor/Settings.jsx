@@ -226,6 +226,7 @@ const ShippingSection = ({ shop, onSaved }) => {
     const [enabled, setEnabled] = useState(shop?.shippingConfig?.enabledProviders || ['ghtk', 'jt']);
     const [threshold, setThreshold] = useState(shop?.shippingConfig?.freeShippingThreshold ?? 500000);
     const [defaultProv, setDefaultProv] = useState(shop?.shippingConfig?.defaultProvider || 'ghtk');
+    const [isUrbanZone, setIsUrbanZone] = useState(shop?.shippingConfig?.isUrbanZone ?? false);
     const [saving, setSaving] = useState(false);
     const [dirty, setDirty] = useState(false);
 
@@ -247,7 +248,12 @@ const ShippingSection = ({ shop, onSaved }) => {
         }
         try {
             setSaving(true);
-            await updateShippingConfigApi({ enabledProviders: enabled, freeShippingThreshold: threshold, defaultProvider: defaultProv });
+            await updateShippingConfigApi({
+                enabledProviders: enabled,
+                freeShippingThreshold: threshold,
+                defaultProvider: defaultProv,
+                isUrbanZone,
+            });
             showToast("Lưu cấu hình vận chuyển thành công!", "success");
             setDirty(false);
             onSaved();
@@ -262,6 +268,7 @@ const ShippingSection = ({ shop, onSaved }) => {
         setEnabled(shop?.shippingConfig?.enabledProviders || ['ghtk', 'jt']);
         setThreshold(shop?.shippingConfig?.freeShippingThreshold ?? 500000);
         setDefaultProv(shop?.shippingConfig?.defaultProvider || 'ghtk');
+        setIsUrbanZone(shop?.shippingConfig?.isUrbanZone ?? false);
         setDirty(false);
     };
 
@@ -345,6 +352,38 @@ const ShippingSection = ({ shop, onSaved }) => {
                 </div>
             </div>
 
+            {/* Khu vực giao hàng */}
+            <div>
+                <Label className="mb-2 block">Khu vực cửa hàng</Label>
+                <p className="text-[12px] text-[#9E8E7E] mb-3">Nếu cửa hàng của bạn nằm ở khu vực nội thành (quận trung tâm), phí giao nội tỉnh sẽ được giảm 30%.</p>
+                <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-3 cursor-pointer group">
+                        <div
+                            onClick={() => { setIsUrbanZone(false); setDirty(true); }}
+                            className={`relative w-12 h-7 rounded-full transition-all ${!isUrbanZone ? 'bg-[#D5C9BC]' : 'bg-teal-200'}`}
+                        >
+                            <div className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${!isUrbanZone ? 'left-0.5' : 'left-[22px]'}`} />
+                        </div>
+                        <div>
+                            <p className={`text-sm font-semibold ${!isUrbanZone ? 'text-slate-700' : 'text-slate-400'}`}>Ngoại thành</p>
+                            <p className="text-[11px] text-[#9E8E7E]">Phí giao theo bảng giá thông thường</p>
+                        </div>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer group">
+                        <div
+                            onClick={() => { setIsUrbanZone(true); setDirty(true); }}
+                            className={`relative w-12 h-7 rounded-full transition-all ${isUrbanZone ? 'bg-teal-500' : 'bg-slate-200'}`}
+                        >
+                            <div className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${isUrbanZone ? 'left-[22px]' : 'left-0.5'}`} />
+                        </div>
+                        <div>
+                            <p className={`text-sm font-semibold ${isUrbanZone ? 'text-teal-700' : 'text-slate-400'}`}>Nội thành</p>
+                            <p className="text-[11px] text-[#9E8E7E]">Giao nội tỉnh giảm 30% phí</p>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
             {/* Free shipping threshold */}
             <div>
                 <Label className="mb-2 block">Ngưỡng miễn phí vận chuyển</Label>
@@ -383,6 +422,7 @@ const ShippingSection = ({ shop, onSaved }) => {
                 <p><strong className="text-slate-700">Đơn vị đang bật:</strong> {enabled.map(k => PROVIDER_OPTIONS.find(p => p.key === k)?.name).join(', ')}</p>
                 <p><strong className="text-slate-700">Mặc định:</strong> {PROVIDER_OPTIONS.find(p => p.key === defaultProv)?.name}</p>
                 <p><strong className="text-slate-700">Miễn phí ship:</strong> {threshold === 0 ? "Không bật" : `Đơn từ ${formatVND(threshold)}`}</p>
+                <p><strong className="text-slate-700">Khu vực:</strong> {isUrbanZone ? 'Nội thành (giao nội tỉnh giảm 30%)' : 'Ngoại thành'}</p>
             </div>
 
             {dirty && <SaveBar saveLabel="Lưu cấu hình" onSave={handleSave} onCancel={handleCancel} saving={saving} />}

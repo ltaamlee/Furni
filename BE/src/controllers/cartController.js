@@ -28,7 +28,7 @@ const getCart = async (req, res) => {
     }
     try {
         const cart = await Cart.findOne({ user: req.user._id })
-            .populate('products.product', 'name images price discount discountPercent shop promotion status isActive variants');
+            .populate('products.product', 'name images price discount discountPercent shop promotion status isActive variants weight');
 
         if (!cart) {
             return res.status(200).json({
@@ -101,6 +101,7 @@ const getCart = async (req, res) => {
                 promotionId: product.promotion?._id || item.promotionId || null,
                 promotionName: product.promotion?.name || item.promotionName || null,
                 addedAt: item.addedAt || cart.createdAt,
+                weight: product?.weight || 0, // Thêm weight để tính phí vận chuyển
                 ...(item.variant ? { variant: item.variant, variantPrice: item.variantPrice, variantStock: item.variantStock } : {})
             };
         }))).filter(Boolean);
