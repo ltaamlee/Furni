@@ -46,18 +46,12 @@ const CartPage = () => {
         }
     }, []);
 
-    const getItemKey = (item) => {
-        const productId = item.product._id || item.product;
-        // Có variant → tách dòng; không variant → dùng productId
-        return item.variant ? `${productId}_${item.variant}` : productId;
-    };
-
     useEffect(() => {
         // Update select all when all items are selected
         const availableProducts = cart?.products?.filter(item => item.shopIsActive !== false) || [];
         if (availableProducts.length > 0) {
-            const allSelected = availableProducts.every(item =>
-                selectedItems.has(getItemKey(item))
+            const allSelected = availableProducts.every(item => 
+                selectedItems.has(item.product._id || item.product)
             );
             setSelectAll(allSelected);
         }
@@ -73,7 +67,7 @@ const CartPage = () => {
                 // Preserve selection: remove IDs that no longer exist in cart
                 const currentIds = new Set((newCart.products || [])
                     .filter(item => item.shopIsActive !== false)
-                    .map(item => getItemKey(item)));
+                    .map(item => item.product._id || item.product));
                 setSelectedItems((prev) => {
                     const kept = [...prev].filter(id => currentIds.has(id));
                     // If all cart items are in the kept selection, keep selectAll = true
@@ -137,7 +131,7 @@ const CartPage = () => {
             // Get the first selected item's shop to filter providers
             let enabledProviders = null;
             const firstSelectedItem = cart?.products?.find(item =>
-                selectedItems.has(getItemKey(item)) && item.shopIsActive !== false
+                selectedItems.has(item.product._id || item.product) && item.shopIsActive !== false
             );
             if (firstSelectedItem) {
                 const shopId = firstSelectedItem.shop?._id || firstSelectedItem.shop;
@@ -225,7 +219,7 @@ const CartPage = () => {
         } else {
             const allIds = cart.products
                 .filter(item => item.shopIsActive !== false)
-                .map(item => getItemKey(item));
+                .map(item => item.product._id || item.product);
             setSelectedItems(new Set(allIds));
         }
         setSelectAll(!selectAll);
@@ -235,7 +229,7 @@ const CartPage = () => {
         const shopItems = cart.products.filter(item => 
             (item.shop?._id || item.shop) === shopId && item.shopIsActive !== false
         );
-        const shopItemIds = shopItems.map(item => getItemKey(item));
+        const shopItemIds = shopItems.map(item => item.product._id || item.product);
         const allSelected = shopItemIds.every(id => selectedItems.has(id));
         
         setSelectedItems(prev => {
@@ -259,7 +253,7 @@ const CartPage = () => {
             setApplyingCoupon(true);
             // Compute subtotal using sale prices for coupon validation
             const selectedCartProducts = cart?.products?.filter(item =>
-                selectedItems.has(getItemKey(item))
+                selectedItems.has(item.product._id || item.product)
             ) || [];
             const orderTotal = selectedCartProducts.reduce((sum, item) => {
                 return sum + (item.price * item.quantity);
@@ -291,7 +285,7 @@ const CartPage = () => {
         try {
             setApplyingCoupon(true);
             const selectedCartProducts = cart?.products?.filter(item =>
-                selectedItems.has(getItemKey(item))
+                selectedItems.has(item.product._id || item.product)
             ) || [];
             const orderTotal = selectedCartProducts.reduce((sum, item) => {
                 return sum + (item.price * item.quantity);
@@ -365,7 +359,7 @@ const CartPage = () => {
     // Calculate selected items total
     const selectedItemsData = useMemo(() => {
         const items = cart?.products?.filter(item =>
-            selectedItems.has(getItemKey(item)) && item.shopIsActive !== false
+            selectedItems.has(item.product._id || item.product) && item.shopIsActive !== false
         ) || [];
 
         const subtotal = items.reduce((sum, item) => {
@@ -484,7 +478,7 @@ const CartPage = () => {
 
                             {/* Products grouped by shop */}
                             {groupedCart.map((shop) => {
-                                const shopItemIds = shop.items.map(item => getItemKey(item));
+                                const shopItemIds = shop.items.map(item => item.product._id || item.product);
                                 const shopAllSelected = shopItemIds.every(id => selectedItems.has(id));
                                 const shopPartialSelected = shopItemIds.some(id => selectedItems.has(id)) && !shopAllSelected;
                                 const shopTotal = shop.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -593,8 +587,7 @@ const CartPage = () => {
                                         <div className="divide-y divide-[#EDE8E0]">
                                             {shop.items.map((item) => {
                                                 const productId = item.product._id || item.product;
-                                                const itemKey = getItemKey(item);
-                                                const isSelected = selectedItems.has(itemKey);
+                                                const isSelected = selectedItems.has(productId);
                                                 // item.price đã là giá sale hiện tại (re-evaluated từ backend getCart)
                                                 const originalPrice = item.originalPrice || item.price;
                                                 const hasDiscount = item.discount > 0;
@@ -603,7 +596,7 @@ const CartPage = () => {
                                                 const isUnavailable = item.shopIsActive === false;
                                                 
                                                 return (
-                                                    <div key={itemKey} className={`p-4 flex gap-4 transition-colors ${isSelected ? 'bg-white' : 'bg-white/50'} ${isUnavailable ? 'opacity-60' : ''}`}>
+                                                    <div key={productId} className={`p-4 flex gap-4 transition-colors ${isSelected ? 'bg-white' : 'bg-white/50'} ${isUnavailable ? 'opacity-60' : ''}`}>
                                                         {/* Checkbox - disabled if unavailable */}
                                                         <label className={`flex items-center cursor-pointer shrink-0 ${isUnavailable ? 'cursor-not-allowed' : ''}`}>
                                                             <div className="relative">
