@@ -223,35 +223,23 @@ const formatVND = (n) => new Intl.NumberFormat("vi-VN").format(n) + " đ";
 
 const ShippingSection = ({ shop, onSaved }) => {
     const { showToast } = useToast();
-    const [enabled, setEnabled] = useState(shop?.shippingConfig?.enabledProviders || ['ghtk', 'jt']);
+    const [selectedProvider, setSelectedProvider] = useState(shop?.shippingConfig?.selectedProvider || 'ghtk');
     const [threshold, setThreshold] = useState(shop?.shippingConfig?.freeShippingThreshold ?? 500000);
-    const [defaultProv, setDefaultProv] = useState(shop?.shippingConfig?.defaultProvider || 'ghtk');
     const [isUrbanZone, setIsUrbanZone] = useState(shop?.shippingConfig?.isUrbanZone ?? false);
     const [saving, setSaving] = useState(false);
     const [dirty, setDirty] = useState(false);
 
-    const toggle = (key) => {
-        const next = enabled.includes(key) ? enabled.filter(k => k !== key) : [...enabled, key];
-        if (next.length === 0) {
-            showToast("Phải chọn ít nhất 1 đơn vị vận chuyển!", "warning");
-            return;
-        }
-        setEnabled(next);
-        if (!next.includes(defaultProv)) setDefaultProv(next[0]);
+    const handleSelect = (key) => {
+        setSelectedProvider(key);
         setDirty(true);
     };
 
     const handleSave = async () => {
-        if (enabled.length === 0) {
-            showToast("Phải chọn ít nhất 1 đơn vị vận chuyển!", "warning");
-            return;
-        }
         try {
             setSaving(true);
             await updateShippingConfigApi({
-                enabledProviders: enabled,
+                selectedProvider,
                 freeShippingThreshold: threshold,
-                defaultProvider: defaultProv,
                 isUrbanZone,
             });
             showToast("Lưu cấu hình vận chuyển thành công!", "success");
@@ -265,9 +253,8 @@ const ShippingSection = ({ shop, onSaved }) => {
     };
 
     const handleCancel = () => {
-        setEnabled(shop?.shippingConfig?.enabledProviders || ['ghtk', 'jt']);
+        setSelectedProvider(shop?.shippingConfig?.selectedProvider || 'ghtk');
         setThreshold(shop?.shippingConfig?.freeShippingThreshold ?? 500000);
-        setDefaultProv(shop?.shippingConfig?.defaultProvider || 'ghtk');
         setIsUrbanZone(shop?.shippingConfig?.isUrbanZone ?? false);
         setDirty(false);
     };
@@ -287,29 +274,26 @@ const ShippingSection = ({ shop, onSaved }) => {
             {/* Provider selection */}
             <div>
                 <Label className="mb-3 block">Đơn vị vận chuyển</Label>
-                <p className="text-[12px] text-[#9E8E7E] mb-3">Tick chọn các đơn vị mà cửa hàng của bạn hỗ trợ giao hàng. Khách sẽ chỉ thấy đơn vị bạn đã chọn.</p>
+                <p className="text-[12px] text-[#9E8E7E] mb-3">Chọn đơn vị vận chuyển mà cửa hàng sử dụng.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {PROVIDER_OPTIONS.map((p) => {
-                        const isEnabled = enabled.includes(p.key);
-                        const isDefault = defaultProv === p.key;
+                        const isSelected = selectedProvider === p.key;
                         return (
                             <div
                                 key={p.key}
-                                onClick={() => toggle(p.key)}
+                                onClick={() => handleSelect(p.key)}
                                 className={`relative rounded-xl border-2 cursor-pointer transition-all p-4 ${
-                                    isEnabled
+                                    isSelected
                                         ? "border-teal-400 bg-teal-50"
                                         : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"
                                 }`}
                             >
-                                {/* Checkbox */}
-                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                                    isEnabled ? "border-teal-500 bg-teal-500" : "border-[#D5C9BC]"
+                                {/* Radio button */}
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                                    isSelected ? "border-teal-500 bg-teal-500" : "border-[#D5C9BC]"
                                 }`}>
-                                    {isEnabled && (
-                                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                        </svg>
+                                    {isSelected && (
+                                        <div className="w-2 h-2 bg-white rounded-full" />
                                     )}
                                 </div>
 
@@ -320,32 +304,21 @@ const ShippingSection = ({ shop, onSaved }) => {
                                             {p.short}
                                         </div>
                                         <div>
-                                            <p className={`text-sm font-bold ${isEnabled ? "text-teal-700" : "text-slate-600"}`}>{p.name}</p>
+                                            <p className={`text-sm font-bold ${isSelected ? "text-teal-700" : "text-slate-600"}`}>{p.name}</p>
                                             <p className="text-[11px] text-[#9E8E7E]">{p.desc}</p>
                                         </div>
                                     </div>
 
-                                    {/* Default badge */}
-                                    {isDefault && (
+                                    {/* Selected badge */}
+                                    {isSelected && (
                                         <span className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-teal-500 text-white text-[10px] font-bold rounded-full">
                                             <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                             </svg>
-                                            Mặc định
+                                            Đã chọn
                                         </span>
                                     )}
                                 </div>
-
-                                {/* Set as default button */}
-                                {isEnabled && !isDefault && (
-                                    <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); setDefaultProv(p.key); setDirty(true); }}
-                                        className="absolute top-3 right-3 text-[10px] text-teal-600 hover:text-teal-700 font-semibold"
-                                    >
-                                        Đặt mặc định
-                                    </button>
-                                )}
                             </div>
                         );
                     })}
@@ -419,8 +392,7 @@ const ShippingSection = ({ shop, onSaved }) => {
 
             {/* Summary */}
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-[13px] text-slate-500 space-y-1">
-                <p><strong className="text-slate-700">Đơn vị đang bật:</strong> {enabled.map(k => PROVIDER_OPTIONS.find(p => p.key === k)?.name).join(', ')}</p>
-                <p><strong className="text-slate-700">Mặc định:</strong> {PROVIDER_OPTIONS.find(p => p.key === defaultProv)?.name}</p>
+                <p><strong className="text-slate-700">Đơn vị vận chuyển:</strong> {PROVIDER_OPTIONS.find(p => p.key === selectedProvider)?.name || '—'}</p>
                 <p><strong className="text-slate-700">Miễn phí ship:</strong> {threshold === 0 ? "Không bật" : `Đơn từ ${formatVND(threshold)}`}</p>
                 <p><strong className="text-slate-700">Khu vực:</strong> {isUrbanZone ? 'Nội thành (giao nội tỉnh giảm 30%)' : 'Ngoại thành'}</p>
             </div>

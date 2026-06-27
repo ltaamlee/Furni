@@ -225,6 +225,10 @@ const getShippingProvidersApi = () => axios.get("/shipping/providers");
 const calculateShippingFeesApi = (params) => axios.get("/shipping/calculate-all", { params });
 const calculateShippingTiersApi = (params) => axios.get("/shipping/calculate-tiers", { params });
 
+// Checkout Preview API (STEP 3)
+const getCheckoutPreviewApi = (body) => axios.post("/checkout/preview", body);
+const updateCheckoutShippingApi = (body) => axios.patch("/checkout/update-shipping", body);
+
 // Location APIs (Vietnam administrative divisions)
 const getProvincesApi = () => axios.get("/locations/provinces");
 const getShippingByOrderApi = (orderId) => axios.get(`/shipping/orders/${orderId}`);
@@ -560,6 +564,8 @@ export {
     getShippingProvidersApi,
     calculateShippingFeesApi,
     calculateShippingTiersApi,
+    getCheckoutPreviewApi,
+    updateCheckoutShippingApi,
     getShippingByOrderApi,
     trackShipmentApi,
     getProvincesApi,

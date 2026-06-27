@@ -8,68 +8,26 @@ const { ORDER_STATUS } = require('../models/order');
 const payoutService = require('../services/payoutService');
 const { attachPricing } = require('../utils/pricing');
 const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
+const { refundWallet, getOrCreateWallet } = require('./walletController');
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
-
-const pickCheckoutItems = (cart, selectedProductIds = [], selectedProducts = []) => {
-    if (Array.isArray(selectedProducts) && selectedProducts.length > 0) {
-        const quantityByProduct = new Map(
-            selectedProducts
-                .filter((item) => item?.productId && Number(item.quantity) > 0)
-                .map((item) => [item.productId.toString(), Number(item.quantity)])
-        );
-
-        return cart.products
-            .filter((item) => quantityByProduct.has(item.product.toString()))
-            .map((item) => {
-                const checkoutQuantity = quantityByProduct.get(item.product.toString());
-                const plainItem = item.toObject ? item.toObject() : { ...item };
-                return {
-                    ...plainItem,
-                    product: item.product,
-                    quantity: Math.min(checkoutQuantity, item.quantity)
-                };
-            });
-    }
-
-    if (!Array.isArray(selectedProductIds) || selectedProductIds.length === 0) {
-        return cart.products;
-    }
-    const selected = new Set(selectedProductIds.map((id) => id.toString()));
-    return cart.products.filter((item) => selected.has(item.product.toString()));
-};
 
 const getProductImage = (product) => {
     const firstImage = Array.isArray(product.images) ? product.images[0] : null;
     return firstImage?.url || firstImage || product.image || null;
 };
 
-const removeCheckoutItemsFromCart = async (cart, checkoutItems, selectedProducts = [], selectedProductIds = []) => {
-    if (Array.isArray(selectedProducts) && selectedProducts.length > 0) {
-        const purchasedByProduct = new Map(
-            checkoutItems.map((item) => [item.product.toString(), Number(item.quantity) || 0])
-        );
-
-        cart.products = cart.products
-            .map((item) => {
-                const purchasedQuantity = purchasedByProduct.get(item.product.toString()) || 0;
-                if (purchasedQuantity <= 0) return item;
-                item.quantity = Math.max(0, item.quantity - purchasedQuantity);
-                return item;
-            })
-            .filter((item) => item.quantity > 0);
-
-        await cart.save();
-        return;
-    }
-
+const removeCheckoutItemsFromCart = async (cart, checkoutItems, selectedProductIds = []) => {
     if (Array.isArray(selectedProductIds) && selectedProductIds.length > 0) {
         const selected = new Set(checkoutItems.map((item) => item.product.toString()));
         cart.products = cart.products.filter((item) => !selected.has(item.product.toString()));
         await cart.save();
         return;
     }
-
-    await Cart.findByIdAndDelete(cart._id);
+    // If no selection, keep all (STEP 11: items are from preview, not all cart)
+    // Just remove purchased items
+    const purchased = new Set(checkoutItems.map((item) => item.product.toString()));
+    cart.products = cart.products.filter((item) => !purchased.has(item.product.toString()));
+    await cart.save();
 };
 
 // Gửi thông báo "đơn mới" tới vendor của từng shop có trong đơn
@@ -97,38 +55,85 @@ const notifyVendorsNewOrder = async (order) => {
 // @access  Private
 const createOrder = async (req, res) => {
     try {
-        const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, shippingTier = 'express', shippingServiceType, shippingProvider = null, couponCode = null, selectedShippingCoupon = null } = req.body;
-        const effectiveTier = shippingServiceType || shippingTier || 'express';
-        const normalizedBuyNowProduct = buyNowProduct?.productId
-            ? buyNowProduct
-            : (req.body.buyNowProductId
-                ? { productId: req.body.buyNowProductId, quantity: req.body.buyNowQuantity }
-                : null);
-        const isBuyNow = Boolean(normalizedBuyNowProduct?.productId && Number(normalizedBuyNowProduct.quantity) > 0);
-        // Ước tính ngày giao dựa trên tier
-        const estimatedDays = effectiveTier === 'express' ? 3 : 7;
+        const {
+            mode,                // 'BUY_NOW' | 'CART'  (STEP 11)
+            items,               // BUY_NOW: [{ productId, quantity }]
+            cartItemIds,         // CART: string[]
+            shippingAddress,
+            paymentMethod = 'COD',
+            note,
+            shippingProvider = null,   // { [shopId]: { _id, name, code } } (STEP 11)
+            shippingFeesByShop = {},    // { [shopId]: fee } (STEP 11)
+            couponCode = null,
+            selectedShippingCoupon = null,
+        } = req.body;
 
-        // Lấy cart của user
-        const cart = isBuyNow ? null : await Cart.findOne({ user: req.user._id });
-        if (!isBuyNow && (!cart || cart.products.length === 0)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Giỏ hàng trống!'
-            });
+        // Backward compat: legacy fields (buyNowProduct, selectedProductIds, etc.)
+        const legacyBuyNow = req.body.buyNowProduct
+            || (req.body.buyNowProductId ? { productId: req.body.buyNowProductId, quantity: req.body.buyNowQuantity } : null);
+        const legacyBuyNowActive = Boolean(legacyBuyNow?.productId && Number(legacyBuyNow.quantity) > 0);
+
+        // Normalize mode: new payload has explicit mode; fall back to legacy detection
+        const effectiveMode = mode || (legacyBuyNowActive ? 'BUY_NOW' : 'CART');
+        const isBuyNow = effectiveMode === 'BUY_NOW';
+
+        // Normalize items
+        let checkoutItems = [];
+        if (isBuyNow && Array.isArray(items) && items.length > 0) {
+            // STEP 11 format: items = [{ productId, quantity }]
+            checkoutItems = items
+                .filter(i => i.productId && Number(i.quantity) > 0)
+                .map(i => ({ product: i.productId, quantity: Math.max(1, Number(i.quantity)) }));
+        } else if (isBuyNow && legacyBuyNowActive) {
+            // Legacy format
+            checkoutItems = [{ product: legacyBuyNow.productId, quantity: Math.max(1, Number(legacyBuyNow.quantity)) }];
+        } else if (!isBuyNow && Array.isArray(cartItemIds) && cartItemIds.length > 0) {
+            // STEP 11 CART format
+            const cart = await Cart.findOne({ user: req.user._id }).lean();
+            if (!cart || cart.products.length === 0) {
+                return res.status(400).json({ success: false, message: 'Giỏ hàng trống!' });
+            }
+            const selected = new Set(cartItemIds.map(id => id.toString()));
+            checkoutItems = cart.products
+                .filter(p => selected.has(p.product.toString()))
+                .map(p => ({ product: p.product, quantity: p.quantity }));
+        } else {
+            // Legacy CART format
+            const { selectedProductIds = [], selectedProducts = [] } = req.body;
+            const cart = await Cart.findOne({ user: req.user._id });
+            if (!cart || cart.products.length === 0) {
+                return res.status(400).json({ success: false, message: 'Giỏ hàng trống!' });
+            }
+            const quantityByProduct = new Map(
+                selectedProducts
+                    .filter(i => i?.productId && Number(i.quantity) > 0)
+                    .map(i => [i.productId.toString(), Number(i.quantity)])
+            );
+            checkoutItems = cart.products
+                .filter(item => {
+                    if (quantityByProduct.has(item.product.toString())) {
+                        item.quantity = Math.min(quantityByProduct.get(item.product.toString()), item.quantity);
+                        return true;
+                    }
+                    const selected = new Set(selectedProductIds.map(id => id.toString()));
+                    return selected.has(item.product.toString());
+                })
+                .map(item => ({ product: item.product, quantity: item.quantity }));
         }
 
-        // Kiểm tra tồn kho + thu thập thông tin shop của từng sản phẩm
-        const checkoutItems = isBuyNow
-            ? [{
-                product: normalizedBuyNowProduct.productId,
-                quantity: Math.max(1, Number(normalizedBuyNowProduct.quantity) || 1)
-            }]
-            : pickCheckoutItems(cart, selectedProductIds, selectedProducts);
         if (checkoutItems.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Không có sản phẩm hợp lệ để thanh toán!'
-            });
+            return res.status(400).json({ success: false, message: 'Không có sản phẩm hợp lệ để thanh toán!' });
+        }
+
+        // shippingTier for estimatedDays
+        const firstShopShipping = Object.values(shippingProvider || {})[0];
+        const effectiveTier = firstShopShipping?.serviceType || req.body.shippingTier || 'express';
+        const estimatedDays = effectiveTier === 'express' ? 3 : 7;
+
+        // Lấy cart nếu cần
+        const cart = isBuyNow ? null : await Cart.findOne({ user: req.user._id });
+        if (!isBuyNow && !cart) {
+            // cart null nhưng checkoutItems đã có → OK, đang dùng STEP 11 format
         }
 
         const productMap = {};
@@ -254,12 +259,107 @@ const createOrder = async (req, res) => {
         // Tạo 1 đơn hàng độc lập cho mỗi shop (không còn parent/child)
         const createdOrders = [];
         const checkoutGroupId = new mongoose.Types.ObjectId().toString();
-        
+
         // Lấy shippingFee per-shop từ frontend (FE đã tính riêng cho mỗi shop)
-        const shippingFeesByShop = req.body.shippingFeesByShop || {};
+        // shippingFeesByShop đã được destructured ở đầu hàm
         // Kiểm tra xem có dùng shipping coupon (freeship) không
         const isShippingFree = Boolean(selectedShippingCoupon);
-        
+
+        // ── Xử lý thanh toán bằng ví điện tử ──────────────────────────────────────
+        if (paymentMethod === 'WALLET') {
+            // Kiểm tra số dư ví trước khi tạo đơn
+            const wallet = await getOrCreateWallet(req.user._id);
+            const totalPayable = shopKeys.reduce((sum, key) => {
+                const group = shopGroups[key];
+                const shippingFee = (shippingFeesByShop[key] !== undefined && shippingFeesByShop[key] !== null)
+                    ? Number(shippingFeesByShop[key])
+                    : (req.body.shippingFee || 0);
+                const shopCouponDiscount = usedCouponShopId
+                    ? (key === usedCouponShopId ? couponDiscount : 0)
+                    : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
+                return sum + Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
+            }, 0);
+
+            if (wallet.balance < totalPayable) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Số dư ví không đủ! Bạn cần ${totalPayable.toLocaleString('vi-VN')}₫ nhưng chỉ có ${wallet.balance.toLocaleString('vi-VN')}₫.`
+                });
+            }
+
+            // Trừ tiền từ ví cho từng đơn
+            for (const shopId of shopKeys) {
+                const group = shopGroups[shopId];
+                let shippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
+                    ? Number(shippingFeesByShop[shopId])
+                    : (req.body.shippingFee || 0);
+                if (isShippingFree) shippingFee = 0;
+
+                const shopCouponDiscount = usedCouponShopId
+                    ? (shopId === usedCouponShopId ? couponDiscount : 0)
+                    : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
+                const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
+
+                const order = new Order({
+                    user: req.user._id,
+                    checkoutGroupId,
+                    shop: group.shop,
+                    shopName: group.shopName,
+                    shopCode: group.shopCode,
+                    products: group.items,
+                    shippingAddress: { ...shippingAddress, note: note || '' },
+                    paymentMethod: 'WALLET',
+                    paymentStatus: 'paid',
+                    subtotal: group.subtotal,
+                    couponDiscount: shopCouponDiscount,
+                    couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
+                    shippingFee,
+                    shippingTier: effectiveTier,
+                    shippingProvider,
+                    totalPrice: groupTotal,
+                    totalQuantity: group.totalQuantity,
+                    orderedAt: new Date(),
+                    estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000)
+                });
+
+                // Trừ tồn kho
+                for (const item of group.items) {
+                    await Product.findByIdAndUpdate(item.product, { $inc: { quantity: -item.quantity, sold: item.quantity } });
+                }
+
+                // Trừ tiền từ ví
+                await wallet.deductForPayment(groupTotal, {
+                    orderId: order._id,
+                    orderNumber: order.orderNumber,
+                    description: `Thanh toán đơn hàng #${order.orderNumber} bằng ví SORA`,
+                });
+
+                await order.save();
+                createdOrders.push(order);
+            }
+
+            // Đánh dấu voucher đã sử dụng
+            if (usedCouponId) {
+                await VoucherWallet.findByIdAndUpdate(usedCouponId, { status: VOUCHER_STATUS.USED, usedAt: new Date() });
+            }
+
+            // Xóa khỏi giỏ
+            if (!isBuyNow && cart) {
+                await removeCheckoutItemsFromCart(cart, checkoutItems, cartItemIds);
+            }
+
+            // Thông báo vendors
+            for (const order of createdOrders) {
+                await notifyVendorsNewOrder(order);
+            }
+
+            return res.status(201).json({
+                success: true,
+                message: 'Đặt hàng thành công qua ví SORA!',
+                data: { orders: createdOrders, walletBalance: wallet.balance }
+            });
+        }
+        // ── Kết thúc xử lý thanh toán ví ─────────────────────────────────────────
         for (const shopId of shopKeys) {
             const group = shopGroups[shopId];
 
@@ -325,8 +425,8 @@ const createOrder = async (req, res) => {
         }
 
         // Xóa khỏi giỏ các sản phẩm vừa thanh toán, giữ lại item chưa chọn.
-        if (!isBuyNow) {
-            await removeCheckoutItemsFromCart(cart, checkoutItems, selectedProducts, selectedProductIds);
+        if (!isBuyNow && cart) {
+            await removeCheckoutItemsFromCart(cart, checkoutItems, cartItemIds);
         }
 
         // Gửi thông báo cho vendors

@@ -10,6 +10,7 @@ const Product = require('../models/product');
 const { ORDER_STATUS } = require('../models/order');
 const { payosConfig, PAYOS_CLIENT_URL } = require('../config/payos');
 const payoutService = require('../services/payoutService');
+const { refundWallet } = require('../services/walletService');
 
 // Sử dụng thư viện PayOS SDK
 const { PayOS } = require('@payos/node');
@@ -148,7 +149,7 @@ const syncOrderWithPayOS = async (order) => {
 
     if (status === 'PAID') {
         await markPayOSOrderPaid(order);
-    } else if (['CANCELLED', 'EXPIRED', 'FAILED'].includes(status) && order.paymentStatus !== 'paid') {
+    } else if (['CANCELLED', 'EXPIRED', 'FAILED'].includes(status) && order.paymentStatus !== 'paid' && order.status !== ORDER_STATUS.CANCELLED) {
         order.paymentStatus = 'failed';
         order.status = ORDER_STATUS.CANCELLED;
         order.cancelledAt = new Date();
@@ -158,6 +159,19 @@ const syncOrderWithPayOS = async (order) => {
             note: `Thanh toán PayOS ${status.toLowerCase()}`
         });
         await order.save();
+
+        // Hoàn tồn kho
+        for (const item of order.products) {
+            await Product.findByIdAndUpdate(item.product, { $inc: { quantity: item.quantity } });
+        }
+
+        // Hoàn tiền vào ví điện tử
+        await refundWallet(order.user, order.totalPrice, {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            paymentMethod: 'PAYOS',
+            description: `Hoàn tiền tự động từ hủy PayOS đơn #${order.orderNumber}`,
+        });
     }
 
     return { order, paymentLink };
@@ -365,6 +379,25 @@ const createPayOSPaymentWithCart = async (req, res) => {
         }
 
         const subtotal = checkoutItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+        // ── Kiểm tra multi-shop: PayOS chỉ hỗ trợ 1 shop ──────────────────────────
+        const shopGroups = {};
+        for (const item of checkoutItems) {
+            const product = productMap[item.product.toString()];
+            const shopId = product?.shop?._id?.toString() || 'no-shop';
+            if (!shopGroups[shopId]) {
+                shopGroups[shopId] = { shopId, shopName: product?.shop?.name || '', items: [] };
+            }
+            shopGroups[shopId].items.push(item);
+        }
+        const shopKeys = Object.keys(shopGroups);
+
+        if (shopKeys.length > 1) {
+            return res.status(400).json({
+                success: false,
+                message: 'Thanh toán PayOS chỉ hỗ trợ 1 cửa hàng. Vui lòng chọn COD hoặc Ví SORA cho đơn hàng từ nhiều cửa hàng.'
+            });
+        }
 
         // Tính giảm giá voucher nếu có (lấy dữ liệu mới nhất từ Coupon)
         let couponDiscount = 0;
@@ -619,7 +652,8 @@ const payOSWebhook = async (req, res) => {
             }
         } else if (success === false || (code && code !== '00')) {
             // Thanh toán thất bại hoặc bị hủy tại cổng PayOS
-            if (order.paymentStatus !== 'paid') {
+            // Chỉ xử lý nếu chưa bị hủy (tránh trùng lặp khi webhook fire nhiều lần)
+            if (order.paymentStatus !== 'paid' && order.status !== ORDER_STATUS.CANCELLED) {
                 order.paymentStatus = 'failed';
                 order.status = ORDER_STATUS.CANCELLED;
                 order.cancelledAt = new Date();
@@ -637,7 +671,15 @@ const payOSWebhook = async (req, res) => {
                     });
                 }
 
-                console.log('Order payment failed/cancelled:', order.orderNumber);
+                // Hoàn tiền vào ví điện tử
+                await refundWallet(order.user, order.totalPrice, {
+                    orderId: order._id,
+                    orderNumber: order.orderNumber,
+                    paymentMethod: 'PAYOS',
+                    description: `Hoàn tiền tự động từ hủy PayOS đơn #${order.orderNumber}`,
+                });
+
+                console.log('Order payment failed/cancelled + refund to wallet:', order.orderNumber);
             }
         }
 
@@ -766,6 +808,13 @@ const cancelPayOSPayment = async (req, res) => {
             });
         }
 
+        // Chỉ hủy nếu chưa bị hủy hoặc chưa thanh toán (tránh trùng lặp khi webhook cũng gọi)
+        if (order.status === ORDER_STATUS.CANCELLED) {
+            return res.status(400).json({
+                success: false,
+                message: 'Đơn hàng đã được hủy trước đó'
+            });
+        }
         if (order.paymentStatus === 'paid') {
             return res.status(400).json({
                 success: false,
@@ -792,9 +841,17 @@ const cancelPayOSPayment = async (req, res) => {
             });
         }
 
+        // Hoàn tiền vào ví điện tử của khách
+        await refundWallet(order.user, order.totalPrice, {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            paymentMethod: 'PAYOS',
+            description: `Hoàn tiền từ hủy PayOS đơn #${order.orderNumber}`,
+        });
+
         return res.status(200).json({
             success: true,
-            message: 'Đã hủy đơn hàng và hoàn tồn kho'
+            message: 'Đã hủy đơn hàng, hoàn tồn kho và hoàn tiền vào ví'
         });
 
     } catch (error) {

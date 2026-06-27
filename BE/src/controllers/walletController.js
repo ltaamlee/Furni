@@ -2,32 +2,34 @@ const Wallet = require('../models/wallet');
 const Order = require('../models/order');
 
 /**
- * Lấy danh sách ví của user hiện tại
+ * Helper: lấy hoặc tạo ví cho user
+ */
+const getOrCreateWallet = async (userId) => {
+    let wallet = await Wallet.findOne({ user: userId });
+    if (!wallet) {
+        wallet = new Wallet({ user: userId, accounts: [], transactions: [] });
+        await wallet.save();
+    }
+    return wallet;
+};
+
+/**
+ * Lấy ví của user hiện tại
  * GET /api/wallets/my
  */
 const getMyWallets = async (req, res) => {
     try {
         const userId = req.user._id;
-        
-        let wallet = await Wallet.findOne({ user: userId });
-        
-        if (!wallet) {
-            // Tự động tạo ví mới nếu chưa có
-            wallet = new Wallet({ user: userId, accounts: [] });
-            await wallet.save();
-        }
-        
+        const wallet = await getOrCreateWallet(userId);
         res.json({
             success: true,
-            data: {
-                wallet: wallet
-            }
+            data: { wallet }
         });
     } catch (error) {
         console.error('Error getting wallets:', error);
         res.status(500).json({
             success: false,
-            message: 'Lỗi server khi lấy danh sách ví!'
+            message: 'Lỗi server khi lấy ví!'
         });
     }
 };
@@ -332,5 +334,6 @@ module.exports = {
     addAccount,
     updateAccount,
     deleteAccount,
-    setDefaultAccount
+    setDefaultAccount,
+    getOrCreateWallet,
 };

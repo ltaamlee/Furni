@@ -46,12 +46,18 @@ const CartPage = () => {
         }
     }, []);
 
+    const getItemKey = (item) => {
+        const productId = item.product._id || item.product;
+        // Có variant → tách dòng; không variant → dùng productId
+        return item.variant ? `${productId}_${item.variant}` : productId;
+    };
+
     useEffect(() => {
         // Update select all when all items are selected
         const availableProducts = cart?.products?.filter(item => item.shopIsActive !== false) || [];
         if (availableProducts.length > 0) {
-            const allSelected = availableProducts.every(item => 
-                selectedItems.has(item.product._id || item.product)
+            const allSelected = availableProducts.every(item =>
+                selectedItems.has(getItemKey(item))
             );
             setSelectAll(allSelected);
         }
@@ -67,7 +73,7 @@ const CartPage = () => {
                 // Preserve selection: remove IDs that no longer exist in cart
                 const currentIds = new Set((newCart.products || [])
                     .filter(item => item.shopIsActive !== false)
-                    .map(item => item.product._id || item.product));
+                    .map(item => getItemKey(item)));
                 setSelectedItems((prev) => {
                     const kept = [...prev].filter(id => currentIds.has(id));
                     // If all cart items are in the kept selection, keep selectAll = true
@@ -131,7 +137,7 @@ const CartPage = () => {
             // Get the first selected item's shop to filter providers
             let enabledProviders = null;
             const firstSelectedItem = cart?.products?.find(item =>
-                selectedItems.has(item.product._id || item.product) && item.shopIsActive !== false
+                selectedItems.has(getItemKey(item)) && item.shopIsActive !== false
             );
             if (firstSelectedItem) {
                 const shopId = firstSelectedItem.shop?._id || firstSelectedItem.shop;
@@ -219,7 +225,7 @@ const CartPage = () => {
         } else {
             const allIds = cart.products
                 .filter(item => item.shopIsActive !== false)
-                .map(item => item.product._id || item.product);
+                .map(item => getItemKey(item));
             setSelectedItems(new Set(allIds));
         }
         setSelectAll(!selectAll);
@@ -229,7 +235,7 @@ const CartPage = () => {
         const shopItems = cart.products.filter(item => 
             (item.shop?._id || item.shop) === shopId && item.shopIsActive !== false
         );
-        const shopItemIds = shopItems.map(item => item.product._id || item.product);
+        const shopItemIds = shopItems.map(item => getItemKey(item));
         const allSelected = shopItemIds.every(id => selectedItems.has(id));
         
         setSelectedItems(prev => {
@@ -251,20 +257,19 @@ const CartPage = () => {
 
         try {
             setApplyingCoupon(true);
-            // Compute subtotal using original prices for coupon validation
+            // Compute subtotal using sale prices for coupon validation
             const selectedCartProducts = cart?.products?.filter(item =>
-                selectedItems.has(item.product._id || item.product)
+                selectedItems.has(getItemKey(item))
             ) || [];
-            const originalSubtotal = selectedCartProducts.reduce((sum, item) => {
-                const op = item.originalPrice || item.price;
-                return sum + (op * item.quantity);
+            const orderTotal = selectedCartProducts.reduce((sum, item) => {
+                return sum + (item.price * item.quantity);
             }, 0);
             const res = await validateVoucherApi({
                 code: couponCode,
-                orderTotal: originalSubtotal,
+                orderTotal,
                 cartItems: selectedCartProducts.map((item) => ({
                     productId: item.product._id || item.product,
-                    price: item.originalPrice || item.price,
+                    price: item.price,
                     quantity: item.quantity,
                 })),
             });
@@ -286,18 +291,17 @@ const CartPage = () => {
         try {
             setApplyingCoupon(true);
             const selectedCartProducts = cart?.products?.filter(item =>
-                selectedItems.has(item.product._id || item.product)
+                selectedItems.has(getItemKey(item))
             ) || [];
-            const originalSubtotal = selectedCartProducts.reduce((sum, item) => {
-                const op = item.originalPrice || item.price;
-                return sum + (op * item.quantity);
+            const orderTotal = selectedCartProducts.reduce((sum, item) => {
+                return sum + (item.price * item.quantity);
             }, 0);
             const res = await validateVoucherApi({
                 code: voucher.code,
-                orderTotal: originalSubtotal,
+                orderTotal,
                 cartItems: selectedCartProducts.map((item) => ({
                     productId: item.product._id || item.product,
-                    price: item.originalPrice || item.price,
+                    price: item.price,
                     quantity: item.quantity,
                 })),
             });
@@ -361,12 +365,12 @@ const CartPage = () => {
     // Calculate selected items total
     const selectedItemsData = useMemo(() => {
         const items = cart?.products?.filter(item =>
-            selectedItems.has(item.product._id || item.product) && item.shopIsActive !== false
+            selectedItems.has(getItemKey(item)) && item.shopIsActive !== false
         ) || [];
 
         const subtotal = items.reduce((sum, item) => {
-            const originalPrice = item.originalPrice || item.price;
-            return sum + (originalPrice * item.quantity);
+            // price = sale price (đã trừ khuyến mãi), originalPrice = giá gốc
+            return sum + (item.price * item.quantity);
         }, 0);
         const itemsTotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const totalDiscount = items.reduce((sum, item) => {
@@ -412,9 +416,8 @@ const CartPage = () => {
     }
 
     const products = cart?.products || [];
-    const originalSubtotal = selectedItemsData.subtotal; // giá gốc tổng (để hiển thị tiết kiệm)
-    const itemsTotal = selectedItemsData.itemsTotal; // giá sau giảm tổng
-    const totalDiscount = selectedItemsData.totalDiscount;
+    const itemsTotal = selectedItemsData.itemsTotal;   // subtotal = giá sale tổng
+    const totalDiscount = selectedItemsData.totalDiscount; // tiết kiệm từ KM sản phẩm
     const discount = couponDiscount;
     const total = Math.max(0, itemsTotal + shippingFee - discount);
 
@@ -481,7 +484,7 @@ const CartPage = () => {
 
                             {/* Products grouped by shop */}
                             {groupedCart.map((shop) => {
-                                const shopItemIds = shop.items.map(item => item.product._id || item.product);
+                                const shopItemIds = shop.items.map(item => getItemKey(item));
                                 const shopAllSelected = shopItemIds.every(id => selectedItems.has(id));
                                 const shopPartialSelected = shopItemIds.some(id => selectedItems.has(id)) && !shopAllSelected;
                                 const shopTotal = shop.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -590,7 +593,8 @@ const CartPage = () => {
                                         <div className="divide-y divide-[#EDE8E0]">
                                             {shop.items.map((item) => {
                                                 const productId = item.product._id || item.product;
-                                                const isSelected = selectedItems.has(productId);
+                                                const itemKey = getItemKey(item);
+                                                const isSelected = selectedItems.has(itemKey);
                                                 // item.price đã là giá sale hiện tại (re-evaluated từ backend getCart)
                                                 const originalPrice = item.originalPrice || item.price;
                                                 const hasDiscount = item.discount > 0;
@@ -599,7 +603,7 @@ const CartPage = () => {
                                                 const isUnavailable = item.shopIsActive === false;
                                                 
                                                 return (
-                                                    <div key={productId} className={`p-4 flex gap-4 transition-colors ${isSelected ? 'bg-white' : 'bg-white/50'} ${isUnavailable ? 'opacity-60' : ''}`}>
+                                                    <div key={itemKey} className={`p-4 flex gap-4 transition-colors ${isSelected ? 'bg-white' : 'bg-white/50'} ${isUnavailable ? 'opacity-60' : ''}`}>
                                                         {/* Checkbox - disabled if unavailable */}
                                                         <label className={`flex items-center cursor-pointer shrink-0 ${isUnavailable ? 'cursor-not-allowed' : ''}`}>
                                                             <div className="relative">
@@ -798,7 +802,7 @@ const CartPage = () => {
                                 <div className="space-y-3 text-sm">
                                     <div className="flex justify-between">
                                         <span className="text-[#6B5C4C]">Tạm tính ({selectedCount > 0 ? selectedCount : cart.totalQuantity} sản phẩm)</span>
-                                        <span className="font-semibold text-[#1C1108]">{formatPrice(originalSubtotal)}</span>
+                                        <span className="font-semibold text-[#1C1108]">{formatPrice(itemsTotal)}</span>
                                     </div>
 
                                     {totalDiscount > 0 && selectedCount > 0 && (
@@ -831,11 +835,6 @@ const CartPage = () => {
                                             )}
                                         </span>
                                     </div>
-                                    {cheapestShippingFee !== 0 && !loadingShipping && selectedCount > 0 && (
-                                        <p className="text-xs text-orange-500 bg-orange-50 rounded-lg px-3 py-2">
-                                            Mua thêm {formatPrice(500000 - itemsTotal)} để được miễn phí ship!
-                                        </p>
-                                    )}
                                     
                                     <div className="border-t border-[#EDE8E0] pt-3 flex justify-between">
                                         <span className="font-bold text-[#1C1108]">Tổng cộng</span>

@@ -281,7 +281,7 @@ const PayOSReturnPage = () => {
                       Đơn hàng đã hết hạn thanh toán
                     </p>
                     <p className="text-sm text-red-700">
-                      Bạn không hoàn tất thanh toán trong thời gian quy định. Đơn hàng đã tự động bị hủy và tồn kho đã được hoàn lại.
+                      Bạn không hoàn tất thanh toán trong thời gian quy định. Đơn hàng đã tự động bị hủy. Tồn kho đã được hoàn lại và {order ? `số tiền đã được hoàn vào Ví SORA.` : ''}
                     </p>
                   </div>
                 ) : (
@@ -293,7 +293,7 @@ const PayOSReturnPage = () => {
                       Đơn hàng đã bị hủy
                     </p>
                     <p className="text-sm text-red-700">
-                      Đơn hàng đã được hủy bởi bạn hoặc thanh toán không thành công. Tồn kho đã được hoàn lại.
+                      Đơn hàng đã được hủy bởi bạn hoặc thanh toán không thành công. Tồn kho đã được hoàn lại và số tiền đã được hoàn vào Ví SORA của bạn.
                     </p>
                   </div>
                 )}

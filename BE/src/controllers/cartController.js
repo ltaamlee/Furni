@@ -226,20 +226,18 @@ const addToCart = async (req, res) => {
                     promotionName: product.promotion?.name || product.promotionName || null,
                 }]
             });
-        } else {
-            // Tìm sản phẩm trùng: cùng productId VÀ cùng variant (nếu có)
-            const variantName = selectedVariant?.name || null;
-            const existingProduct = cart.products.find(
-                (item) => {
-                    if (item.product.toString() !== productId.toString()) return false;
-                    // Không có variant: so sánh variantName (null) với item.variant
-                    if (!variantName) return !item.variant;
-                    // Có variant: so sánh theo tên
-                    return item.variant === variantName;
-                }
-            );
+        // Tìm sản phẩm trùng: cùng productId VÀ cùng variant (nếu có)
+        // Dùng String() để null/undefined đều thành "undefined" → so sánh đúng
+        const variantName = selectedVariant?.name != null ? String(selectedVariant.name) : null;
+        const existingProduct = cart.products.find(
+            (item) => {
+                if (item.product.toString() !== productId.toString()) return false;
+                const existingVariant = item.variant != null ? String(item.variant) : null;
+                return existingVariant === variantName;
+            }
+        );
 
-            if (existingProduct) {
+        if (existingProduct) {
                 const newQuantity = existingProduct.quantity + quantity;
                 if (newQuantity > variantStock) {
                     return res.status(400).json({
@@ -254,17 +252,16 @@ const addToCart = async (req, res) => {
                 existingProduct.promotionId = product.promotion?._id || product.promotionId || null;
                 existingProduct.promotionName = product.promotion?.name || product.promotionName || null;
                 if (selectedVariant) {
-                    existingProduct.variant = selectedVariant.name || null;
-                    existingProduct.variantPrice = selectedVariant.price || null;
-                    existingProduct.variantStock = selectedVariant.stock || 0;
+                    existingProduct.variant = selectedVariant.name != null ? String(selectedVariant.name) : null;
+                    existingProduct.variantPrice = selectedVariant.price ?? null;
+                    existingProduct.variantStock = selectedVariant.stock ?? 0;
                 } else {
-                    // Nếu không chọn variant → xóa variant info
                     existingProduct.variant = null;
                     existingProduct.variantPrice = null;
                     existingProduct.variantStock = null;
                 }
             } else {
-                cart.products.push({
+                const newItem = {
                     product: productId,
                     quantity,
                     price: salePrice,
@@ -278,12 +275,13 @@ const addToCart = async (req, res) => {
                     promotionId: product.promotion?._id || product.promotionId || null,
                     promotionName: product.promotion?.name || product.promotionName || null,
                     addedAt: new Date(),
-                    ...(selectedVariant ? {
-                        variant: selectedVariant.name || null,
-                        variantPrice: selectedVariant.price || null,
-                        variantStock: selectedVariant.stock || 0,
-                    } : {})
-                });
+                };
+                if (selectedVariant) {
+                    newItem.variant = selectedVariant.name != null ? String(selectedVariant.name) : null;
+                    newItem.variantPrice = selectedVariant.price ?? null;
+                    newItem.variantStock = selectedVariant.stock ?? 0;
+                }
+                cart.products.push(newItem);
             }
         }
 

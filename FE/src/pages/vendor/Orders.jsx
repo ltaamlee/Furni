@@ -4,7 +4,7 @@ import SlideOver from "../../components/vendor/SlideOver";
 import { formatVND } from "../../components/vendor/data";
 import { IconAlertCircle, IconCheck } from "../../components/vendor/icons";
 import { useToast } from "../../components/context/ToastContext";
-import { getVendorOrdersApi, updateVendorOrderStatusApi, getMyShopApi } from "../../utils/api";
+import { getVendorOrdersApi, updateVendorOrderStatusApi } from "../../utils/api";
 
 const STATUS_META = {
     pending: { label: "Chờ xác nhận", tone: "yellow" },
@@ -21,6 +21,13 @@ const PAYMENT_META = {
     MOMO: { label: "Momo", tone: "purple" },
     ZALOPAY: { label: "ZaloPay", tone: "blue" },
 };
+
+const PROVIDER_OPTIONS = [
+    { key: 'ghtk', name: 'Giao Hàng Tiết Kiệm', short: 'GHTK', desc: 'Dịch vụ tiết kiệm', color: 'from-yellow-400 to-orange-400' },
+    { key: 'jt', name: 'J&T Express', short: 'J&T', desc: 'Giao hàng nhanh', color: 'from-blue-500 to-blue-600' },
+    { key: 'viettel', name: 'Viettel Post', short: 'VT', desc: 'Bưu chính Viettel', color: 'from-red-500 to-red-600' },
+];
+
 const TAB_DEFS = [
     { key: "all", label: "Tất cả" },
     { key: "pending", label: "Chờ xác nhận" },
@@ -88,139 +95,8 @@ const Timeline = ({ order }) => {
     );
 };
 
-const TIER_META = {
-    economy: { label: 'Tiết Kiệm', desc: 'Phí thấp, giao chậm hơn', tone: 'text-green-700' },
-    express: { label: 'Nhanh', desc: 'Phí cao hơn, giao nhanh', tone: 'text-orange-700' },
-};
-
-/* ---- Popup: xác nhận giao hàng — tier bị khóa, chỉ chọn provider ---- */
-const ChooseProviderModal = ({ open, onClose, order, shopShippingConfig, onConfirm }) => {
-    const [selected, setSelected] = useState(
-        order?.shippingProvider || shopShippingConfig?.defaultProvider || null
-    );
-    const [trackingNum, setTrackingNum] = useState("");
-
-    if (!open || !order) return null;
-
-    const availableProviders = shopShippingConfig?.enabledProviders || ['ghtk', 'jt', 'viettel'];
-    const options = PROVIDER_OPTIONS.filter(p => availableProviders.includes(p.key));
-    const shippingTier = order.shippingTier || 'express';
-    const tierMeta = TIER_META[shippingTier] || TIER_META.express;
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-
-            {/* Modal */}
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-                {/* Header */}
-                <div className="px-6 pt-6 pb-4 border-b border-[#EDE8E0]">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h3 className="text-lg font-bold text-slate-800">Bàn giao đơn vị vận chuyển</h3>
-                            <p className="text-xs text-slate-400 mt-0.5">Đơn #{order?.orderNumber}</p>
-                        </div>
-                        <button onClick={onClose} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
-                            <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Body */}
-                <div className="px-6 py-5 space-y-5">
-                    {/* Shipping tier — locked, user đã chọn rồi */}
-                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide">Phương thức giao hàng</span>
-                            <span className="text-[10px] bg-slate-200 text-slate-500 px-2 py-0.5 rounded-full font-medium">Đã chọn</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-[10px] text-white ${
-                                shippingTier === 'economy' ? 'bg-green-500' : 'bg-orange-500'
-                            }`}>
-                                {shippingTier === 'economy' ? 'TK' : 'NH'}
-                            </div>
-                            <div>
-                                <p className={`font-bold text-[14px] ${tierMeta.tone}`}>{tierMeta.label}</p>
-                                <p className="text-[11.5px] text-slate-400">{tierMeta.desc}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Provider selection */}
-                    <div>
-                        <p className="text-sm font-semibold text-slate-700 mb-3">Chọn đơn vị vận chuyển</p>
-                        <div className="space-y-2">
-                            {options.map((p) => {
-                                const isSelected = selected === p.key;
-                                return (
-                                    <div
-                                        key={p.key}
-                                        onClick={() => setSelected(p.key)}
-                                        className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
-                                            isSelected ? "border-teal-400 bg-teal-50" : "border-[#EDE8E0] hover:border-teal-300"
-                                        }`}
-                                    >
-                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                                            isSelected ? "border-teal-500 bg-teal-500" : "border-slate-300"
-                                        }`}>
-                                            {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
-                                        </div>
-                                        <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${p.color} flex items-center justify-center text-white text-xs font-black`}>
-                                            {p.short}
-                                        </div>
-                                        <div>
-                                            <p className={`text-sm font-bold ${isSelected ? "text-teal-700" : "text-slate-700"}`}>{p.name}</p>
-                                            <p className="text-[11px] text-slate-400">{p.desc}</p>
-                                        </div>
-                                        {shopShippingConfig?.defaultProvider === p.key && (
-                                            <span className="ml-auto text-[10px] text-teal-600 font-semibold bg-teal-100 px-2 py-0.5 rounded-full">Mặc định</span>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Tracking number */}
-                    <div>
-                        <p className="text-sm font-semibold text-slate-700 mb-2">Mã vận đơn <span className="text-slate-400 font-normal">(tùy chọn)</span></p>
-                        <input
-                            type="text"
-                            value={trackingNum}
-                            onChange={(e) => setTrackingNum(e.target.value.toUpperCase())}
-                            placeholder="Nhập mã vận đơn sau khi tạo đơn ở hãng..."
-                            className="w-full px-4 py-2.5 border-2 border-[#EDE8E0] rounded-xl text-sm focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100 transition placeholder:text-slate-300"
-                        />
-                    </div>
-                </div>
-
-                {/* Footer */}
-                <div className="px-6 pb-6 flex gap-2">
-                    <button
-                        onClick={onClose}
-                        className="flex-1 py-2.5 rounded-xl border-2 border-[#EDE8E0] text-slate-500 font-semibold text-sm hover:border-slate-300 transition-colors"
-                    >
-                        Hủy
-                    </button>
-                    <button
-                        onClick={() => { onConfirm(selected, trackingNum); onClose(); }}
-                        disabled={!selected}
-                        className="flex-1 py-2.5 rounded-xl bg-teal-500 text-white font-bold text-sm hover:bg-teal-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                    >
-                        Xác nhận giao hàng
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 /* ---- Order detail drawer ---- */
-const OrderDetail = ({ open, onClose, order, onAction, onActionShipping, busy, shopShippingConfig }) => {
+const OrderDetail = ({ open, onClose, order, onAction, busy }) => {
     if (!order) return null;
     const st = STATUS_META[order.status] || STATUS_META.pending;
     const pay = PAYMENT_META[order.paymentMethod] || { label: order.paymentMethod, tone: "gray" };
@@ -298,15 +174,9 @@ const OrderDetail = ({ open, onClose, order, onAction, onActionShipping, busy, s
             {(next || canCancel) && (
                 <div className="flex gap-2 flex-wrap">
                     {next && (
-                        next.to === 'shipping' ? (
-                            <Btn variant="primary" className="flex-1" disabled={busy} onClick={() => onActionShipping(order)}>
-                                <IconCheck size={14} strokeWidth={2.5} /> Giao hàng
-                            </Btn>
-                        ) : (
-                            <Btn variant="primary" className="flex-1" disabled={busy} onClick={() => onAction(order, next.to)}>
-                                <IconCheck size={14} strokeWidth={2.5} /> {busy ? "Đang xử lý..." : next.label}
-                            </Btn>
-                        )
+                        <Btn variant="primary" className="flex-1" disabled={busy} onClick={() => onAction(order, next.to)}>
+                            <IconCheck size={14} strokeWidth={2.5} /> {next.label}
+                        </Btn>
                     )}
                     {canCancel && (
                         <Btn variant="danger" size="sm" disabled={busy} onClick={() => onAction(order, "cancelled")}>Huỷ đơn</Btn>
@@ -331,15 +201,6 @@ const Orders = () => {
     const [panelOpen, setPanelOpen] = useState(false);
     const [selectedId, setSelectedId] = useState(null);
     const [busy, setBusy] = useState(false);
-    const [shippingProviderModal, setShippingProviderModal] = useState(false); // { order, provider, trackingNum }
-    const [shopShippingConfig, setShopShippingConfig] = useState(null);
-
-    // Fetch shop config on mount
-    useEffect(() => {
-        getMyShopApi().then(res => {
-            if (res.success) setShopShippingConfig(res.data.shop?.shippingConfig);
-        });
-    }, []);
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -384,41 +245,6 @@ const Orders = () => {
             }
         } catch {
             showToast("Có lỗi xảy ra", "error");
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    // Kick off "Giao hàng" flow — luôn mở modal để chọn provider
-    const doActionShipping = (order) => {
-        setPanelOpen(false);
-        // Luôn mở modal cho phép vendor chọn/chọn lại provider
-        setShippingProviderModal(order);
-    };
-
-    // Confirm "Giao hàng" with selected provider
-    const doConfirmShipping = async (provider, trackingNum) => {
-        if (!shippingProviderModal) return;
-        // shippingProviderModal is the order itself (set directly in doActionShipping)
-        const order = shippingProviderModal;
-        const effectiveProvider = provider || order.shippingProvider;
-        try {
-            setBusy(true);
-            const res = await updateVendorOrderStatusApi(order._id, 'shipping', {
-                shippingProvider: effectiveProvider,
-                trackingNumber: trackingNum || null,
-            });
-            if (res.success) {
-                showToast(`Đã bàn giao cho ${PROVIDER_OPTIONS.find(p => p.key === effectiveProvider)?.name || effectiveProvider}`, "success");
-                setShippingProviderModal(null);
-                await fetchOrders();
-            } else {
-                showToast(msgOf(res) || "Cập nhật thất bại", "error");
-                setShippingProviderModal(null);
-            }
-        } catch {
-            showToast("Có lỗi xảy ra", "error");
-            setShippingProviderModal(null);
         } finally {
             setBusy(false);
         }
@@ -488,13 +314,9 @@ const Orders = () => {
                                     <td className="px-3.5 py-3">
                                         <div className="flex gap-1">
                                             {next ? (
-                                                next.to === 'shipping' ? (
-                                                    <Btn variant="primary" size="xs" disabled={busy} onClick={() => doActionShipping(o)}>
-                                                        Giao hàng{o.shippingProvider ? ` (${PROVIDER_OPTIONS.find(p => p.key === o.shippingProvider)?.short || o.shippingProvider})` : ''}
-                                                    </Btn>
-                                                ) : (
-                                                    <Btn variant="primary" size="xs" disabled={busy} onClick={() => doAction(o, next.to)}>{next.label}</Btn>
-                                                )
+                                                <Btn variant="primary" size="xs" disabled={busy} onClick={() => doAction(o, next.to)}>
+                                                    {next.label}{o.shippingProvider && next.to === 'shipping' ? ` (${PROVIDER_OPTIONS.find(p => p.key === o.shippingProvider)?.short || o.shippingProvider})` : ''}
+                                                </Btn>
                                             ) : (
                                                 <Btn variant="outline" size="xs" onClick={() => openDetail(o)}>Chi tiết</Btn>
                                             )}
@@ -522,17 +344,7 @@ const Orders = () => {
                 onClose={() => setPanelOpen(false)}
                 order={selected}
                 onAction={doAction}
-                onActionShipping={doActionShipping}
                 busy={busy}
-                shopShippingConfig={shopShippingConfig}
-            />
-
-            <ChooseProviderModal
-                open={!!shippingProviderModal}
-                onClose={() => setShippingProviderModal(null)}
-                order={shippingProviderModal}
-                shopShippingConfig={shopShippingConfig}
-                onConfirm={doConfirmShipping}
             />
         </div>
     );

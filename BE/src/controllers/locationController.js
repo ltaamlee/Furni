@@ -1,31 +1,33 @@
-const axios = require('axios');
+/**
+ * Location controller - administrative divisions.
+ * Dữ liệu local từ config/provinces.js, không gọi API bên ngoài.
+ */
+const { PROVINCES } = require('../config/provinces');
 
+const axios = require('axios');
 const EXTERNAL_API = 'https://provinces.open-api.vn/api';
 
-// Proxy: List all provinces
+// Proxy: List all provinces — dùng data local (34 tỉnh 2025)
 const getProvincesHandler = async (req, res) => {
     try {
-        const response = await axios.get(`${EXTERNAL_API}/?depth=1`, {
-            timeout: 10000,
-        });
         res.status(200).json({
             success: true,
-            data: response.data.map(p => ({
+            data: PROVINCES.map(p => ({
                 ProvinceID: p.code,
                 ProvinceName: p.name,
             })),
         });
     } catch (error) {
-        console.error('Error fetching provinces:', error.message);
-        res.status(502).json({
+        console.error('Error in getProvinces:', error.message);
+        res.status(500).json({
             success: false,
-            message: 'Không thể lấy danh sách tỉnh/thành phố',
+            message: 'Lỗi khi lấy danh sách tỉnh/thành phố',
             error: error.message,
         });
     }
 };
 
-// Proxy: Get districts by province code
+// Proxy: Get districts by province code — gọi open-api.vn
 const getDistrictsHandler = async (req, res) => {
     try {
         const { provinceCode } = req.params;
@@ -55,7 +57,7 @@ const getDistrictsHandler = async (req, res) => {
     }
 };
 
-// Proxy: Get wards by district code
+// Proxy: Get wards by district code — gọi open-api.vn
 const getWardsHandler = async (req, res) => {
     try {
         const { districtCode } = req.params;
@@ -85,7 +87,7 @@ const getWardsHandler = async (req, res) => {
     }
 };
 
-// Proxy: Get all wards of a province (flattened from all districts — for new 2-level structure)
+// Proxy: Get all wards of a province — gọi open-api.vn
 const getWardsByProvinceHandler = async (req, res) => {
     try {
         const { provinceCode } = req.params;
@@ -99,8 +101,7 @@ const getWardsByProvinceHandler = async (req, res) => {
             timeout: 20000,
         });
         const province = response.data;
-        // Flatten all wards from all districts (depth=3 returns province → districts → wards)
-        const allWards = (province.districts || []).flatMap((d) => d.wards || []);
+        const allWards = (province.districts || []).flatMap(d => d.wards || []);
         res.status(200).json({
             success: true,
             data: allWards.map(w => ({

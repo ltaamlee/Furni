@@ -671,6 +671,7 @@ const updateMyOrderStatus = async (req, res) => {
                     return res.status(400).json({ success: false, message: 'Đơn vị vận chuyển không hợp lệ!' });
                 }
             }
+        }
 
         // Nếu huỷ: hoàn tồn kho cho các sản phẩm trong đơn
         if (status === ORDER_STATUS.CANCELLED && order.products) {
@@ -679,7 +680,7 @@ const updateMyOrderStatus = async (req, res) => {
             ));
         }
 
-        // pre-save hook của Order tự thêm statusHistory + set confirmedAt/deliveredAt/cancelledAt
+        // Cập nhật trạng thái
         order.status = status;
         if (note) order.statusHistory.push({ status, timestamp: new Date(), note });
         if (status === 'shipping') {
@@ -688,7 +689,7 @@ const updateMyOrderStatus = async (req, res) => {
             if (trackingNumber) order.trackingNumber = trackingNumber;
         }
         await order.save();
-        }
+
         res.status(200).json({ success: true, message: 'Cập nhật trạng thái thành công', data: { status: order.status, shippingProvider: order.shippingProvider } });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi khi cập nhật trạng thái', error: error.message });
@@ -1039,17 +1040,13 @@ const updateShippingConfig = async (req, res) => {
         const shop = await getOwnerShop(req.user._id);
         if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
 
-        const { enabledProviders, freeShippingThreshold, defaultProvider, isUrbanZone } = req.body;
+        const { selectedProvider, freeShippingThreshold, isUrbanZone } = req.body;
+        const VALID_PROVIDERS = ['jt', 'ghtk', 'viettel'];
 
-        // Validate enabledProviders
-        if (enabledProviders !== undefined) {
-            if (!Array.isArray(enabledProviders) || enabledProviders.length === 0) {
-                return res.status(400).json({ success: false, message: 'Phải chọn ít nhất 1 đơn vị vận chuyển!' });
-            }
-            const VALID_PROVIDERS = ['jt', 'ghtk', 'viettel'];
-            const invalid = enabledProviders.filter(p => !VALID_PROVIDERS.includes(p));
-            if (invalid.length > 0) {
-                return res.status(400).json({ success: false, message: `Đơn vị không hợp lệ: ${invalid.join(', ')}` });
+        // Validate selectedProvider
+        if (selectedProvider !== undefined) {
+            if (!VALID_PROVIDERS.includes(selectedProvider)) {
+                return res.status(400).json({ success: false, message: 'Đơn vị vận chuyển không hợp lệ!' });
             }
         }
 
@@ -1060,30 +1057,12 @@ const updateShippingConfig = async (req, res) => {
             }
         }
 
-        // Validate defaultProvider
-        if (defaultProvider !== undefined) {
-            const VALID_PROVIDERS = ['jt', 'ghtk', 'viettel'];
-            if (!VALID_PROVIDERS.includes(defaultProvider)) {
-                return res.status(400).json({ success: false, message: 'Đơn vị vận chuyển mặc định không hợp lệ!' });
-            }
-            // defaultProvider must be in enabledProviders
-            if (enabledProviders && !enabledProviders.includes(defaultProvider)) {
-                return res.status(400).json({ success: false, message: 'Đơn vị mặc định phải nằm trong danh sách được hỗ trợ!' });
-            }
-            if (!enabledProviders && shop.shippingConfig?.enabledProviders && !shop.shippingConfig.enabledProviders.includes(defaultProvider)) {
-                return res.status(400).json({ success: false, message: 'Đơn vị mặc định phải nằm trong danh sách được hỗ trợ!' });
-            }
-        }
-
         // Merge partial update
-        if (enabledProviders !== undefined) {
-            shop.shippingConfig = { ...(shop.shippingConfig || {}), enabledProviders };
+        if (selectedProvider !== undefined) {
+            shop.shippingConfig = { ...(shop.shippingConfig || {}), selectedProvider };
         }
         if (freeShippingThreshold !== undefined) {
             shop.shippingConfig = { ...(shop.shippingConfig || {}), freeShippingThreshold };
-        }
-        if (defaultProvider !== undefined) {
-            shop.shippingConfig = { ...(shop.shippingConfig || {}), defaultProvider };
         }
         if (isUrbanZone !== undefined) {
             shop.shippingConfig = { ...(shop.shippingConfig || {}), isUrbanZone: Boolean(isUrbanZone) };
