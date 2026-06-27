@@ -33,6 +33,7 @@ const AdminLayout = () => {
             case "/admin/revenue": return "Báo Cáo Doanh Thu";
             case "/admin/customers": return "Quản Lý User";
             case "/admin/shops": return "Quản Lý Cửa Hàng";
+            case "/admin/orders": return "Quản Lý Đơn Hàng";
             case "/admin/categories": return "Quản Lý Danh Mục";
             case "/admin/promotions": return "Quản Lý Khuyến Mãi";
             case "/admin/commissions": return "Quản Lý Chiết Khấu";
@@ -74,6 +75,15 @@ const AdminLayout = () => {
             icon: (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+            )
+        },
+        {
+            path: "/admin/orders",
+            label: "Quản Lý Đơn Hàng",
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                 </svg>
             )
         },
@@ -137,21 +147,21 @@ const AdminLayout = () => {
     return (
         <div className="min-h-screen flex bg-[#f7f4f1] font-sans w-full">
             {/* ASIDE SIDEBAR  */}
-            <aside className="w-[260px] bg-[#2a160b] text-white flex flex-col fixed h-screen left-0 top-0 z-[100] border-none select-none">
+            <aside className="w-[250px] bg-[#2a160b] text-white flex flex-col fixed h-screen left-0 top-0 z-[100] border-none select-none">
                 {/* Sidebar Brand */}
-                <div className="p-[25px_20px] text-center border-b border-white/10">
-                    <h2 className="m-0 text-[24px] text-[#f8e5c8] tracking-[1px] font-serif font-bold">Sora</h2>
-                    <p className="m-0 mt-[5px] text-[11px] uppercase text-[#aaaaaa] tracking-[1.5px] font-semibold">Admin Control</p>
+                <div className="p-[15px_20px] text-center border-b border-white/10">
+                    <h2 className="m-0 text-[22px] text-[#f8e5c8] tracking-[1px] font-serif font-bold">Sora</h2>
+                    <p className="m-0 mt-[2px] text-[10px] uppercase text-[#aaaaaa] tracking-[1.5px] font-semibold">Admin Control</p>
                 </div>
                 
-                {/* Sidebar Menu Navigation */}
-                <ul className="list-none p-0 m-0 py-[15px] flex-1 overflow-y-auto space-y-[5px]">
+                {/* Sidebar Menu Navigation*/}
+                <ul className="list-none p-0 m-0 py-[10px] flex-1 overflow-y-hidden hover:overflow-y-auto space-y-[2px] scrollbar-hide">
                     {sidebarItems.map((item, idx) => (
                         <li key={idx}>
                             <NavLink
                                 to={item.path}
                                 className={({ isActive }) =>
-                                    `flex items-center justify-between px-[25px] py-[12px] text-[14px] font-medium transition-all duration-300 no-underline ${
+                                    `flex items-center justify-between px-[20px] py-[10px] text-[13px] font-medium transition-all duration-300 no-underline ${
                                         isActive
                                             ? "bg-[#853D12] text-white border-l-4 border-[#f8e5c8]"
                                             : "text-[#d4c5b9] hover:bg-[#3d2111] hover:text-white"
@@ -159,7 +169,7 @@ const AdminLayout = () => {
                                 }
                             >
                                 <div className="flex items-center">
-                                    <span className="text-[20px] mr-[12px] w-[24px] text-center flex items-center justify-center">
+                                    <span className="text-[18px] mr-[10px] w-[20px] text-center flex items-center justify-center">
                                         {item.icon}
                                     </span>
                                     {item.label}
@@ -167,7 +177,7 @@ const AdminLayout = () => {
 
                                 {/* HIỂN THỊ CỤC BADGE ĐỎ CHỈ Ở TAB THÔNG BÁO */}
                                 {item.path === "/admin/notifications" && unreadCount > 0 && (
-                                    <span className="bg-[#d93025] text-white text-[11px] font-bold h-[20px] min-w-[20px] px-[6px] flex items-center justify-center rounded-[10px] shadow-sm">
+                                    <span className="bg-[#d93025] text-white text-[10px] font-bold h-[18px] min-w-[18px] px-[5px] flex items-center justify-center rounded-[9px] shadow-sm">
                                         {unreadCount > 99 ? '99+' : unreadCount}
                                     </span>
                                 )}
@@ -177,12 +187,12 @@ const AdminLayout = () => {
                 </ul>
 
                 {/* Sidebar Footer Logout */}
-                <div className="py-[15px] border-t border-white/10">
+                <div className="py-[10px] border-t border-white/10">
                     <button 
                         onClick={handleLogout}
-                        className="w-full text-left bg-transparent border-none cursor-pointer flex items-center px-[25px] py-[12px] text-[#d4c5b9] hover:bg-[#3d2111] hover:text-[#fca5a5] text-[14px] font-medium transition-all no-underline outline-none"
+                        className="w-full text-left bg-transparent border-none cursor-pointer flex items-center px-[20px] py-[10px] text-[#d4c5b9] hover:bg-[#3d2111] hover:text-[#fca5a5] text-[13px] font-medium transition-all no-underline outline-none"
                     >
-                        <span className="text-[20px] mr-[12px] w-[24px] text-center flex items-center justify-center">
+                        <span className="text-[18px] mr-[10px] w-[20px] text-center flex items-center justify-center">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                             </svg>

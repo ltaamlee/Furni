@@ -45,6 +45,7 @@ import AdminNotifications from "./pages/admin/Notifications";
 import AdminRevenue from "./pages/admin/Revenue";
 import AdminShippingRates from "./pages/admin/ShippingRates";
 import AdminPlatformSettings from "./pages/admin/PlatformSettings";
+import AdminOrdersPage from "./pages/admin/Orders";
 
 // Vendor pages
 import VendorRegister from "./pages/vendor/Register";
@@ -141,6 +142,7 @@ function App() {
                     <Route path="customers" element={<AdminCustomersPage />} />
                     <Route path="shops" element={<AdminShops />} />
                     <Route path="shops/:id" element={<AdminShopDetail />} />
+                    <Route path="orders" element={<AdminOrdersPage />} />
                     <Route path="categories" element={<AdminCategoriesPage />} />
                     <Route path="promotions" element={<AdminPromotions />} />
                     <Route path="commissions" element={<AdminCommission />} />

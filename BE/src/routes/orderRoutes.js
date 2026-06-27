@@ -12,7 +12,9 @@ const {
     processCancelRequest,
     autoConfirmOrders,
     confirmReceived,
-    getOrderStats
+    getOrderStats,
+    adminForceCancelOrder,
+    getAdminOrderById
 } = require('../controllers/orderController');
 
 const { protect, authorize } = require('../middleware/authMiddleware');
@@ -34,5 +36,7 @@ router.put('/:id/status', protect, authorize('admin', 'vendor'), updateOrderStat
 router.put('/:id/cancel-request', protect, authorize('admin'), processCancelRequest);
 router.post('/auto-confirm', protect, authorize('admin'), autoConfirmOrders);
 router.get('/admin/stats', protect, authorize('admin'), getOrderStats);
+router.put('/admin/:id/force-cancel', protect, authorize('admin'), adminForceCancelOrder);
+router.get('/admin/:id', protect, authorize('admin'), getAdminOrderById);
 
 module.exports = router;

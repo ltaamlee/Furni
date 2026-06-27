@@ -674,21 +674,44 @@ const updateOrderStatus = async (req, res) => {
     }
 };
 
-// @desc    Get all orders (Admin)
+// @desc    Get all orders (Admin/Vendor) 
 // @route   GET /api/orders/admin/all
-// @access  Private (Admin)
+// @access  Private (Admin, Vendor)
 const getAllOrders = async (req, res) => {
     try {
-        const { status, page = 1, limit = 20 } = req.query;
+        const { status, shopId, search, page = 1, limit = 20 } = req.query;
 
         const query = {};
+        
+        //  Lọc theo trạng thái
         if (status) {
             query.status = status;
+        }
+
+        // Lọc theo Shop 
+        if (shopId) {
+            query.shop = shopId;
+        }
+
+        // Tìm kiếm theo mã đơn hàng
+        if (search) {
+            query.orderNumber = { $regex: search, $options: 'i' };
+        }
+
+        // Nếu là Vendor chỉ được xem đơn của shop mình
+        if (req.user.role === 'vendor') {
+            const vendorShop = await Shop.findOne({ owner: req.user._id });
+            if (!vendorShop) {
+                return res.status(403).json({ success: false, message: 'Tài khoản chưa có cửa hàng' });
+            }
+            query.shop = vendorShop._id; 
         }
 
         const skip = (Number(page) - 1) * Number(limit);
         const orders = await Order.find(query)
             .populate('user', 'fullName email phone')
+            .populate('shop', 'name code logo') // Lấy thêm thông tin Shop
+            .populate('products.product', 'name images slug') // Lấy thêm thông tin Sản phẩm
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(Number(limit));
@@ -924,12 +947,76 @@ const getOrderStats = async (req, res) => {
         });
     }
 };
+// @desc    Admin force cancel order
+// @route   PUT /api/orders/admin/:id/force-cancel
+// @access  Private (Admin)
+const adminForceCancelOrder = async (req, res) => {
+    try {
+        const { reason } = req.body;
+        const order = await Order.findById(req.params.id);
 
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
+        }
+
+        if ([ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED].includes(order.status)) {
+            return res.status(400).json({ success: false, message: 'Không thể hủy đơn hàng đã giao thành công hoặc đã bị hủy từ trước!' });
+        }
+
+        // Hoàn lại tồn kho cho các sản phẩm trong đơn
+        for (const item of order.products) {
+            await Product.findByIdAndUpdate(item.product, {
+                $inc: { quantity: item.quantity }
+            });
+        }
+
+        // Đổi trạng thái và lưu lịch sử
+        order.status = ORDER_STATUS.CANCELLED;
+        order.cancelledAt = new Date();
+        order.statusHistory.push({
+            status: ORDER_STATUS.CANCELLED,
+            timestamp: new Date(),
+            note: `[ADMIN SÀN HỦY KHẨN CẤP] Lý do: ${reason || 'Vi phạm chính sách sàn'}`
+        });
+
+        await order.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Đã hủy đơn hàng khẩn cấp thành công!',
+            data: order
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi Admin hủy đơn',
+            error: error.message
+        });
+    }
+};
+// @desc    Get single order detail (Admin)
+// @route   GET /api/orders/admin/:id
+// @access  Private (Admin)
+const getAdminOrderById = async (req, res) => {
+    try {
+        const order = await Order.findById(req.params.id)
+            .populate('user', 'fullName email phone')
+            .populate('shop', 'name code logo phone address email')
+            .populate('products.product', 'name images slug price quantity');
+
+        if (!order) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
+
+        res.status(200).json({ success: true, data: order });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Lỗi khi lấy chi tiết đơn', error: error.message });
+    }
+};
 module.exports = {
     createOrder,
     getUserOrders,
     getOrderById,
     getOrderByNumber,
+    getAdminOrderById,
     cancelOrder,
     confirmOrder,
     updateOrderStatus,
@@ -937,5 +1024,6 @@ module.exports = {
     processCancelRequest,
     autoConfirmOrders,
     confirmReceived,
-    getOrderStats
+    getOrderStats,
+    adminForceCancelOrder
 };

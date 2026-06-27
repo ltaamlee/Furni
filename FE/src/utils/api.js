@@ -403,7 +403,10 @@ const getPlatformTransactionsApi = (params) => {
     const URL_API = "/admin/platform/transactions";
     return axios.get(URL_API, { params });
 };
-
+// Admin — Quản lý đơn hàng
+const getAdminOrdersApi = (params = {}) => axios.get("/orders/admin/all", { params });
+const adminForceCancelOrderApi = (id, reason) => axios.put(`/orders/admin/${id}/force-cancel`, { reason });
+const getAdminOrderByIdApi = (id) => axios.get(`/orders/admin/${id}`);
 // Admin — Thông báo
 const getAdminUnreadNotifCountApi = () => axios.get("/admin/notifications/unread-count");
 const getAdminNotificationsApi = (params) => axios.get("/admin/notifications", { params });
@@ -639,6 +642,9 @@ export {
     runManualPayoutApi,
     getPlatformTransactionsApi,
 
+    getAdminOrderByIdApi,
+    getAdminOrdersApi,
+    adminForceCancelOrderApi,
     getAdminUsersApi,
     updateAdminUserApi,
     toggleBlockUserApi,

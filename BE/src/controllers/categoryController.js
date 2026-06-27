@@ -20,9 +20,8 @@ const createCategory = async (req, res) => {
         const { name, description, parentCategory } = req.body;
 
         if (name) {
-            const existingCategory = await Category.findOne({
-                name: { $regex: new RegExp(`^${name.trim()}$`, 'i') }
-            });
+            const existingCategory = await Category.findOne({ name: name.trim() })
+                .collation({ locale: 'vi', strength: 2 });
             
             if (existingCategory) {
                 return res.status(400).json({ 
@@ -73,9 +72,9 @@ const updateCategory = async (req, res) => {
 
         if (name) {
             const existingCategory = await Category.findOne({
-                name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
+                name: name.trim(),
                 _id: { $ne: req.params.id } 
-            });
+            }).collation({ locale: 'vi', strength: 2 });
             
             if (existingCategory) {
                 return res.status(400).json({ 
