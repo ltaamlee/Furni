@@ -8,7 +8,12 @@ const { ORDER_STATUS } = require('../models/order');
 const payoutService = require('../services/payoutService');
 const { attachPricing } = require('../utils/pricing');
 const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
-const { refundWallet, getOrCreateWallet } = require('./walletController');
+const {
+    allocateWalletAmount,
+    getOrCreateWallet,
+    normalizeMoney,
+    refundOrderToWallet,
+} = require('../services/walletService');
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
 const getProductImage = (product) => {
@@ -82,6 +87,8 @@ const createOrder = async (req, res) => {
             shippingFeesByShop = {},    // { [shopId]: fee } (STEP 11)
             couponCode = null,
             selectedShippingCoupon = null,
+            useWalletBalance = false,
+            walletAmount = 0,
         } = req.body;
 
         // Backward compat: legacy fields (buyNowProduct, selectedProductIds, etc.)
@@ -291,21 +298,49 @@ const createOrder = async (req, res) => {
         // shippingFeesByShop đã được destructured ở đầu hàm
         // Kiểm tra xem có dùng shipping coupon (freeship) không
         const isShippingFree = Boolean(selectedShippingCoupon);
+        const shopTotals = {};
+        const totalByShop = {};
+
+        for (const shopId of shopKeys) {
+            const group = shopGroups[shopId];
+            let shippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
+                ? Number(shippingFeesByShop[shopId])
+                : (req.body.shippingFee || 0);
+            if (isShippingFree) shippingFee = 0;
+
+            const shopCouponDiscount = usedCouponShopId
+                ? (shopId === usedCouponShopId ? couponDiscount : 0)
+                : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
+            const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
+            shopTotals[shopId] = { shippingFee, couponDiscount: shopCouponDiscount, total: groupTotal };
+            totalByShop[shopId] = groupTotal;
+        }
+
+        const checkoutTotal = shopKeys.reduce((sum, key) => sum + (shopTotals[key]?.total || 0), 0);
+        let walletForPartialPayment = null;
+        let walletAllocationByShop = {};
+
+        if (paymentMethod !== 'WALLET' && (useWalletBalance === true || normalizeMoney(walletAmount) > 0)) {
+            walletForPartialPayment = await getOrCreateWallet(req.user._id);
+            const requestedWalletAmount = normalizeMoney(walletAmount) > 0
+                ? normalizeMoney(walletAmount)
+                : checkoutTotal;
+            const usableWalletAmount = Math.min(
+                normalizeMoney(walletForPartialPayment.balance),
+                requestedWalletAmount,
+                normalizeMoney(checkoutTotal)
+            );
+
+            if (usableWalletAmount > 0) {
+                walletAllocationByShop = allocateWalletAmount(shopKeys, totalByShop, usableWalletAmount);
+            }
+        }
 
         // ── Xử lý thanh toán bằng ví điện tử ──────────────────────────────────────
         if (paymentMethod === 'WALLET') {
             // Kiểm tra số dư ví trước khi tạo đơn
             const wallet = await getOrCreateWallet(req.user._id);
-            const totalPayable = shopKeys.reduce((sum, key) => {
-                const group = shopGroups[key];
-                const shippingFee = (shippingFeesByShop[key] !== undefined && shippingFeesByShop[key] !== null)
-                    ? Number(shippingFeesByShop[key])
-                    : (req.body.shippingFee || 0);
-                const shopCouponDiscount = usedCouponShopId
-                    ? (key === usedCouponShopId ? couponDiscount : 0)
-                    : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
-                return sum + Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
-            }, 0);
+            const totalPayable = checkoutTotal;
 
             if (wallet.balance < totalPayable) {
                 return res.status(400).json({
@@ -317,15 +352,10 @@ const createOrder = async (req, res) => {
             // Trừ tiền từ ví cho từng đơn
             for (const shopId of shopKeys) {
                 const group = shopGroups[shopId];
-                let shippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
-                    ? Number(shippingFeesByShop[shopId])
-                    : (req.body.shippingFee || 0);
-                if (isShippingFree) shippingFee = 0;
-
-                const shopCouponDiscount = usedCouponShopId
-                    ? (shopId === usedCouponShopId ? couponDiscount : 0)
-                    : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
-                const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
+                const shopTotal = shopTotals[shopId];
+                const shippingFee = shopTotal.shippingFee;
+                const shopCouponDiscount = shopTotal.couponDiscount;
+                const groupTotal = shopTotal.total;
 
                 const order = new Order({
                     user: req.user._id,
@@ -344,6 +374,8 @@ const createOrder = async (req, res) => {
                     shippingTier: effectiveTier,
                     shippingProvider: getShopShippingProvider(shippingProvider, shopId),
                     totalPrice: groupTotal,
+                    walletUsedAmount: groupTotal,
+                    payableAmount: 0,
                     totalQuantity: group.totalQuantity,
                     orderedAt: new Date(),
                     estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000)
@@ -357,11 +389,13 @@ const createOrder = async (req, res) => {
                 // Trừ tiền từ ví
                 await order.save();
 
-                await wallet.deductForPayment(groupTotal, {
-                    orderId: order._id,
-                    orderNumber: order.orderNumber,
-                    description: `Thanh toán đơn hàng #${order.orderNumber} bằng ví SORA`,
-                });
+                if (groupTotal > 0) {
+                    await wallet.deductForPayment(groupTotal, {
+                        orderId: order._id,
+                        orderNumber: order.orderNumber,
+                        description: `Thanh toán đơn hàng #${order.orderNumber} bằng ví SORA`,
+                    });
+                }
 
                 createdOrders.push(order);
             }
@@ -418,6 +452,9 @@ const createOrder = async (req, res) => {
                     note: note || ''
                 },
                 paymentMethod,
+                paymentStatus: Math.max(0, groupTotal - normalizeMoney(walletAllocationByShop[shopId])) === 0 ? 'paid' : 'pending',
+                walletUsedAmount: normalizeMoney(walletAllocationByShop[shopId]),
+                payableAmount: Math.max(0, groupTotal - normalizeMoney(walletAllocationByShop[shopId])),
                 subtotal: group.subtotal,
                 couponDiscount: shopCouponDiscount,
                 couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
@@ -441,6 +478,16 @@ const createOrder = async (req, res) => {
             }
 
             await order.save();
+
+            const walletDeduction = normalizeMoney(walletAllocationByShop[shopId]);
+            if (walletForPartialPayment && walletDeduction > 0) {
+                await walletForPartialPayment.deductForPayment(walletDeduction, {
+                    orderId: order._id,
+                    orderNumber: order.orderNumber,
+                    description: `Dung so du vi SORA cho don hang #${order.orderNumber}`,
+                });
+            }
+
             createdOrders.push(order);
         }
 
@@ -470,7 +517,8 @@ const createOrder = async (req, res) => {
                 : 'Đặt hàng thành công!',
             data: {
                 orders: createdOrders,
-                isSplit: isMultiVendor
+                isSplit: isMultiVendor,
+                ...(walletForPartialPayment ? { walletBalance: walletForPartialPayment.balance } : {})
             }
         });
     } catch (error) {
@@ -695,6 +743,9 @@ const cancelOrder = async (req, res) => {
 
         order.status = ORDER_STATUS.CANCELLED;
         order.cancelledAt = new Date();
+        await refundOrderToWallet(order, {
+            description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
+        });
         order.statusHistory.push({
             status: ORDER_STATUS.CANCELLED,
             timestamp: new Date(),
@@ -929,6 +980,9 @@ const processCancelRequest = async (req, res) => {
 
             order.status = ORDER_STATUS.CANCELLED;
             order.cancelledAt = new Date();
+            await refundOrderToWallet(order, {
+                description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
+            });
             order.cancelRequest.processedAt = new Date();
             order.cancelRequest.processedBy = req.user._id;
             order.cancelRequest.status = 'approved';
@@ -1130,6 +1184,9 @@ const adminForceCancelOrder = async (req, res) => {
         // Đổi trạng thái và lưu lịch sử
         order.status = ORDER_STATUS.CANCELLED;
         order.cancelledAt = new Date();
+        await refundOrderToWallet(order, {
+            description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
+        });
         order.statusHistory.push({
             status: ORDER_STATUS.CANCELLED,
             timestamp: new Date(),

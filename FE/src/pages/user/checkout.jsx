@@ -106,6 +106,7 @@ const CheckoutPage = () => {
   const [paymentMethod, setPaymentMethod] = useState("COD");
   const [walletBalance, setWalletBalance] = useState(null); // null = chưa load, number = balance
   const [loadingWallet, setLoadingWallet] = useState(false);
+  const [useWalletBalance, setUseWalletBalance] = useState(false);
 
   // ── STEP 7: Unified checkout data from backend ──
   const [checkout, setCheckout] = useState(null);   // full preview from /checkout/preview
@@ -773,7 +774,9 @@ const CheckoutPage = () => {
       const orderPayload = {
         mode: isBuyNow ? 'BUY_NOW' : 'CART',
         shippingAddress,
-        paymentMethod,
+        paymentMethod: effectivePaymentMethod,
+        useWalletBalance: walletDiscountAmount > 0,
+        walletAmount: walletDiscountAmount,
         shippingProvider: shippingProviderMap,
         shippingFeesByShop,
         couponCode: selectedProductCoupon?.code || null,
@@ -784,7 +787,7 @@ const CheckoutPage = () => {
           : { cartItemIds: [...selectedItemIds] }),
       };
 
-      if (paymentMethod === "PAYOS") {
+      if (effectivePaymentMethod === "PAYOS") {
         const res = await createPayOSPaymentWithCartApi(orderPayload);
         if (res.success && res.data.checkoutUrl) {
           window.location.href = res.data.checkoutUrl;
@@ -795,8 +798,9 @@ const CheckoutPage = () => {
         const res = await createOrderApi(orderPayload);
         if (res.success) {
           // Refresh wallet balance if paid via WALLET so FE shows correct balance on return
-          if (paymentMethod === "WALLET" && res.data.walletBalance !== undefined) {
+          if ((effectivePaymentMethod === "WALLET" || walletDiscountAmount > 0) && res.data.walletBalance !== undefined) {
             setWalletBalance(res.data.walletBalance);
+            setUseWalletBalance(false);
           }
           const orders = res.data.orders || [res.data].filter(Boolean);
           const orderNumbers = orders.map((order) => order?.orderNumber).filter(Boolean);
@@ -856,6 +860,12 @@ const CheckoutPage = () => {
   const totalBeforeShipping = selectedSubtotal - totalProductCouponDiscount;
   const effectiveShippingFee = selectedShippingCoupon ? 0 : shippingFee;
   const grandTotal = Math.max(0, totalBeforeShipping + effectiveShippingFee);
+  const availableWalletBalance = Math.max(0, Number(walletBalance) || 0);
+  const walletCoversOrder = availableWalletBalance >= grandTotal && grandTotal > 0;
+  const walletDiscountAmount = useWalletBalance ? Math.min(availableWalletBalance, grandTotal) : 0;
+  const amountToPay = Math.max(0, grandTotal - walletDiscountAmount);
+  const effectivePaymentMethod = walletDiscountAmount > 0 && amountToPay === 0 ? "WALLET" : paymentMethod;
+  const selectedPaymentMethodForUi = useWalletBalance && walletCoversOrder ? "WALLET" : paymentMethod;
 
   // Tìm fee item đầu tiên đang được chọn (để hiển thị ở step 3)
   // Với per-shop shipping: lấy shop đầu tiên có selection
@@ -1077,27 +1087,39 @@ const CheckoutPage = () => {
                 <h2 className="text-[14px] font-extrabold text-[#1C1108]">Phương thức thanh toán</h2>
               </div>
               <div className="p-4 space-y-2.5">
-                <div onClick={() => setPaymentMethod("COD")} className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${paymentMethod === "COD" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"}`}>
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${paymentMethod === "COD" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>{paymentMethod === "COD" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}</div>
-                  <div className="flex-1"><p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán khi nhận hàng (COD)</p><p className="text-[11.5px] text-[#9E8E7E]">Trả tiền mặt khi nhận được hàng</p></div>
-                </div>
-                <div onClick={() => setPaymentMethod("PAYOS")} className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${paymentMethod === "PAYOS" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"}`}>
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${paymentMethod === "PAYOS" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>{paymentMethod === "PAYOS" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}</div>
-                  <div className="flex-1"><p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán online qua PayOS</p><p className="text-[11.5px] text-[#9E8E7E]">Ví điện tử, Ngân hàng, QR Code</p></div>
-                </div>
-                {walletBalance !== null && walletBalance >= grandTotal && (
-                  <div onClick={() => setPaymentMethod("WALLET")} className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${paymentMethod === "WALLET" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"}`}>
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${paymentMethod === "WALLET" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>{paymentMethod === "WALLET" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}</div>
+                {walletBalance !== null && availableWalletBalance > 0 && grandTotal > 0 && (
+                  <div
+                    onClick={() => {
+                      const next = !useWalletBalance;
+                      setUseWalletBalance(next);
+                      if (next && walletCoversOrder) setPaymentMethod("WALLET");
+                      if (!next && paymentMethod === "WALLET") setPaymentMethod("COD");
+                    }}
+                    className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${useWalletBalance ? "border-[#16a34a] bg-[#f0fdf4]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"}`}
+                  >
+                    <div className={`w-5 h-5 ${walletCoversOrder ? "rounded-full" : "rounded"} border-2 flex items-center justify-center flex-shrink-0 ${useWalletBalance ? "border-[#16a34a] bg-[#16a34a]" : "border-[#D5C9BC]"}`}>
+                      {useWalletBalance && (walletCoversOrder
+                        ? <div className="w-2.5 h-2.5 bg-white rounded-full" />
+                        : <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                      )}
+                    </div>
                     <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-[13px] text-[#1C1108]">Ví SORA</p>
-                        <span className="text-[10px] font-bold bg-[#B86B05]/15 text-[#B86B05] px-1.5 py-0.5 rounded-full">Khuyên dùng</span>
-                      </div>
-                      <p className="text-[11.5px] text-[#9E8E7E]">Thanh toán ngay, không chờ</p>
-                      <p className="text-[11px] font-semibold text-[#16a34a] mt-0.5">Số dư: {formatPrice(walletBalance)}</p>
+                      <p className="font-semibold text-[13px] text-[#1C1108]">{walletCoversOrder ? "Thanh toán bằng ví SORA" : "Sử dụng số dư ví SORA"}</p>
+                      <p className="text-[11.5px] text-[#9E8E7E]">
+                        Số dư: {formatPrice(availableWalletBalance)}
+                        {useWalletBalance ? ` - Giảm ${formatPrice(walletDiscountAmount)}` : ""}
+                      </p>
                     </div>
                   </div>
                 )}
+                <div onClick={() => { setPaymentMethod("COD"); if (walletCoversOrder) setUseWalletBalance(false); }} className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${selectedPaymentMethodForUi === "COD" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"}`}>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selectedPaymentMethodForUi === "COD" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>{selectedPaymentMethodForUi === "COD" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}</div>
+                  <div className="flex-1"><p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán khi nhận hàng (COD)</p><p className="text-[11.5px] text-[#9E8E7E]">Trả tiền mặt khi nhận được hàng</p></div>
+                </div>
+                <div onClick={() => { setPaymentMethod("PAYOS"); if (walletCoversOrder) setUseWalletBalance(false); }} className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${selectedPaymentMethodForUi === "PAYOS" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"}`}>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selectedPaymentMethodForUi === "PAYOS" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>{selectedPaymentMethodForUi === "PAYOS" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}</div>
+                  <div className="flex-1"><p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán online qua PayOS</p><p className="text-[11.5px] text-[#9E8E7E]">Ví điện tử, Ngân hàng, QR Code</p></div>
+                </div>
               </div>
             </div>
           </div>
@@ -1128,9 +1150,10 @@ const CheckoutPage = () => {
                   {productCouponDiscount > 0 && <div className="flex justify-between text-[#16a34a]"><span>Giảm giá</span><span className="font-semibold">-{formatPrice(productCouponDiscount)}</span></div>}
                   {selectedShippingCoupon && <div className="flex justify-between text-blue-600"><span>Miễn phí ship</span><span className="font-semibold">-{formatPrice(shippingFee)}</span></div>}
                   <div className="flex justify-between"><span className="text-[#6B5C4C]">Phí vận chuyển</span><span className="font-semibold text-[#1C1108]">{effectiveShippingFee === 0 ? <span className="text-[#16a34a]">Miễn phí</span> : formatPrice(effectiveShippingFee)}</span></div>
+                  {walletDiscountAmount > 0 && <div className="flex justify-between text-[#16a34a]"><span>Ví SORA</span><span className="font-semibold">-{formatPrice(walletDiscountAmount)}</span></div>}
                   <div className="border-t border-[#EDE8E0] pt-3 flex justify-between items-center">
                     <span className="font-bold text-[#1C1108]">Tổng thanh toán</span>
-                    <span className="font-extrabold text-[18px] text-[#95520B]">{formatPrice(grandTotal)}</span>
+                    <span className="font-extrabold text-[18px] text-[#95520B]">{formatPrice(amountToPay)}</span>
                   </div>
                 </div>
 
@@ -1298,7 +1321,7 @@ const CheckoutPage = () => {
         <div className="max-w-[900px] mx-auto px-4 sm:px-6 h-[64px] flex items-center gap-4">
           <div className="flex-1">
             <span className="text-[12px] text-[#9E8E7E]">Tổng thanh toán</span>
-            <p className="font-extrabold text-[20px] text-[#95520B]">{formatPrice(grandTotal)}</p>
+            <p className="font-extrabold text-[20px] text-[#95520B]">{formatPrice(amountToPay)}</p>
           </div>
           <button
             onClick={handlePlaceOrder}

@@ -323,11 +323,6 @@ const OrderHistoryPage = () => {
                                         <div className="px-4 py-2 border-t border-[#EDE8E0] flex items-center justify-between text-xs text-[#A8896A]">
                                             <div className="flex flex-col">
                                                 <span>Mã đơn: <span className="font-mono text-[#1C1108] font-medium">#{order.orderNumber}</span></span>
-                                                {order.products?.some(p => p.shopOrderCode) && (
-                                                    <span className="mt-0.5">
-                                                        Mã shop: {order.products.filter(p => p.shopOrderCode).map(p => p.shopOrderCode).join(', ')}
-                                                    </span>
-                                                )}
                                             </div>
                                             <span>Ngày đặt: {new Date(order.createdAt).toLocaleDateString("vi-VN")}</span>
                                         </div>

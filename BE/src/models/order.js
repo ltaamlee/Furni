@@ -264,6 +264,25 @@ const orderSchema = new mongoose.Schema({
         required: true,
         min: 0
     },
+    walletUsedAmount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    payableAmount: {
+        type: Number,
+        default: null,
+        min: 0
+    },
+    walletRefundedAmount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    refundedToWalletAt: {
+        type: Date,
+        default: null
+    },
     totalQuantity: {
         type: Number,
         required: true,

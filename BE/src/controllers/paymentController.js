@@ -11,7 +11,12 @@ const mongoose = require('mongoose');
 const { ORDER_STATUS } = require('../models/order');
 const { payosConfig, PAYOS_CLIENT_URL } = require('../config/payos');
 const payoutService = require('../services/payoutService');
-const { refundWallet } = require('../services/walletService');
+const {
+    allocateWalletAmount,
+    getOrCreateWallet,
+    normalizeMoney,
+    refundOrderToWallet,
+} = require('../services/walletService');
 
 // Sử dụng thư viện PayOS SDK
 const { PayOS } = require('@payos/node');
@@ -171,6 +176,9 @@ const syncOrderWithPayOS = async (order) => {
                     timestamp: new Date(),
                     note: `Thanh toÃ¡n PayOS ${status.toLowerCase()}`
                 });
+                await refundOrderToWallet(payosOrder, {
+                    description: `Hoan tien phan vi da dung cho don #${payosOrder.orderNumber}`,
+                });
                 await payosOrder.save();
             }
         }
@@ -194,7 +202,7 @@ const syncOrderWithPayOS = async (order) => {
         }
 
         // Hoàn tiền vào ví điện tử
-        await refundWallet(order.user, order.totalPrice, {
+        await refundOrderToWallet(order, {
             orderId: order._id,
             orderNumber: order.orderNumber,
             paymentMethod: 'PAYOS',
@@ -273,9 +281,17 @@ const createPayOSPayment = async (req, res) => {
         await order.save();
 
         // Tạo payment link
+        const paymentAmount = normalizeMoney(order.payableAmount ?? order.totalPrice);
+        if (paymentAmount <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Don hang khong con so tien can thanh toan qua PayOS'
+            });
+        }
+
         const paymentData = {
             orderCode: payosOrderCode,
-            amount: Math.round(order.totalPrice), // PayOS yêu cầu số nguyên
+            amount: Math.round(paymentAmount), // PayOS yêu cầu số nguyên
             description: `TT ${order.orderNumber}`.slice(0, 25),
             buyerName: order.shippingAddress?.fullName || req.user.fullName || 'Khach hang',
             buyerEmail: req.user.email || '',
@@ -345,7 +361,9 @@ const createPayOSPaymentWithCart = async (req, res) => {
             selectedProducts = [],
             buyNowProduct = null,
             couponCode = null,
-            selectedShippingCoupon = null
+            selectedShippingCoupon = null,
+            useWalletBalance = false,
+            walletAmount = 0
         } = req.body;
         const normalizedBuyNowProduct = buyNowProduct?.productId
             ? buyNowProduct
@@ -502,6 +520,42 @@ const createPayOSPaymentWithCart = async (req, res) => {
             const now = new Date();
             const estimatedDelivery = new Date(now.getTime() + (shippingTier === 'express' ? 3 : 7) * 24 * 60 * 60 * 1000);
             let totalPrice = 0;
+            const totalByShop = {};
+
+            for (const shopId of shopKeys) {
+                const group = shopGroups[shopId];
+                const groupItems = group.items || [];
+                const groupSubtotal = groupItems.reduce((sum, item) => sum + (Number(item.price) * Number(item.quantity)), 0);
+                let groupShippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
+                    ? Number(shippingFeesByShop[shopId])
+                    : (shippingFee || 0);
+                if (isShippingFree) groupShippingFee = 0;
+
+                const groupCouponDiscount = usedCouponShopId
+                    ? (shopId === usedCouponShopId ? couponDiscount : 0)
+                    : (subtotal > 0 ? Math.round(couponDiscount * groupSubtotal / subtotal) : 0);
+                totalByShop[shopId] = Math.max(0, groupSubtotal - groupCouponDiscount + groupShippingFee);
+            }
+
+            const checkoutTotal = shopKeys.reduce((sum, key) => sum + (totalByShop[key] || 0), 0);
+            let walletForPartialPayment = null;
+            let walletAllocationByShop = {};
+
+            if (useWalletBalance === true || normalizeMoney(walletAmount) > 0) {
+                walletForPartialPayment = await getOrCreateWallet(req.user._id);
+                const requestedWalletAmount = normalizeMoney(walletAmount) > 0
+                    ? normalizeMoney(walletAmount)
+                    : checkoutTotal;
+                const usableWalletAmount = Math.min(
+                    normalizeMoney(walletForPartialPayment.balance),
+                    requestedWalletAmount,
+                    normalizeMoney(checkoutTotal)
+                );
+
+                if (usableWalletAmount > 0) {
+                    walletAllocationByShop = allocateWalletAmount(shopKeys, totalByShop, usableWalletAmount);
+                }
+            }
 
             for (const shopId of shopKeys) {
                 const group = shopGroups[shopId];
@@ -516,7 +570,9 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     ? (shopId === usedCouponShopId ? couponDiscount : 0)
                     : (subtotal > 0 ? Math.round(couponDiscount * groupSubtotal / subtotal) : 0);
                 const groupTotal = Math.max(0, groupSubtotal - groupCouponDiscount + groupShippingFee);
-                totalPrice += groupTotal;
+                const walletUsedAmount = normalizeMoney(walletAllocationByShop[shopId]);
+                const groupPayableAmount = Math.max(0, groupTotal - walletUsedAmount);
+                totalPrice += groupPayableAmount;
 
                 const firstGroupProduct = productMap[groupItems[0]?.product?.toString()];
                 const groupShop = firstGroupProduct?.shop || null;
@@ -555,6 +611,8 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     },
                     paymentMethod: 'PAYOS',
                     paymentStatus: 'pending',
+                    walletUsedAmount,
+                    payableAmount: groupPayableAmount,
                     subtotal: groupSubtotal,
                     couponDiscount: groupCouponDiscount,
                     couponCode: usedCoupon
@@ -575,6 +633,14 @@ const createPayOSPaymentWithCart = async (req, res) => {
 
                 await order.save();
                 createdOrders.push(order);
+            }
+
+            if (totalPrice <= 0) {
+                await Order.deleteMany({ _id: { $in: createdOrders.map((order) => order._id) } });
+                return res.status(400).json({
+                    success: false,
+                    message: 'So du vi da du thanh toan don hang, vui long chon thanh toan bang vi SORA.'
+                });
             }
 
             const payos = getPayOSInstance();
@@ -607,6 +673,19 @@ const createPayOSPaymentWithCart = async (req, res) => {
             const response = await payos.paymentRequests.create(paymentData);
 
             if (response && response.checkoutUrl) {
+                if (walletForPartialPayment) {
+                    for (const order of createdOrders) {
+                        const walletDeduction = normalizeMoney(order.walletUsedAmount);
+                        if (walletDeduction > 0) {
+                            await walletForPartialPayment.deductForPayment(walletDeduction, {
+                                orderId: order._id,
+                                orderNumber: order.orderNumber,
+                                description: `Dung so du vi SORA cho don hang #${order.orderNumber}`,
+                            });
+                        }
+                    }
+                }
+
                 if (!isBuyNow) {
                     const selectedIdsForRemoval = Array.isArray(cartItemIds) && cartItemIds.length > 0
                         ? cartItemIds
@@ -632,6 +711,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                         paymentId: response.paymentLinkId,
                         orderCode: payosOrderCode,
                         qrCode: response.qrCode,
+                        ...(walletForPartialPayment ? { walletBalance: walletForPartialPayment.balance } : {}),
                     }
                 });
             }
@@ -749,6 +829,9 @@ const payOSWebhook = async (req, res) => {
                         timestamp: new Date(),
                         note: 'Thanh toÃ¡n PayOS tháº¥t báº¡i/bá»‹ há»§y táº¡i cá»•ng thanh toÃ¡n'
                     });
+                    await refundOrderToWallet(payosOrder, {
+                        description: `Hoan tien phan vi da dung cho don #${payosOrder.orderNumber}`,
+                    });
                     await payosOrder.save();
                     console.log('Order payment failed/cancelled:', payosOrder.orderNumber);
                 }
@@ -775,13 +858,14 @@ const payOSWebhook = async (req, res) => {
                 }
 
                 // Hoàn tiền vào ví điện tử
-                await refundWallet(order.user, order.totalPrice, {
+                await refundOrderToWallet(order, {
                     orderId: order._id,
                     orderNumber: order.orderNumber,
                     paymentMethod: 'PAYOS',
                     description: `Hoàn tiền tự động từ hủy PayOS đơn #${order.orderNumber}`,
                 });
 
+                await order.save();
                 console.log('Order payment failed/cancelled + refund to wallet:', order.orderNumber);
             }
         }
@@ -939,6 +1023,9 @@ const cancelPayOSPayment = async (req, res) => {
                         timestamp: new Date(),
                         note: 'Huy thanh toan PayOS'
                     });
+                    await refundOrderToWallet(payosOrder, {
+                        description: `Hoan tien phan vi da dung cho don #${payosOrder.orderNumber}`,
+                    });
                     await payosOrder.save();
                 }
             }
@@ -982,12 +1069,13 @@ const cancelPayOSPayment = async (req, res) => {
         }
 
         // Hoàn tiền vào ví điện tử của khách
-        await refundWallet(order.user, order.totalPrice, {
+        await refundOrderToWallet(order, {
             orderId: order._id,
             orderNumber: order.orderNumber,
             paymentMethod: 'PAYOS',
             description: `Hoàn tiền từ hủy PayOS đơn #${order.orderNumber}`,
         });
+        await order.save();
 
         return res.status(200).json({
             success: true,

@@ -112,7 +112,7 @@ walletSchema.methods.refundFromCancellation = async function(amount, opts = {}) 
         description: opts.description || `Hoàn tiền từ hủy thanh toán PayOS đơn #${opts.orderNumber || ''}`,
         orderId: opts.orderId || null,
         orderNumber: opts.orderNumber || null,
-        paymentMethod: 'PAYOS',
+        paymentMethod: opts.paymentMethod || 'PAYOS',
         status: 'completed',
     });
     await this.save();
@@ -134,7 +134,7 @@ walletSchema.methods.deductForPayment = async function(amount, opts = {}) {
         description: opts.description || `Thanh toán đơn hàng #${opts.orderNumber || ''}`,
         orderId: opts.orderId || null,
         orderNumber: opts.orderNumber || null,
-        paymentMethod: 'WALLET',
+        paymentMethod: opts.paymentMethod || 'WALLET',
         status: 'completed',
     });
     await this.save();
