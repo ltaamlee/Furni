@@ -35,6 +35,7 @@ const {
 } = require('../controllers/adminPromotionController');
 const { getCommissionsList, updateCommissionRate } = require('../controllers/commissionController');
 const { getAdminUnreadCount, getAdminNotifications, markReadAdmin, deleteAdminNotification } = require('../controllers/adminNotificationController');
+const { getAdminWalletBalances } = require('../controllers/adminWalletController');
 const { getRevenueStats } = require('../controllers/adminRevenueController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { validateUpdateProfile } = require('../middleware/validationMiddleware');
@@ -80,12 +81,6 @@ router.put('/products/:id/toggle-visibility', protect, authorize('admin'), toggl
 router.route('/promotions')
   .get(getAdminPromotions)
   .post(createAdminPromotion);
-  
-
-// Khuyến mãi toàn sàn (Admin only)
-router.route('/promotions')
-  .get(getAdminPromotions)
-  .post(createAdminPromotion);
 
 router.route('/promotions/:id')
   .put(updateAdminPromotion)
@@ -97,6 +92,10 @@ router.route('/commissions')
   
 router.route('/commissions/:id/rate')
   .put(updateCommissionRate);
+
+// Admin Wallet
+router.get('/wallet/balances', getAdminWalletBalances);
+
 // Admin Notifications
 router.get('/notifications/unread-count', getAdminUnreadCount);
 router.get('/notifications', getAdminNotifications);

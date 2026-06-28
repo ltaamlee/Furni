@@ -113,7 +113,7 @@ const getCart = async (req, res) => {
                 promotionId: product.promotion?._id || item.promotionId || null,
                 promotionName: product.promotion?.name || item.promotionName || null,
                 addedAt: item.addedAt || cart.createdAt,
-                weight: product?.weight || 0, // Thêm weight để tính phí vận chuyển
+                weight: (item.variantWeight != null ? item.variantWeight : product?.weight) || 0,
                 ...(item.variant ? {
                     variant: item.variant,
                     variantId: item.variantId || null,
@@ -121,7 +121,13 @@ const getCart = async (req, res) => {
                     variantSku: item.variantSku || null,
                     variantSize: item.variantSize || null,
                     variantPrice: item.variantPrice,
-                    variantStock: item.variantStock
+                    variantStock: item.variantStock,
+                    variantColor: item.variantColor || null,
+                    variantMaterial: item.variantMaterial || null,
+                    variantStyle: item.variantStyle || null,
+                    variantDimensions: item.variantDimensions || null,
+                    variantWeight: item.variantWeight ?? 0,
+                    variantDescription: item.variantDescription || null,
                 } : {})
             };
         }))).filter(Boolean);
@@ -258,6 +264,12 @@ const addToCart = async (req, res) => {
                         variantSize: selectedVariant.size || null,
                         variantPrice: selectedVariant.price || null,
                         variantStock: selectedVariant.stock || 0,
+                        variantColor: selectedVariant.color || null,
+                        variantMaterial: selectedVariant.material || null,
+                        variantStyle: selectedVariant.style || null,
+                        variantDimensions: selectedVariant.dimensions || null,
+                        variantWeight: selectedVariant.weight || 0,
+                        variantDescription: selectedVariant.description || null,
                     } : {})
                 }]
             });
@@ -300,6 +312,12 @@ const addToCart = async (req, res) => {
                     existingProduct.variantSize = selectedVariant.size || null;
                     existingProduct.variantPrice = selectedVariant.price || null;
                     existingProduct.variantStock = selectedVariant.stock || 0;
+                    existingProduct.variantColor = selectedVariant.color || null;
+                    existingProduct.variantMaterial = selectedVariant.material || null;
+                    existingProduct.variantStyle = selectedVariant.style || null;
+                    existingProduct.variantDimensions = selectedVariant.dimensions || null;
+                    existingProduct.variantWeight = selectedVariant.weight || 0;
+                    existingProduct.variantDescription = selectedVariant.description || null;
                 } else {
                     // Nếu không chọn variant → xóa variant info
                     existingProduct.variant = null;
@@ -309,6 +327,12 @@ const addToCart = async (req, res) => {
                     existingProduct.variantSize = null;
                     existingProduct.variantPrice = null;
                     existingProduct.variantStock = null;
+                    existingProduct.variantColor = null;
+                    existingProduct.variantMaterial = null;
+                    existingProduct.variantStyle = null;
+                    existingProduct.variantDimensions = null;
+                    existingProduct.variantWeight = null;
+                    existingProduct.variantDescription = null;
                 }
             } else {
                 cart.products.push({
@@ -333,6 +357,12 @@ const addToCart = async (req, res) => {
                         variantSize: selectedVariant.size || null,
                         variantPrice: selectedVariant.price || null,
                         variantStock: selectedVariant.stock || 0,
+                        variantColor: selectedVariant.color || null,
+                        variantMaterial: selectedVariant.material || null,
+                        variantStyle: selectedVariant.style || null,
+                        variantDimensions: selectedVariant.dimensions || null,
+                        variantWeight: selectedVariant.weight || 0,
+                        variantDescription: selectedVariant.description || null,
                     } : {})
                 });
             }

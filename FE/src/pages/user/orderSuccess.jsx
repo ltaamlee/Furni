@@ -69,6 +69,22 @@ const OrderSuccessPage = () => {
         return new Intl.NumberFormat("vi-VN").format(price) + " đ";
     };
 
+    const getItemImage = (item) => {
+        if (Array.isArray(item.images) && item.images.length > 0) {
+            const first = item.images[0];
+            if (typeof first === "string") return first;
+            return first?.url || first || null;
+        }
+        return item.image || item.img || null;
+    };
+
+    const getShippingProviderLabel = (provider) => {
+        if (!provider) return null;
+        if (typeof provider === "string") return provider;
+        if (typeof provider === "object") return provider.name || provider.code || null;
+        return String(provider);
+    };
+
     const getStatusColor = (status) => {
         const colors = {
             pending: "bg-yellow-100 text-yellow-700",
@@ -156,19 +172,34 @@ const OrderSuccessPage = () => {
                                             {getStatusText(orderItem.status)}
                                         </span>
                                     </div>
-                                    <div className="space-y-2">
+                                    <div className="space-y-3">
                                         {(orderItem.products || []).map((item, idx) => (
-                                            <div key={`${orderItem.orderNumber}-${idx}`} className="flex items-center gap-3">
+                                            <div key={`${orderItem.orderNumber}-${idx}`} className="flex gap-3 items-start">
                                                 <img
-                                                    src={item.image || "/placeholder.png"}
+                                                    src={getItemImage(item) || "/placeholder.png"}
                                                     alt={item.name}
-                                                    className="w-11 h-11 object-cover rounded-lg border border-[#EDE8E0]"
+                                                    className="w-14 h-14 object-cover rounded-lg border border-[#EDE8E0] shrink-0"
                                                 />
                                                 <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium text-[#1C1108] line-clamp-1">{item.name}</p>
-                                                    <p className="text-xs text-[#A8896A]">x{item.quantity}</p>
+                                                    <p className="text-sm font-medium text-[#1C1108] line-clamp-2">{item.name}</p>
+                                                    {item.variant && (
+                                                        <p className="text-[10px] text-[#A8896A] mt-0.5">Phân loại: {item.variant}</p>
+                                                    )}
+                                                    {/* Giá: gốc + giảm + số lượng */}
+                                                    <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                                                        {item.originalPrice && item.discount > 0 ? (
+                                                            <>
+                                                                <span className="text-xs font-bold text-[#B86B05]">{formatPrice(item.price)}</span>
+                                                                <span className="text-xs text-[#A8896A] line-through">{formatPrice(item.originalPrice)}</span>
+                                                                <span className="px-1 py-0.5 bg-red-50 text-red-500 text-[10px] font-bold rounded">-{item.discount}%</span>
+                                                            </>
+                                                        ) : (
+                                                            <span className="text-xs font-semibold text-[#B86B05]">{formatPrice(item.price)}</span>
+                                                        )}
+                                                        <span className="text-xs text-[#A8896A] ml-auto">×{item.quantity}</span>
+                                                    </div>
                                                 </div>
-                                                <p className="text-sm font-bold text-[#1C1108]">{formatPrice(item.price * item.quantity)}</p>
+                                                <p className="font-bold text-sm text-[#1C1108] shrink-0">{formatPrice(item.price * item.quantity)}</p>
                                             </div>
                                         ))}
                                     </div>
@@ -176,6 +207,30 @@ const OrderSuccessPage = () => {
                                         <span className="font-semibold text-[#6B5C4C]">Tổng đơn</span>
                                         <span className="font-extrabold text-[#B86B05]">{formatPrice(orderItem.totalPrice)}</span>
                                     </div>
+                                    {orderItem.couponDiscount > 0 && orderItem.couponCode && (
+                                        <div className="flex justify-between text-xs text-green-600 mt-1">
+                                            <span>Giảm ({orderItem.couponCode})</span>
+                                            <span>-{formatPrice(orderItem.couponDiscount)}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between text-xs text-[#A8896A] mt-1">
+                                        <span>Phí vận chuyển</span>
+                                        <span className={orderItem.shippingFee === 0 ? "text-green-600" : ""}>
+                                            {orderItem.shippingFee === 0 ? "Miễn phí" : formatPrice(orderItem.shippingFee)}
+                                        </span>
+                                    </div>
+                                    {orderItem.shippingProvider && getShippingProviderLabel(orderItem.shippingProvider) && (
+                                        <div className="flex justify-between text-xs text-[#A8896A] mt-1">
+                                            <span>Đơn vị vận chuyển</span>
+                                            <span className="text-[#6B5C4C]">{getShippingProviderLabel(orderItem.shippingProvider)}</span>
+                                        </div>
+                                    )}
+                                    {orderItem.trackingNumber && (
+                                        <div className="flex justify-between text-xs text-[#A8896A] mt-1">
+                                            <span>Mã vận đơn</span>
+                                            <span className="font-mono text-[#B86B05] font-semibold">{orderItem.trackingNumber}</span>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -209,7 +264,7 @@ const OrderSuccessPage = () => {
                             {order?.products?.map((item, idx) => (
                                 <div key={idx} className="flex gap-3 items-center">
                                     <img
-                                        src={item.image || "/placeholder.png"}
+                                        src={getItemImage(item) || "/placeholder.png"}
                                         alt={item.name}
                                         className="w-14 h-14 object-cover rounded-lg border border-[#EDE8E0]"
                                     />
@@ -250,6 +305,12 @@ const OrderSuccessPage = () => {
                             <span className="text-[#6B5C4C]">Tạm tính</span>
                             <span className="text-[#1C1108] font-medium">{formatPrice(order?.subtotal)}</span>
                         </div>
+                        {order?.couponDiscount > 0 && (
+                            <div className="flex justify-between">
+                                <span className="text-[#6B5C4C]">Giảm giá {order?.couponCode ? `(${order.couponCode})` : ""}</span>
+                                <span className="text-green-600 font-medium">-{formatPrice(order?.couponDiscount)}</span>
+                            </div>
+                        )}
                         <div className="flex justify-between">
                             <span className="text-[#6B5C4C]">Phí vận chuyển</span>
                             <span className="text-[#1C1108] font-medium">

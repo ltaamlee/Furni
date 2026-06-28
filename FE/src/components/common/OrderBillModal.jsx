@@ -23,6 +23,25 @@ const fmtPrice = (p) =>
         ? "—"
         : new Intl.NumberFormat("vi-VN").format(p) + " đ";
 
+const getShippingProviderLabel = (provider) => {
+    if (!provider) return null;
+    if (typeof provider === 'string') return provider;
+    if (typeof provider === 'object') {
+        return provider.name || provider.code || provider._id || null;
+    }
+    return String(provider);
+};
+
+const getItemImage = (item) => {
+    // images as array of { url } objects or array of strings
+    if (Array.isArray(item.images) && item.images.length > 0) {
+        const first = item.images[0];
+        if (typeof first === 'string') return first;
+        return first?.url || first || null;
+    }
+    return item.image || item.img || null;
+};
+
 /* ─── Vertical Timeline (vendor style) ─── */
 const BillTimeline = ({ order }) => {
     if (order.status === "cancelled") {
@@ -222,7 +241,7 @@ const OrderBillModal = ({ open, onClose, order }) => {
                                             {/* Hình ảnh */}
                                             <div className="w-[60px] h-[60px] rounded-lg border border-[#EDE8E0] overflow-hidden bg-[#FAF7F4] shrink-0">
                                                 <img
-                                                    src={item.image || "/placeholder.png"}
+                                                    src={getItemImage(item) || "/placeholder.png"}
                                                     alt={item.name}
                                                     className="w-full h-full object-cover"
                                                 />
@@ -371,10 +390,10 @@ const OrderBillModal = ({ open, onClose, order }) => {
                                     <span className="text-[#6B5C4C]">{fmtDateTime(order.deliveredAt)}</span>
                                 </div>
                             )}
-                            {order?.shippingProvider && (
+                            {order?.shippingProvider && getShippingProviderLabel(order.shippingProvider) && (
                                 <div className="flex justify-between text-[13px]">
                                     <span className="text-[#9E8E7E]">Đơn vị vận chuyển</span>
-                                    <span className="text-[#6B5C4C]">{order.shippingProvider}</span>
+                                    <span className="text-[#6B5C4C]">{getShippingProviderLabel(order.shippingProvider)}</span>
                                 </div>
                             )}
                             {order?.trackingNumber && (

@@ -1,7 +1,12 @@
 /**
- * Payment Payout Service
- * 
- * Xử lý phân bổ tiền cho vendor khi đơn hàng hoàn tất
+ * Payout Service
+ *
+ * Xử lý chi trả cho vendor khi đơn hàng giao thành công.
+ * Ghi nhận đầy đủ vào AdminLedger (sổ cái kép).
+ *
+ * Nguyên tắc kế toán:
+ *   Tiền không tự sinh ra hoặc mất đi.
+ *   Mọi biến động số dư đều có giao dịch đối ứng (double-entry ledger).
  */
 
 const mongoose = require('mongoose');
@@ -9,34 +14,21 @@ const Wallet = require('../models/wallet');
 const Transaction = require('../models/transaction');
 const Order = require('../models/order');
 const PlatformConfig = require('../models/platformConfig');
+const AdminLedger = require('../models/adminLedger');
+
+const {
+    LEDGER_TYPE,
+    ACCOUNT_TYPE,
+    STATUS: LEDGER_STATUS,
+} = AdminLedger;
 
 const { TYPE: TX_TYPE, CATEGORY: TX_CATEGORY, STATUS: TX_STATUS } = Transaction;
 const { CONFIG_KEYS } = PlatformConfig;
 
-/**
- * Tính phần doanh thu của một shop trong đơn hàng
- * @param {Object} order - Order document
- * @param {ObjectId} shopId - Shop ID
- * @returns {Object} - { shopSubtotal, shopItems, shopQuantity }
- */
-const getShopSliceOfOrder = (order, shopId) => {
-    const sid = shopId.toString();
-    const shopItems = (order.products || []).filter(
-        (p) => p.shop && p.shop.toString() === sid
-    );
-    const shopSubtotal = shopItems.reduce(
-        (s, it) => s + it.price * it.quantity, 0
-    );
-    const shopQuantity = shopItems.reduce((s, it) => s + it.quantity, 0);
-    return { shopItems, shopSubtotal, shopQuantity };
-};
-
-/**
- * Lấy hoặc tạo ví cho shop
- * @param {Object} shop - Shop document
- * @returns {Promise<Wallet>}
- */
-const getOrCreateWallet = async (shop) => {
+/** ─────────────────────────────────────────────────────────────────────
+ * Helper: lấy hoặc tạo ví vendor (Wallet gắn với shop.owner)
+ * ─────────────────────────────────────────────────────────────────── */
+const getOrCreateVendorWallet = async (shop) => {
     let wallet = await Wallet.findOne({ user: shop.owner });
     if (!wallet) {
         wallet = await Wallet.create({
@@ -46,434 +38,488 @@ const getOrCreateWallet = async (shop) => {
             balance: 0,
         });
     }
-    wallet._vendorShopId = shop._id;
     return wallet;
 };
 
-/**
- * Kiểm tra xem đơn hàng đã được chi trả cho vendors chưa
- * @param {ObjectId} orderId - Order ID
- * @returns {Promise<boolean>}
- */
+/** ─────────────────────────────────────────────────────────────────────
+ * Helper: lấy shop owner từ order
+ * ─────────────────────────────────────────────────────────────────── */
+const getShopFromOrder = async (order) => {
+    const { Shop } = require('../models/Shop');
+    if (order.shop) {
+        return Shop.findById(order.shop);
+    }
+    // Multi-item order: lấy shop từ product đầu tiên
+    const firstItem = order.products?.[0];
+    if (firstItem?.shop) {
+        return Shop.findById(firstItem.shop);
+    }
+    return null;
+};
+
+/** ─────────────────────────────────────────────────────────────────────
+ * Helper: kiểm tra đơn đã được chi trả chưa
+ * ─────────────────────────────────────────────────────────────────── */
 const isOrderPaidOut = async (orderId) => {
     const existingTx = await Transaction.findOne({
         order: orderId,
-        category: TX_CATEGORY.ORDER_INCOME
+        category: TX_CATEGORY.ORDER_INCOME,
     });
     return !!existingTx;
 };
 
-/**
- * Tính phí sàn cho một đơn hàng
- * @param {number} amount - Số tiền đơn hàng
- * @returns {Promise<Object>} - { platformFee, netAmount, feePercent }
- */
-const calculatePlatformFee = async (amount) => {
+/** ─────────────────────────────────────────────────────────────────────
+ * Tính phí sàn trên doanh thu ĐÃ TRỪ voucher
+ *
+ * FIX: phí sàn tính trên (subtotal - couponDiscount), không phải subtotal gốc.
+ * Ví dụ: subtotal=900k, coupon=135k → phí = (900k-135k)×5% = 38.250đ
+ *         thay vì 900k×5% = 45.000đ (sàn lỗ 6.750đ mỗi đơn có voucher)
+ *
+ * @param {number} subtotal           - Tổng giá sản phẩm đã giảm cấp sản phẩm (chưa trừ coupon)
+ * @param {number} couponDiscount     - Số tiền voucher đã giảm thêm
+ * @returns {Promise<{platformFee, netRevenue, feePercent}>}
+ * ─────────────────────────────────────────────────────────────────── */
+const calculatePlatformFee = async (subtotal, couponDiscount = 0) => {
     const feePercent = await PlatformConfig.getValue(
         CONFIG_KEYS.PLATFORM_FEE_PERCENT,
-        5 // default 5%
+        5,
     );
-    const platformFee = Math.round(amount * feePercent / 100);
-    const netAmount = amount - platformFee;
-    return { platformFee, netAmount, feePercent };
+    // Doanh thu chịu phí = subtotal - couponDiscount (trừ voucher)
+    const taxableRevenue = Math.max(0, Number(subtotal) - Number(couponDiscount));
+    const platformFee = Math.round(taxableRevenue * feePercent / 100);
+    const netRevenue = taxableRevenue - platformFee;
+    return { platformFee, netRevenue, feePercent, taxableRevenue };
 };
 
-/**
- * Cộng tiền vào ví vendor
- * @param {Wallet} wallet - Wallet document
- * @param {number} amount - Số tiền
- * @param {string} description - Mô tả
- * @returns {Promise<Object>} - Transaction document
- */
-const creditToWallet = async (wallet, amount, description, shopId) => {
-    wallet.balance += amount;
-    await wallet.save();
-
-    const transaction = await Transaction.create({
-        wallet: wallet._id,
-        shop: shopId || wallet._vendorShopId || null,
-        type: TX_TYPE.CREDIT,
-        category: TX_CATEGORY.ORDER_INCOME,
-        amount,
-        status: TX_STATUS.SUCCESS,
-        description,
-        balanceAfter: wallet.balance
-    });
-
-    return transaction;
+/** ─────────────────────────────────────────────────────────────────────
+ * Ghi ledger entry cho một giao dịch Admin
+ * ─────────────────────────────────────────────────────────────────── */
+const createLedgerEntry = async (data, session) => {
+    const entry = await AdminLedger.create([data], { session });
+    return entry[0];
 };
 
-/**
- * Tạo transaction ghi nhận phí sàn
- * @param {number} amount - Số tiền phí
- * @param {ObjectId} orderId - Order ID
- * @param {string} description - Mô tả
- */
-const recordPlatformFee = async (amount, orderId, description) => {
-    // Platform fee có thể ghi vào ví hệ thống hoặc đơn giản là ghi log
-    // Ở đây ta sẽ tạo 1 ví hệ thống (platform wallet)
-    const platformWallet = await Wallet.findOne({ shop: null }); // Ví platform
-    
-    // Nếu cần ghi nhận phí cho platform, uncomment dòng dưới:
-    // await Transaction.create({
-    //     wallet: platformWallet?._id,
-    //     type: TX_TYPE.CREDIT,
-    //     category: TX_CATEGORY.PLATFORM_FEE,
-    //     amount,
-    //     status: TX_STATUS.SUCCESS,
-    //     order: orderId,
-    //     description: description || `Phí sàn từ đơn hàng`
-    // });
-    
-    console.log(`[Platform Fee] ${description}: ${amount.toLocaleString('vi-VN')}đ`);
-};
-
-/**
- * Chi trả cho tất cả vendors trong một đơn hàng
- * Chỉ gọi khi đơn hàng giao thành công
- * 
- * @param {ObjectId} orderId - Order ID
- * @returns {Promise<Object>} - Kết quả chi trả
- */
+/** ─────────────────────────────────────────────────────────────────────
+ * Chi trả cho vendor khi đơn giao thành công (DELIVERED)
+ *
+ * Luồng ledger:
+ *   1. DR PAYOS_HOLDING  platformFee  → CR PLATFORM_FEE  (thu phí sàn)
+ *   2. DR VOUCHER_LIAB   voucherAmt   → CR PAYOS_HOLDING  (ghi nợ voucher sàn, đã trừ ở checkout)
+ *   3. DR PAYOUT_POOL    netAmount   → CR Shop Wallet    (trả tiền cho vendor)
+ *   4. (nếu voucher sàn) CR Shop Wallet voucherPlatformAmount (quyết toán voucher sàn)
+ *
+ * ─────────────────────────────────────────────────────────────────── */
 const payoutOrderToVendors = async (orderId) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-        // Load order với populate shop
-        const order = await Order.findById(orderId)
-            .populate('products.shop')
-            .session(session);
+        const order = await Order.findById(orderId).session(session);
+        if (!order) throw new Error('Không tìm thấy đơn hàng');
 
-        if (!order) {
-            throw new Error('Không tìm thấy đơn hàng');
-        }
-
-        // Kiểm tra đơn hàng đã được chi trả chưa
+        // ── Guard: đã payout rồi → bỏ qua ───────────────────────────
         if (await isOrderPaidOut(orderId)) {
             console.log(`[Payout] Order ${order.orderNumber} đã được chi trả, bỏ qua`);
-            return { success: true, alreadyPaid: true, message: 'Đơn hàng đã được chi trả' };
+            await session.abortTransaction();
+            return { success: true, alreadyPaid: true };
         }
 
-        // Kiểm tra đơn hàng đã giao thành công chưa
+        // ── Guard: chưa delivered ────────────────────────────────────
         if (order.status !== Order.ORDER_STATUS.DELIVERED) {
-            throw new Error('Đơn hàng chưa giao thành công');
+            throw new Error(`Đơn hàng chưa giao thành công (status: ${order.status})`);
         }
 
-        // Kiểm tra nếu là đơn con (đơn từ hệ thống tách đơn multi-vendor)
-        // Đơn con đã có thông tin shop và subtotal riêng
-        if (order.isChildOrder && order.shop) {
-            const shop = order.shop;
-            const shopSubtotal = order.subtotal;
-            const shopQuantity = order.totalQuantity;
-
-            // Tính phí sàn
-            const { platformFee, netAmount } = await calculatePlatformFee(shopSubtotal);
-
-            // Lấy hoặc tạo ví
-            const wallet = await getOrCreateWallet(shop);
-
-            // Cộng tiền vào ví
-            const transaction = await creditToWallet(
-                wallet,
-                netAmount,
-                `Doanh thu từ đơn hàng ${order.orderNumber} (${shopQuantity} sản phẩm)`
-            );
-
-            // Ghi nhận phí sàn
-            await recordPlatformFee(
-                platformFee,
-                orderId,
-                `Phí sàn từ ${shop.name || shop._id} - Đơn ${order.orderNumber}`
-            );
-
-            // Cập nhật transaction với order
-            transaction.order = orderId;
-            transaction.save({ session });
-
-            console.log(`[Payout] Đã chi trả ${netAmount.toLocaleString('vi-VN')}đ cho ${shop.name} (phí: ${platformFee.toLocaleString('vi-VN')}đ)`);
-
-            // Ghi nhận đã chi trả
-            await markOrderPaidOut(orderId, session);
-            await session.commitTransaction();
-
-            return {
-                success: true,
-                orderId,
-                shopId: shop._id,
-                shopSubtotal,
-                platformFee,
-                netAmount,
-                transactionId: transaction._id
-            };
+        // ── Guard: COD chưa xác nhận thanh toán ─────────────────────
+        if (order.paymentMethod === 'COD' && order.paymentStatus !== 'paid') {
+            throw new Error('Đơn COD chưa được xác nhận thanh toán');
         }
 
-        // Lấy danh sách shop unique trong đơn (cho đơn cũ chưa tách)
-        const shopIds = [...new Set(
-            order.products
-                .filter(p => p.shop && p.shop._id)
-                .map(p => p.shop._id.toString())
-        )];
+        const shop = await getShopFromOrder(order);
+        const shopId = shop?._id || null;
 
-        const payoutResults = [];
-        let totalPlatformFee = 0;
-
-        // Chi trả cho từng shop
-        for (const shopId of shopIds) {
-            const shop = order.products.find(
-                p => p.shop && p.shop._id.toString() === shopId
-            ).shop;
-
-            const { shopSubtotal, shopItems, shopQuantity } = getShopSliceOfOrder(order, shopId);
-
-            // Tính phí sàn
-            const { platformFee, netAmount } = await calculatePlatformFee(shopSubtotal);
-
-            // Lấy hoặc tạo ví
-            const wallet = await getOrCreateWallet(shop);
-
-            // Cộng tiền vào ví
-            const transaction = await creditToWallet(
-                wallet,
-                netAmount,
-                `Doanh thu từ đơn hàng ${order.orderNumber} (${shopQuantity} sản phẩm)`
-            );
-
-            // Ghi nhận phí sàn
-            await recordPlatformFee(
-                platformFee,
-                orderId,
-                `Phí sàn từ ${shop.name || shop._id} - Đơn ${order.orderNumber}`
-            );
-
-            // Cập nhật transaction với order
-            transaction.order = orderId;
-            transaction.save({ session });
-
-            payoutResults.push({
-                shopId: shop._id,
-                shopName: shop.name || 'Shop',
-                shopSubtotal,
-                platformFee,
-                netAmount,
-                transactionId: transaction._id
-            });
-
-            totalPlatformFee += platformFee;
-
-            console.log(`[Payout] Đã chi trả ${netAmount.toLocaleString('vi-VN')}đ cho ${shop.name} (phí: ${platformFee.toLocaleString('vi-VN')}đ)`);
-        }
-
-        // Ghi nhận transaction tổng cho order
-        await Transaction.updateOne(
-            { order: orderId, category: TX_CATEGORY.ORDER_INCOME },
-            { $set: { order: orderId } },
-            { session }
+        // ── Tính phí sàn trên (subtotal - couponDiscount) ──────────
+        const { platformFee, netRevenue, feePercent } = await calculatePlatformFee(
+            order.subtotal,
+            order.couponDiscount || 0,
         );
+
+        // ── Số tiền thực trả vendor ────────────────────────────────
+        // netRevenue = subtotal - couponDiscount - platformFee
+        // Nếu có voucher sàn: thêm voucherPlatformAmount (quyết toán)
+        const voucherPlatformAmt = order.voucherPlatformAmount || 0;
+        const totalToVendor = netRevenue + voucherPlatformAmt;
+
+        // ── Ghi ledger: Thu phí sàn ────────────────────────────────
+        if (platformFee > 0) {
+            await createLedgerEntry({
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.PLATFORM_FEE_IN,
+                amount: platformFee,
+                accountDebit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                accountCredit: ACCOUNT_TYPE.PLATFORM_FEE,
+                shop: shopId,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `Thu phí sàn ${feePercent}% từ đơn #${order.orderNumber}`,
+            }, session);
+        }
+
+        // ── Ghi ledger: Quyết toán voucher sàn (nếu có) ────────────
+        if (voucherPlatformAmt > 0) {
+            await createLedgerEntry({
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.VOUCHER_SPONSOR_SETTLE,
+                amount: voucherPlatformAmt,
+                accountDebit: ACCOUNT_TYPE.VOUCHER_LIAB,
+                accountCredit: null,
+                shop: shopId,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `Quyết toán voucher sàn tài trợ cho shop đơn #${order.orderNumber}`,
+            }, session);
+
+            // Đồng thời ghi credit vào ví vendor (không qua PAYOS_HOLDING vì
+            // voucher sàn đã được trừ ở payableAmount lúc checkout)
+            const vendorWallet = await getOrCreateVendorWallet(shop);
+            await creditToVendor(vendorWallet, voucherPlatformAmt, `Quyết toán voucher sàn đơn #${order.orderNumber}`, shopId, order._id, session);
+        }
+
+        // ── Ghi ledger: Chi trả cho vendor ────────────────────────
+        if (netRevenue > 0) {
+            const vendorWallet = await getOrCreateVendorWallet(shop);
+
+            await createLedgerEntry({
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.PAYOUT_TO_VENDOR,
+                amount: netRevenue,
+                accountDebit: ACCOUNT_TYPE.PAYOUT_POOL,
+                accountCredit: null,
+                shop: shopId,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `Chi trả doanh thu đơn #${order.orderNumber} (phí sàn ${feePercent}% = ${platformFee.toLocaleString('vi-VN')}đ)`,
+            }, session);
+
+            // Credit vào ví vendor
+            await creditToVendor(
+                vendorWallet,
+                netRevenue,
+                `Doanh thu đơn hàng #${order.orderNumber}`,
+                shopId,
+                order._id,
+                session,
+            );
+        }
+
+        // ── Cập nhật Order ────────────────────────────────────────
+        order.platformFeeAmount = platformFee;
+        order.platformFeePercent = feePercent;
+        order.payoutStatus = 'paid';
+        order.payoutAt = new Date();
+        await order.save({ session });
+
+        // ── Đánh dấu đã payout (tạo Transaction marker) ───────────
+        await Transaction.create([{
+            wallet: (await getOrCreateVendorWallet(shop))._id,
+            shop: shopId,
+            type: TX_TYPE.CREDIT,
+            category: TX_CATEGORY.ORDER_INCOME,
+            amount: totalToVendor,
+            status: TX_STATUS.SUCCESS,
+            order: order._id,
+            description: `Payout đơn #${order.orderNumber}`,
+        }], { session });
 
         await session.commitTransaction();
 
-        console.log(`[Payout] Hoàn tất chi trả cho đơn ${order.orderNumber}: ${payoutResults.length} shops, tổng phí: ${totalPlatformFee.toLocaleString('vi-VN')}đ`);
+        console.log(`[Payout] ${order.orderNumber}: subtotal=${order.subtotal} | coupon=${order.couponDiscount || 0} | taxable=${netRevenue + platformFee} | fee=${platformFee} | net=${netRevenue} | voucherPlatform=${voucherPlatformAmt} | toVendor=${totalToVendor}`);
 
         return {
             success: true,
+            orderId: order._id,
             orderNumber: order.orderNumber,
-            vendorsPaid: payoutResults.length,
-            results: payoutResults,
-            totalPlatformFee
+            shopId,
+            subtotal: order.subtotal,
+            couponDiscount: order.couponDiscount || 0,
+            platformFee,
+            netRevenue,
+            voucherPlatformAmount: voucherPlatformAmt,
+            totalToVendor,
+            feePercent,
         };
 
     } catch (error) {
         await session.abortTransaction();
-        console.error(`[Payout] Lỗi chi trả cho đơn ${orderId}:`, error.message);
+        console.error(`[Payout] Lỗi chi trả đơn ${orderId}:`, error.message);
         throw error;
     } finally {
         session.endSession();
     }
 };
 
-/**
- * Chi trả hàng loạt cho nhiều đơn hàng
- * Dùng cho cron job hoặc settlement
- * 
- * @param {Array<ObjectId>} orderIds - Danh sách Order IDs
- * @returns {Promise<Object>} - Kết quả
- */
-const batchPayout = async (orderIds) => {
-    const results = {
-        success: [],
-        failed: [],
-        skipped: []
-    };
+/** ─────────────────────────────────────────────────────────────────────
+ * Ghi credit vào ví vendor + tạo Transaction
+ * ─────────────────────────────────────────────────────────────────── */
+const creditToVendor = async (wallet, amount, description, shopId, orderId, session) => {
+    wallet.balance += amount;
+    await wallet.save({ session });
 
-    for (const orderId of orderIds) {
-        try {
-            const result = await payoutOrderToVendors(orderId);
-            if (result.alreadyPaid) {
-                results.skipped.push(orderId);
-            } else {
-                results.success.push(orderId);
-            }
-        } catch (error) {
-            results.failed.push({ orderId, error: error.message });
-        }
-    }
-
-    return results;
-};
-
-/**
- * Chi trả cho tất cả đơn hàng đã giao thành công nhưng chưa chi trả
- * Chạy định kỳ để đảm bảo không bỏ sót
- * 
- * @returns {Promise<Object>} - Kết quả
- */
-const payoutPendingOrders = async () => {
-    const payoutEnabled = await PlatformConfig.getValue(
-        CONFIG_KEYS.PAYOUT_AUTO_ENABLED,
-        true
-    );
-
-    if (!payoutEnabled) {
-        console.log('[Payout] Chi trả tự động đang bị tắt');
-        return { message: 'Chi trả tự động bị tắt' };
-    }
-
-    // Tìm các đơn đã giao thành công nhưng chưa chi trả
-    const paidOutOrderIds = await Transaction.distinct('order', {
+    await Transaction.create([{
+        wallet: wallet._id,
+        shop: shopId || null,
+        type: TX_TYPE.CREDIT,
         category: TX_CATEGORY.ORDER_INCOME,
-        order: { $ne: null }
-    });
-
-    const pendingOrders = await Order.find({
-        status: Order.ORDER_STATUS.DELIVERED,
-        _id: { $nin: paidOutOrderIds }
-    }).select('_id orderNumber');
-
-    if (pendingOrders.length === 0) {
-        console.log('[Payout] Không có đơn hàng nào cần chi trả');
-        return { message: 'Không có đơn hàng nào cần chi trả' };
-    }
-
-    console.log(`[Payout] Tìm thấy ${pendingOrders.length} đơn hàng cần chi trả`);
-
-    const results = await batchPayout(pendingOrders.map(o => o._id));
-
-    return {
-        message: `Đã xử lý ${pendingOrders.length} đơn hàng`,
-        ...results
-    };
+        amount,
+        status: TX_STATUS.SUCCESS,
+        order: orderId,
+        description,
+        balanceAfter: wallet.balance,
+    }], { session });
 };
 
-/**
- * Hoàn tiền cho vendor khi đơn bị hủy sau khi đã chi trả
- * 
- * @param {ObjectId} orderId - Order ID
- * @returns {Promise<Object>} - Kết quả
- */
+/** ─────────────────────────────────────────────────────────────────────
+ * Reverse payout khi đơn bị hủy SAU KHI đã payout (DELIVERED)
+ *
+ * Luồng ledger:
+ *   1. DR Shop Wallet    netRevenue          → CR PAYOUT_POOL  (thu hồi tiền vendor)
+ *   2. DR Shop Wallet    voucherPlatformAmt  → CR VOUCHER_LIAB (hoàn voucher sàn)
+ *   3. DR PLATFORM_FEE   platformFee         → CR PAYOS_HOLDING  (hoàn phí sàn cho sàn)
+ *
+ * Số dư Admin sau khi reverse: phải bằng 0 (không mất tiền)
+ *
+ * ─────────────────────────────────────────────────────────────────── */
 const reversePayoutForCancelledOrder = async (orderId) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
         const order = await Order.findById(orderId).session(session);
-        if (!order) {
-            throw new Error('Không tìm thấy đơn hàng');
-        }
+        if (!order) throw new Error('Không tìm thấy đơn hàng');
 
-        // Tìm các transaction ORDER_INCOME từ đơn này
+        // Tìm transaction ORDER_INCOME từ payout trước đó
         const incomeTransactions = await Transaction.find({
             order: orderId,
             category: TX_CATEGORY.ORDER_INCOME,
-            type: TX_TYPE.CREDIT
+            type: TX_TYPE.CREDIT,
         }).session(session);
 
         if (incomeTransactions.length === 0) {
-            return { success: true, message: 'Đơn hàng chưa được chi trả, không cần hoàn' };
+            console.log(`[ReversePayout] Đơn ${order.orderNumber} chưa được chi trả, không cần reverse`);
+            await session.abortTransaction();
+            return { success: true, reversed: false };
         }
 
-        const refundResults = [];
+        const { platformFee, netRevenue } = await calculatePlatformFee(
+            order.subtotal,
+            order.couponDiscount || 0,
+        );
+        const voucherPlatformAmt = order.voucherPlatformAmount || 0;
 
+        const reverseResults = [];
+
+        // ── Thu hồi netRevenue từ ví vendor ───────────────────────
         for (const tx of incomeTransactions) {
-            const wallet = await Wallet.findById(tx.wallet).session(session);
-            if (!wallet) continue;
+            const vendorWallet = await Wallet.findById(tx.wallet).session(session);
+            if (!vendorWallet) continue;
 
-            // Trừ tiền từ ví vendor
-            if (wallet.balance < tx.amount) {
-                console.warn(`[Refund] Ví ${wallet._id} không đủ số dư để hoàn ${tx.amount}`);
-                wallet.balance = 0;
-            } else {
-                wallet.balance -= tx.amount;
-            }
-            await wallet.save({ session });
+            const debitAmount = Math.min(vendorWallet.balance, tx.amount);
+            vendorWallet.balance = Math.max(0, vendorWallet.balance - debitAmount);
+            await vendorWallet.save({ session });
 
-            // Tạo transaction hoàn tiền
-            const refundTx = await Transaction.create([{
-                wallet: wallet._id,
-                shop: wallet.shop,
+            await Transaction.create([{
+                wallet: vendorWallet._id,
+                shop: tx.shop,
                 type: TX_TYPE.DEBIT,
                 category: TX_CATEGORY.REFUND,
-                amount: tx.amount,
+                amount: debitAmount,
                 status: TX_STATUS.SUCCESS,
                 order: orderId,
-                description: `Hoàn tiền do hủy đơn ${order.orderNumber}`,
-                balanceAfter: wallet.balance
+                description: `Hoàn tiền do hủy đơn #${order.orderNumber} (thu hồi payout)`,
+                balanceAfter: vendorWallet.balance,
             }], { session });
 
-            refundResults.push({
-                walletId: wallet._id,
-                refundedAmount: tx.amount,
-                transactionId: refundTx[0]._id
+            reverseResults.push({
+                walletId: vendorWallet._id,
+                debitedAmount: debitAmount,
+                transactionId: tx._id,
             });
-
-            console.log(`[Refund] Đã hoàn ${tx.amount.toLocaleString('vi-VN')}đ cho ví ${wallet._id}`);
         }
+
+        // ── Ghi ledger: Thu hồi tiền vendor → PAYOUT_POOL ────────
+        if (netRevenue > 0) {
+            await createLedgerEntry({
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.VENDOR_REFUND_IN,
+                amount: netRevenue,
+                accountDebit: null,
+                accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                shop: order.shop || null,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `Thu hồi payout đơn #${order.orderNumber} (hoàn cho sàn)`,
+            }, session);
+        }
+
+        // ── Ghi ledger: Hoàn phí sàn cho Admin ───────────────────
+        if (platformFee > 0) {
+            await createLedgerEntry({
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.PLATFORM_FEE_REFUND,
+                amount: platformFee,
+                accountDebit: ACCOUNT_TYPE.PLATFORM_FEE,
+                accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                shop: order.shop || null,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `Hoàn phí sàn ${order.platformFeePercent}% từ hủy đơn #${order.orderNumber}`,
+            }, session);
+        }
+
+        // ── Ghi ledger: Hoàn voucher sàn (nếu có) ─────────────────
+        if (voucherPlatformAmt > 0) {
+            await createLedgerEntry({
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.VOUCHER_SPONSOR_REFUND,
+                amount: voucherPlatformAmt,
+                accountDebit: ACCOUNT_TYPE.VOUCHER_LIAB,
+                accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                shop: order.shop || null,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `Hoàn voucher sàn tài trợ từ hủy đơn #${order.orderNumber}`,
+            }, session);
+        }
+
+        // ── Cập nhật Order ────────────────────────────────────────
+        order.payoutStatus = 'reversed';
+        await order.save({ session });
 
         await session.commitTransaction();
 
+        console.log(`[ReversePayout] Đơn ${order.orderNumber}: thu hồi net=${netRevenue} | hoàn phí=${platformFee} | hoàn voucher=${voucherPlatformAmt}`);
+
         return {
             success: true,
+            reversed: true,
             orderNumber: order.orderNumber,
-            refunds: refundResults
+            netRevenueReversed: netRevenue,
+            platformFeeRefunded: platformFee,
+            voucherRefunded: voucherPlatformAmt,
+            walletDebits: reverseResults,
         };
 
     } catch (error) {
         await session.abortTransaction();
-        console.error(`[Refund] Lỗi hoàn tiền cho đơn ${orderId}:`, error.message);
+        console.error(`[ReversePayout] Lỗi đơn ${orderId}:`, error.message);
         throw error;
     } finally {
         session.endSession();
     }
 };
 
-/**
- * Lấy tổng quan số dư của tất cả vendors
- * 
- * @returns {Promise<Object>}
- */
+/** ─────────────────────────────────────────────────────────────────────
+ * Chi trả hàng loạt
+ * ─────────────────────────────────────────────────────────────────── */
+const batchPayout = async (orderIds) => {
+    const results = { success: [], failed: [], skipped: [] };
+
+    for (const orderId of orderIds) {
+        try {
+            const result = await payoutOrderToVendors(orderId);
+            if (result.alreadyPaid) results.skipped.push(orderId);
+            else results.success.push(orderId);
+        } catch (error) {
+            results.failed.push({ orderId, error: error.message });
+        }
+    }
+    return results;
+};
+
+/** ─────────────────────────────────────────────────────────────────────
+ * Chi trả tất cả đơn đã giao thành công nhưng chưa payout (cron job)
+ * ─────────────────────────────────────────────────────────────────── */
+const payoutPendingOrders = async () => {
+    const payoutEnabled = await PlatformConfig.getValue(
+        CONFIG_KEYS.PAYOUT_AUTO_ENABLED,
+        true,
+    );
+    if (!payoutEnabled) {
+        console.log('[Payout] Chi trả tự động đang bị tắt');
+        return { message: 'Chi trả tự động bị tắt' };
+    }
+
+    const paidOutOrderIds = await Transaction.distinct('order', {
+        category: TX_CATEGORY.ORDER_INCOME,
+        order: { $ne: null },
+    });
+
+    const pendingOrders = await Order.find({
+        status: Order.ORDER_STATUS.DELIVERED,
+        _id: { $nin: paidOutOrderIds },
+    }).select('_id orderNumber');
+
+    if (pendingOrders.length === 0) {
+        return { message: 'Không có đơn hàng nào cần chi trả' };
+    }
+
+    console.log(`[Payout] Tìm thấy ${pendingOrders.length} đơn hàng cần chi trả`);
+    const results = await batchPayout(pendingOrders.map(o => o._id));
+
+    return {
+        message: `Đã xử lý ${pendingOrders.length} đơn hàng`,
+        ...results,
+    };
+};
+
+/** ─────────────────────────────────────────────────────────────────────
+ * Tổng quan số dư vendor
+ * ─────────────────────────────────────────────────────────────────── */
 const getTotalVendorBalances = async () => {
+    const { Shop } = require('../models/Shop');
     const result = await Wallet.aggregate([
         { $match: { shop: { $ne: null } } },
         { $group: {
             _id: null,
             totalBalance: { $sum: '$balance' },
-            totalPending: { $sum: '$pendingBalance' },
-            walletCount: { $sum: 1 }
-        }}
+            walletCount: { $sum: 1 },
+        }},
     ]);
+    return result[0] || { totalBalance: 0, walletCount: 0 };
+};
 
-    return result[0] || { totalBalance: 0, totalPending: 0, walletCount: 0 };
+/** ─────────────────────────────────────────────────────────────────────
+ * Thống kê số dư Admin (AdminLedger balances)
+ * ─────────────────────────────────────────────────────────────────── */
+const getAdminLedgerBalances = async () => {
+    const balances = await AdminLedger.getCurrentBalances();
+    return {
+        payosHolding:  balances.get(ACCOUNT_TYPE.PAYOS_HOLDING) || 0,
+        platformFee:   balances.get(ACCOUNT_TYPE.PLATFORM_FEE)   || 0,
+        voucherLiab:   balances.get(ACCOUNT_TYPE.VOUCHER_LIAB)   || 0,
+        payoutPool:    balances.get(ACCOUNT_TYPE.PAYOUT_POOL)    || 0,
+    };
 };
 
 module.exports = {
-    getShopSliceOfOrder,
-    getOrCreateWallet,
+    getOrCreateVendorWallet,
     isOrderPaidOut,
     calculatePlatformFee,
-    creditToWallet,
     payoutOrderToVendors,
+    reversePayoutForCancelledOrder,
     batchPayout,
     payoutPendingOrders,
-    reversePayoutForCancelledOrder,
-    getTotalVendorBalances
+    getTotalVendorBalances,
+    getAdminLedgerBalances,
 };

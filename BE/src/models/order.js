@@ -126,6 +126,33 @@ const orderSchema = new mongoose.Schema({
             type: String,
             default: null
         },
+        variantColor: {
+            type: String,
+            default: null
+        },
+        variantMaterial: {
+            type: String,
+            default: null
+        },
+        variantStyle: {
+            type: String,
+            default: null
+        },
+        variantDimensions: {
+            length: { type: Number, default: 0 },
+            width:  { type: Number, default: 0 },
+            depth:  { type: Number, default: 0 },
+            height: { type: Number, default: 0 }
+        },
+        variantWeight: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
+        variantDescription: {
+            type: String,
+            default: null
+        },
         name: {
             type: String,
             required: true
@@ -346,7 +373,60 @@ const orderSchema = new mongoose.Schema({
     paymentExpiresAt: {
         type: Date,
         index: true
-    }
+    },
+
+    // ── Platform Ledger fields (ghi nhận chiết khấu & voucher) ──────────
+    // Ai tài trợ voucher trên đơn này
+    voucherSponsorType: {
+        type: String,
+        enum: ['shop', 'platform', null],
+        default: null,
+    },
+    // Số tiền voucher do sàn tài trợ (để quyết toán sau)
+    voucherPlatformAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    // Ai tài trợ phí vận chuyển
+    shippingSponsorType: {
+        type: String,
+        enum: ['shop', 'platform', null],
+        default: null,
+    },
+    // Phí vận chuyển do sàn tài trợ (để quyết toán sau)
+    shippingPlatformAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    // Phí sàn đã thu (snapshot tại payout)
+    platformFeeAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    // % phí sàn áp dụng (snapshot)
+    platformFeePercent: {
+        type: Number,
+        default: 5,
+        min: 0,
+    },
+    // Trạng thái payout
+    payoutStatus: {
+        type: String,
+        enum: ['pending', 'paid', 'reversed'],
+        default: 'pending',
+    },
+    payoutAt: {
+        type: Date,
+        default: null,
+    },
+    // Đã refund voucher chưa (để tránh trùng lặp)
+    voucherRolledBack: {
+        type: Boolean,
+        default: false,
+    },
 }, { timestamps: true });
 
 // Truy vấn đơn theo shop (vendor) + lọc trạng thái nhanh

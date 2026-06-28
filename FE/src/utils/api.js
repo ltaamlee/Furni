@@ -435,9 +435,11 @@ const getAdminPromotionsSiteApi = (params = {}) => axios.get("/admin/promotions"
 const createAdminPromotionSiteApi = (data) => axios.post("/admin/promotions", data);
 const updateAdminPromotionSiteApi = (id, data) => axios.put(`/admin/promotions/${id}`, data);
 const deleteAdminPromotionSiteApi = (id) => axios.delete(`/admin/promotions/${id}`);
-// Admin — Quản lý chiết khấu 
+// Admin — Quản lý chiết khấu
 const getAdminCommissionsApi = (params = {}) => axios.get("/admin/commissions", { params });
 const updateShopCommissionApi = (id, data) => axios.put(`/admin/commissions/${id}/rate`, data);
+// Admin — Ví
+const getAdminWalletBalancesApi = () => axios.get("/admin/wallet/balances");
 // Admin — Báo cáo doanh thu
 const getAdminRevenueApi = (params) => axios.get("/admin/revenue", { params });
 
@@ -667,6 +669,7 @@ export {
     deleteAdminPromotionSiteApi,
     getAdminCommissionsApi,
     updateShopCommissionApi,
+    getAdminWalletBalancesApi,
     getAdminUnreadNotifCountApi,
     getAdminNotificationsApi,
     markAdminNotificationReadApi,

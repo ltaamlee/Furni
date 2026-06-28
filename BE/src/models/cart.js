@@ -91,6 +91,33 @@ const cartSchema = new mongoose.Schema({
             default: null,
             min: 0
         },
+        variantColor: {
+            type: String,
+            default: null
+        },
+        variantMaterial: {
+            type: String,
+            default: null
+        },
+        variantStyle: {
+            type: String,
+            default: null
+        },
+        variantDimensions: {
+            length: { type: Number, default: 0 },
+            width:  { type: Number, default: 0 },
+            depth:  { type: Number, default: 0 },
+            height: { type: Number, default: 0 }
+        },
+        variantWeight: {
+            type: Number,
+            default: null,
+            min: 0
+        },
+        variantDescription: {
+            type: String,
+            default: null
+        },
         addedAt: {
             type: Date,
             default: Date.now

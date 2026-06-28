@@ -5,6 +5,7 @@ const Product = require('../models/product');
 const Shop = require('../models/Shop');
 const Notification = require('../models/notification');
 const { ORDER_STATUS } = require('../models/order');
+const Coupon = require('../models/coupon');
 const payoutService = require('../services/payoutService');
 const { attachPricing } = require('../utils/pricing');
 const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
@@ -17,8 +18,12 @@ const {
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
 const getProductImage = (product) => {
+    if (!product) return null;
+    // images có thể là string[] hoặc object[] với field url
     const firstImage = Array.isArray(product.images) ? product.images[0] : null;
-    return firstImage?.url || firstImage || product.image || null;
+    if (!firstImage) return product.image || null;
+    if (typeof firstImage === 'string') return firstImage;
+    return firstImage?.url || firstImage || null;
 };
 
 const getShopShippingProvider = (shippingProvider, shopId) => {
@@ -239,6 +244,8 @@ const createOrder = async (req, res) => {
                 variantSku: item.variantSku || null,
                 variantSize: item.variantSize || null,
                 name: product.name,
+                image: getProductImage(product),
+                ...(item.variantId ? { variantId: item.variantId } : {}),
                 image: getProductImage(product),
                 ...(item.variantId ? { variantId: item.variantId } : {}),
             });
@@ -745,6 +752,29 @@ const cancelOrder = async (req, res) => {
             );
         }
 
+        // Rollback voucher → ACTIVE (vì chưa paid)
+        if (order.usedCouponId && !order.voucherRolledBack) {
+            await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
+                status: VOUCHER_STATUS.ACTIVE,
+                usedAt: null,
+                usedForOrder: null,
+            });
+            const voucher = await VoucherWallet.findById(order.usedCouponId);
+            if (voucher?.coupon) {
+                await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: -1 } });
+            }
+            order.voucherRolledBack = true;
+        }
+
+        // Nếu đã payout rồi → thu hồi tiền vendor + hoàn phí sàn
+        if (order.payoutStatus === 'paid') {
+            try {
+                await payoutService.reversePayoutForCancelledOrder(order._id);
+            } catch (err) {
+                console.error(`[CancelOrder] Reverse payout failed for ${order.orderNumber}:`, err.message);
+            }
+        }
+
         order.status = ORDER_STATUS.CANCELLED;
         order.cancelledAt = new Date();
         await refundOrderToWallet(order, {
@@ -982,6 +1012,29 @@ const processCancelRequest = async (req, res) => {
                 });
             }
 
+            // Rollback voucher → ACTIVE
+            if (order.usedCouponId && !order.voucherRolledBack) {
+                await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
+                    status: VOUCHER_STATUS.ACTIVE,
+                    usedAt: null,
+                    usedForOrder: null,
+                });
+                const voucher = await VoucherWallet.findById(order.usedCouponId);
+                if (voucher?.coupon) {
+                    await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: -1 } });
+                }
+                order.voucherRolledBack = true;
+            }
+
+            // Nếu đã payout rồi → thu hồi tiền vendor + hoàn phí sàn
+            if (order.payoutStatus === 'paid') {
+                try {
+                    await payoutService.reversePayoutForCancelledOrder(order._id);
+                } catch (err) {
+                    console.error(`[ProcessCancel] Reverse payout failed for ${order.orderNumber}:`, err.message);
+                }
+            }
+
             order.status = ORDER_STATUS.CANCELLED;
             order.cancelledAt = new Date();
             await refundOrderToWallet(order, {
@@ -1176,6 +1229,29 @@ const adminForceCancelOrder = async (req, res) => {
 
         if ([ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED].includes(order.status)) {
             return res.status(400).json({ success: false, message: 'Không thể hủy đơn hàng đã giao thành công hoặc đã bị hủy từ trước!' });
+        }
+
+        // Rollback voucher → ACTIVE
+        if (order.usedCouponId && !order.voucherRolledBack) {
+            await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
+                status: VOUCHER_STATUS.ACTIVE,
+                usedAt: null,
+                usedForOrder: null,
+            });
+            const voucher = await VoucherWallet.findById(order.usedCouponId);
+            if (voucher?.coupon) {
+                await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: -1 } });
+            }
+            order.voucherRolledBack = true;
+        }
+
+        // Nếu đã payout rồi → thu hồi tiền vendor + hoàn phí sàn
+        if (order.payoutStatus === 'paid') {
+            try {
+                await payoutService.reversePayoutForCancelledOrder(order._id);
+            } catch (err) {
+                console.error(`[AdminForceCancel] Reverse payout failed for ${order.orderNumber}:`, err.message);
+            }
         }
 
         // Hoàn lại tồn kho cho các sản phẩm trong đơn

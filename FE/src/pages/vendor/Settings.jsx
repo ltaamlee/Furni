@@ -223,8 +223,7 @@ const formatVND = (n) => new Intl.NumberFormat("vi-VN").format(n) + " đ";
 
 const ShippingSection = ({ shop, onSaved }) => {
     const { showToast } = useToast();
-    const [selectedProvider, setSelectedProvider] = useState(shop?.shippingConfig?.selectedProvider || 'ghtk');
-    const [threshold, setThreshold] = useState(shop?.shippingConfig?.freeShippingThreshold ?? 500000);
+    const [selectedProvider, setSelectedProvider] = useState(shop?.shippingConfig?.defaultProvider || 'ghtk');
     const [isUrbanZone, setIsUrbanZone] = useState(shop?.shippingConfig?.isUrbanZone ?? false);
     const [saving, setSaving] = useState(false);
     const [dirty, setDirty] = useState(false);
@@ -239,7 +238,6 @@ const ShippingSection = ({ shop, onSaved }) => {
             setSaving(true);
             await updateShippingConfigApi({
                 selectedProvider,
-                freeShippingThreshold: threshold,
                 isUrbanZone,
             });
             showToast("Lưu cấu hình vận chuyển thành công!", "success");
@@ -253,7 +251,7 @@ const ShippingSection = ({ shop, onSaved }) => {
     };
 
     const handleCancel = () => {
-        setSelectedProvider(shop?.shippingConfig?.selectedProvider || 'ghtk');
+        setSelectedProvider(shop?.shippingConfig?.defaultProvider || 'ghtk');
         setThreshold(shop?.shippingConfig?.freeShippingThreshold ?? 500000);
         setIsUrbanZone(shop?.shippingConfig?.isUrbanZone ?? false);
         setDirty(false);
@@ -357,43 +355,9 @@ const ShippingSection = ({ shop, onSaved }) => {
                 </div>
             </div>
 
-            {/* Free shipping threshold */}
-            <div>
-                <Label className="mb-2 block">Ngưỡng miễn phí vận chuyển</Label>
-                <p className="text-[12px] text-[#9E8E7E] mb-3">Khi tổng đơn hàng đạt ngưỡng này, khách sẽ được miễn phí vận chuyển. Đặt = 0 để tắt.</p>
-                <div className="flex items-center gap-3 flex-wrap">
-                    {[0, 200000, 300000, 500000, 700000, 1000000].map((val) => (
-                        <button
-                            key={val}
-                            type="button"
-                            onClick={() => { setThreshold(val); setDirty(true); }}
-                            className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
-                                threshold === val
-                                    ? "border-teal-500 bg-teal-50 text-teal-700"
-                                    : "border-[#EDE8E0] text-slate-500 hover:border-teal-300"
-                            }`}
-                        >
-                            {val === 0 ? "Tắt miễn phí" : `Từ ${formatVND(val)}`}
-                        </button>
-                    ))}
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-slate-400">Hoặc:</span>
-                        <input
-                            type="number"
-                            value={threshold > 0 ? threshold : ""}
-                            onChange={(e) => { setThreshold(Number(e.target.value)); setDirty(true); }}
-                            placeholder="Nhập số..."
-                            className="w-36 px-3 py-2 border-2 border-[#EDE8E0] rounded-xl text-sm focus:outline-none focus:border-teal-400"
-                        />
-                        <span className="text-sm text-slate-400">đ</span>
-                    </div>
-                </div>
-            </div>
-
             {/* Summary */}
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-[13px] text-slate-500 space-y-1">
                 <p><strong className="text-slate-700">Đơn vị vận chuyển:</strong> {PROVIDER_OPTIONS.find(p => p.key === selectedProvider)?.name || '—'}</p>
-                <p><strong className="text-slate-700">Miễn phí ship:</strong> {threshold === 0 ? "Không bật" : `Đơn từ ${formatVND(threshold)}`}</p>
                 <p><strong className="text-slate-700">Khu vực:</strong> {isUrbanZone ? 'Nội thành (giao nội tỉnh giảm 30%)' : 'Ngoại thành'}</p>
             </div>
 

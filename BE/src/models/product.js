@@ -38,7 +38,19 @@ const variantSchema = new mongoose.Schema({
     sku: {
         type: String,
         default: ''
-    }
+    },
+    // Các thuộc tính riêng của biến thể (màu sắc / chất liệu / hoàn thiện bề mặt…)
+    color: { type: String, default: '' },
+    material: { type: String, default: '' },
+    style: { type: String, default: '' },
+    dimensions: {
+        length: { type: Number, min: 0, default: 0 },
+        width:  { type: Number, min: 0, default: 0 },
+        depth:  { type: Number, min: 0, default: 0 },
+        height: { type: Number, min: 0, default: 0 },
+    },
+    weight: { type: Number, min: 0, default: 0 },
+    description: { type: String, default: '' },
 }, { _id: true });
 
 const productSchema = new mongoose.Schema({

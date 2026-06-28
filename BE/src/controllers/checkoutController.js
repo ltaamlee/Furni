@@ -28,7 +28,7 @@ const previewCheckout = async (req, res) => {
             data: preview,
         });
     } catch (error) {
-        console.error('[Checkout] preview error:', error.message);
+        console.error('[Checkout] preview error:', error.message, error.stack);
         const statusCode = error.statusCode || 500;
         res.status(statusCode).json({
             success: false,

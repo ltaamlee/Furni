@@ -115,11 +115,15 @@ const ProductDetailPage = () => {
     }, [product]);
 
     // Auto-select first variant when product loads (if product has variants)
+    // Reset to null when product changes to avoid stale index pointing to wrong product's variants
     useEffect(() => {
-        if (product?.variants?.length > 0 && selectedVariant === null) {
+        setSelectedVariant(null);
+        setQuantity(1);
+        setSelectedImage(0);
+        if (product?.variants?.length > 0) {
             setSelectedVariant(0);
         }
-    }, [product]);
+    }, [product?._id]);
 
     const fetchProduct = async () => {
         try {
@@ -326,18 +330,18 @@ const ProductDetailPage = () => {
             ? "Giao + lắp đặt"
             : "Giao hàng thường";
 
-    const dim = product.dimensions || {};
+    const dim = (activeVariant?.dimensions ?? product.dimensions) || {};
     const hasDimensions = dim.length || dim.width || dim.height;
     const specs = [
         ["Thương hiệu", product.brand],
-        ["Chất liệu", product.material],
-        ["Màu sắc", product.color],
-        ["Phong cách", product.style],
+        ["Chất liệu", activeVariant?.material || product.material],
+        ["Màu sắc", activeVariant?.color || product.color],
+        ["Phong cách", activeVariant?.style || product.style],
         hasDimensions && [
             "Kích thước (D×R×C)",
             `${dim.length || "-"} × ${dim.width || "-"} × ${dim.height || "-"} cm`,
         ],
-        product.weight && ["Cân nặng", `${product.weight} kg`],
+        (activeVariant?.weight ?? product.weight) && ["Cân nặng", `${activeVariant?.weight ?? product.weight} kg`],
         ["Cần lắp ráp", product.requiresAssembly ? "Có" : "Không"],
         ["Hình thức giao", deliveryLabel],
     ]
@@ -557,14 +561,14 @@ const ProductDetailPage = () => {
                             )}
 
                             {/* Description */}
-                            {product.description && (
+                            {activeVariant?.description || product.description ? (
                                 <div>
                                     <h3 className="font-bold text-sm text-[#1C1108] mb-2">Mô tả sản phẩm</h3>
                                     <p className="text-sm text-[#6B5C4C] whitespace-pre-line leading-relaxed">
-                                        {product.description}
+                                        {activeVariant?.description || product.description}
                                     </p>
                                 </div>
-                            )}
+                            ) : null}
 
                             {/* Specifications */}
                             {specs.length > 0 && (

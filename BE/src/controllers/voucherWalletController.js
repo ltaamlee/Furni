@@ -101,12 +101,32 @@ const getMyVouchers = async (req, res) => {
                 const coupon = v.coupon;
                 const isExhausted = coupon?.usageLimit > 0 &&
                     (coupon?.usedCount || 0) >= coupon.usageLimit;
+                // Luôn dùng dữ liệu LIVE từ Coupon (nếu còn) thay vì snapshot cũ
                 return {
                     ...v.toObject(),
+                    code: coupon?.code || v.code,
+                    description: coupon?.description || v.description,
+                    discountType: coupon?.discountType || v.discountType,
+                    value: coupon?.value ?? v.value,
+                    maxDiscount: coupon?.maxDiscount ?? v.maxDiscount,
+                    minOrderValue: coupon?.minOrderValue ?? v.minOrderValue,
+                    endDate: coupon?.endDate || v.endDate,
                     isExhausted // FE dùng để hiện badge "Hết lượt"
                 };
             })
-            : vouchers.map(v => v.toObject());
+            : vouchers.map(v => {
+                const coupon = v.coupon;
+                return {
+                    ...v.toObject(),
+                    code: coupon?.code || v.code,
+                    description: coupon?.description || v.description,
+                    discountType: coupon?.discountType || v.discountType,
+                    value: coupon?.value ?? v.value,
+                    maxDiscount: coupon?.maxDiscount ?? v.maxDiscount,
+                    minOrderValue: coupon?.minOrderValue ?? v.minOrderValue,
+                    endDate: coupon?.endDate || v.endDate,
+                };
+            });
 
         res.status(200).json({ success: true, data: enrichedVouchers });
     } catch (error) {

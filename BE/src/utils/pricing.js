@@ -2,7 +2,7 @@ const Promotion = require('../models/promotion');
 
 // Loại khuyến mãi tự động giảm giá hiển thị (không cần nhập mã).
 // coupon = nhập mã khi thanh toán; bundle/gift/freeship = không giảm giá đơn sản phẩm.
-const AUTO_TYPES = ['flash_sale'];
+const AUTO_TYPES = ['flash_sale', 'coupon'];
 
 const idStr = (v) => (v && v._id ? String(v._id) : v ? String(v) : '');
 
@@ -81,21 +81,25 @@ const attachPricing = async (products) => {
     }
 
     for (const p of list) {
-        // Nếu product có salePrice đã được attachPricing trước đó (e.g. từ Cart đã lưu với variant đã chọn),
-        // giữ nguyên salePrice đó để đảm bảo giá variant đúng thay vì tính lại sai bằng product.price.
-        // bestPricing chỉ tính giá sale dựa trên product.price (không phải variant.price).
-        const best = p.salePrice ? null : bestPricing(p, promos);
+        // Luôn tính lại giá sale từ khuyến mãi hiện tại trên DB
+        // (không dùng salePrice đã lưu trong cart — có thể đã cũ)
+        const best = bestPricing(p, promos);
         if (best) {
             p.salePrice = best.salePrice;
             p.originalPrice = p.price;
             p.discountPercent = Math.round((1 - best.salePrice / p.price) * 100);
             p.promotion = { id: best.promotionId, name: best.promotionName, type: best.promotionType };
+        } else {
+            p.salePrice = null;
+            p.discountPercent = null;
+            p.promotion = null;
         }
 
         // Tính giá sale cho từng variant dựa trên base price của variant đó
         if (p.variants && Array.isArray(p.variants)) {
             for (const v of p.variants) {
-                v.originalPrice = v.originalPrice ?? v.price;
+                // Luôn dùng giá gốc hiện tại của variant làm base
+                v.originalPrice = v.price;
                 const variantBest = bestPricing(p, promos, v.price);
                 if (variantBest) {
                     v.salePrice = variantBest.salePrice;

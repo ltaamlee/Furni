@@ -4,6 +4,7 @@
  * Xử lý các API liên quan đến thanh toán PayOS
  */
 
+const Coupon = require('../models/coupon');
 const Order = require('../models/order');
 const Cart = require('../models/cart');
 const Product = require('../models/product');
@@ -17,9 +18,17 @@ const {
     normalizeMoney,
     refundOrderToWallet,
 } = require('../services/walletService');
+const AdminLedger = require('../models/adminLedger');
+const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 
 // Sử dụng thư viện PayOS SDK
 const { PayOS } = require('@payos/node');
+
+const {
+    LEDGER_TYPE,
+    ACCOUNT_TYPE,
+    STATUS: LEDGER_STATUS,
+} = AdminLedger;
 
 let payosInstance = null;
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
@@ -130,20 +139,8 @@ const markPayOSOrderPaid = async (order) => {
         }
     }
 
-    if (order.usedCouponId) {
-        const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
-        const Coupon = require('../models/Coupon');
-        await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
-            status: VOUCHER_STATUS.USED,
-            usedAt: new Date()
-        });
-        if (order.couponCode) {
-            const voucher = await VoucherWallet.findById(order.usedCouponId);
-            if (voucher?.coupon) {
-                await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: 1 } });
-            }
-        }
-    }
+    // Đánh dấu voucher USED — chỉ xử lý ở webhook để tránh trùng lặp
+    // (webhook gọi markPayOSOrderPaid nên voucher được xử lý ở đó)
 
     return order;
 };
@@ -174,40 +171,21 @@ const syncOrderWithPayOS = async (order) => {
                 payosOrder.statusHistory.push({
                     status: ORDER_STATUS.CANCELLED,
                     timestamp: new Date(),
-                    note: `Thanh toÃ¡n PayOS ${status.toLowerCase()}`
-                });
-                await refundOrderToWallet(payosOrder, {
-                    description: `Hoan tien phan vi da dung cho don #${payosOrder.orderNumber}`,
+                    note: `Thanh toán PayOS ${status.toLowerCase()}`
                 });
                 await payosOrder.save();
+                // Hoàn tồn kho (chỉ khi chưa paid — tức chưa trừ)
+                for (const item of payosOrder.products) {
+                    await Product.findByIdAndUpdate(item.product, { $inc: { quantity: item.quantity } });
+                }
+                // Hoàn ví điện tử (phần đã dùng)
+                await refundOrderToWallet(payosOrder, {
+                    description: `Hoàn tiền từ hủy PayOS đơn #${payosOrder.orderNumber}`,
+                });
             }
         }
         order.paymentStatus = 'failed';
         order.status = ORDER_STATUS.CANCELLED;
-        return { order, paymentLink };
-
-        order.paymentStatus = 'failed';
-        order.status = ORDER_STATUS.CANCELLED;
-        order.cancelledAt = new Date();
-        order.statusHistory.push({
-            status: ORDER_STATUS.CANCELLED,
-            timestamp: new Date(),
-            note: `Thanh toán PayOS ${status.toLowerCase()}`
-        });
-        await order.save();
-
-        // Hoàn tồn kho
-        for (const item of order.products) {
-            await Product.findByIdAndUpdate(item.product, { $inc: { quantity: item.quantity } });
-        }
-
-        // Hoàn tiền vào ví điện tử
-        await refundOrderToWallet(order, {
-            orderId: order._id,
-            orderNumber: order.orderNumber,
-            paymentMethod: 'PAYOS',
-            description: `Hoàn tiền tự động từ hủy PayOS đơn #${order.orderNumber}`,
-        });
     }
 
     return { order, paymentLink };
@@ -580,6 +558,12 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     ? (shippingProvider[shopId] || shippingProvider)
                     : shippingProvider;
 
+                // ── Xác định ai tài trợ voucher ───────────────────────
+                const isPlatformCoupon = !usedCouponShopId; // coupon.shop === null
+                const groupVoucherPlatformAmount = isPlatformCoupon
+                    ? groupCouponDiscount
+                    : 0;
+
                 const order = new Order({
                     user: req.user._id,
                     checkoutGroupId,
@@ -601,6 +585,12 @@ const createPayOSPaymentWithCart = async (req, res) => {
                             variantId: item.variantId || null,
                             variantSku: item.variantSku || null,
                             variantSize: item.variantSize || null,
+                            variantColor: item.variantColor || null,
+                            variantMaterial: item.variantMaterial || null,
+                            variantStyle: item.variantStyle || null,
+                            variantDimensions: item.variantDimensions || null,
+                            variantWeight: item.variantWeight ?? 0,
+                            variantDescription: item.variantDescription || null,
                             name: item.name,
                             image: item.image
                         };
@@ -628,7 +618,12 @@ const createPayOSPaymentWithCart = async (req, res) => {
                         : null,
                     orderedAt: now,
                     estimatedDelivery,
-                    paymentExpiresAt: new Date(now.getTime() + 30 * 60 * 1000)
+                    paymentExpiresAt: new Date(now.getTime() + 30 * 60 * 1000),
+                    // ── Platform ledger fields ───────────────────────────
+                    voucherSponsorType: isPlatformCoupon ? 'platform' : 'shop',
+                    voucherPlatformAmount: groupVoucherPlatformAmount,
+                    shippingSponsorType: isShippingFree ? 'platform' : null,
+                    shippingPlatformAmount: isShippingFree ? (groupShippingFee) : 0,
                 });
 
                 await order.save();
@@ -693,13 +688,8 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     await removeCheckoutItemsFromCart(cart, checkoutItems, selectedProducts, selectedIdsForRemoval);
                 }
 
-                if (usedCoupon) {
-                    const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
-                    await VoucherWallet.findByIdAndUpdate(usedCoupon._id, {
-                        status: VOUCHER_STATUS.USED,
-                        usedAt: new Date()
-                    });
-                }
+                // Đánh dấu voucher USED chỉ được xử lý trong webhook khi thanh toán thành công
+                // (tránh trường hợp PayOS chưa trả tiền mà voucher đã bị đánh dấu USED)
 
                 return res.status(200).json({
                     success: true,
@@ -769,105 +759,137 @@ const payOSWebhook = async (req, res) => {
 
         // Xử lý theo trạng thái thanh toán (PayOS v2: success=true, code='00')
         if (success === true && code === '00') {
-            for (const payosOrder of orders) {
-                await markPayOSOrderPaid(payosOrder);
-                console.log('Order paid successfully:', payosOrder.orderNumber);
+            // ── 1. Guard: đã paid rồi → bỏ qua ───────────────────────
+            if (order.paymentStatus === 'paid') {
+                return res.status(200).json({ success: true, message: 'Already processed' });
             }
 
-            // Thanh toán thành công
-            if (order.paymentStatus !== 'paid') {
-                order.paymentStatus = 'paid';
-                await order.save();
-                
-                // Trừ tồn kho và tăng sold (chỉ khi chưa làm ở bước tạo đơn)
-                // Với COD, stock được trừ khi giao hàng. Với PayOS, trừ khi thanh toán thành công
-                const products = await Product.find({
-                    _id: { $in: order.products.map(p => p.product) }
-                });
+            // ── 2. Tính tổng số tiền đã nhận từ PayOS ───────────
+            // Với multi-shop orders, tất cả orders cùng checkoutGroupId chia sẻ 1 payosOrderCode
+            const totalPayosReceived = orders.reduce((sum, o) => sum + normalizeMoney(o.payableAmount), 0);
 
-                for (const item of order.products) {
+            // ── 3. Ghi ledger: PayOS settlement vào PAYOS_HOLDING ──
+            await AdminLedger.create([{
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.PAYOS_SETTLEMENT_IN,
+                amount: totalPayosReceived,
+                accountDebit: null,
+                accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `PayOS thanh toán đơn #${order.orderNumber} (+${orders.length} đơn con)`,
+            }]);
+
+            // ── 4. Xử lý từng order con ────────────────────────────
+            for (const payosOrder of orders) {
+                if (payosOrder.paymentStatus === 'paid') continue;
+
+                payosOrder.paymentStatus = 'paid';
+                payosOrder.status = ORDER_STATUS.PENDING;
+
+                // Trừ tồn kho
+                const products = await Product.find({
+                    _id: { $in: payosOrder.products.map(p => p.product) }
+                });
+                for (const item of payosOrder.products) {
                     const product = products.find(p => p._id.toString() === item.product.toString());
                     if (product && product.quantity >= item.quantity) {
                         await Product.findByIdAndUpdate(item.product, {
-                            $inc: { 
-                                quantity: -item.quantity,
-                                sold: item.quantity
-                            }
+                            $inc: { quantity: -item.quantity, sold: item.quantity }
                         });
                     }
                 }
-                
-                console.log('Order paid successfully:', order.orderNumber);
 
-                // KHÔNG gọi payout ở đây - payout chỉ gọi khi đơn DELIVERED
-                // Điều này đảm bảo vendor chỉ nhận tiền khi giao hàng thành công
-
-                // Đánh dấu voucher là đã sử dụng (nếu có)
-                if (order.usedCouponId) {
-                    const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
-                    const Coupon = require('../models/Coupon');
-                    await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
+                // Đánh dấu voucher USED
+                if (payosOrder.usedCouponId) {
+                    await VoucherWallet.findByIdAndUpdate(payosOrder.usedCouponId, {
                         status: VOUCHER_STATUS.USED,
-                        usedAt: new Date()
+                        usedAt: new Date(),
+                        usedForOrder: payosOrder._id,
                     });
-                    if (order.couponCode) {
-                        const voucher = await VoucherWallet.findById(order.usedCouponId);
-                        if (voucher?.coupon) {
-                            await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: 1 } });
-                        }
-                    }
+                    await Coupon.findByIdAndUpdate(
+                        (await VoucherWallet.findById(payosOrder.usedCouponId))?.coupon,
+                        { $inc: { usedCount: 1 } }
+                    );
                 }
+
+                await payosOrder.save();
+                console.log('Order paid successfully:', payosOrder.orderNumber);
             }
+
         } else if (success === false || (code && code !== '00')) {
-            for (const payosOrder of orders) {
-                if (payosOrder.paymentStatus !== 'paid' && payosOrder.status !== ORDER_STATUS.CANCELLED) {
-                    payosOrder.paymentStatus = 'failed';
-                    payosOrder.status = ORDER_STATUS.CANCELLED;
-                    payosOrder.cancelledAt = new Date();
-                    payosOrder.statusHistory.push({
-                        status: ORDER_STATUS.CANCELLED,
-                        timestamp: new Date(),
-                        note: 'Thanh toÃ¡n PayOS tháº¥t báº¡i/bá»‹ há»§y táº¡i cá»•ng thanh toÃ¡n'
-                    });
-                    await refundOrderToWallet(payosOrder, {
-                        description: `Hoan tien phan vi da dung cho don #${payosOrder.orderNumber}`,
-                    });
-                    await payosOrder.save();
-                    console.log('Order payment failed/cancelled:', payosOrder.orderNumber);
-                }
+            // ── THẤT BẠI / HỦY / TIMEOUT ─────────────────────────────
+            // Guard: nếu đã paid hoặc đã cancelled → bỏ qua
+            if (order.paymentStatus === 'paid' || order.status === ORDER_STATUS.CANCELLED) {
+                return res.status(200).json({ success: true, message: 'Already processed' });
             }
 
-            // Thanh toán thất bại hoặc bị hủy tại cổng PayOS
-            // Chỉ xử lý nếu chưa bị hủy (tránh trùng lặp khi webhook fire nhiều lần)
-            if (order.paymentStatus !== 'paid' && order.status !== ORDER_STATUS.CANCELLED) {
-                order.paymentStatus = 'failed';
-                order.status = ORDER_STATUS.CANCELLED;
-                order.cancelledAt = new Date();
-                order.statusHistory.push({
-                    status: ORDER_STATUS.CANCELLED,
-                    timestamp: new Date(),
-                    note: 'Thanh toán PayOS thất bại/bị hủy tại cổng thanh toán'
-                });
-                await order.save();
+            // Tính tổng số đã refund (tránh double-refund)
+            const totalPaid = orders.reduce((sum, o) => sum + normalizeMoney(o.walletUsedAmount), 0);
 
-                // Hoàn tồn kho
-                for (const item of order.products) {
+            // Hoàn tồn kho cho TẤT CẢ orders (chỉ khi chưa paid)
+            for (const payosOrder of orders) {
+                for (const item of payosOrder.products) {
                     await Product.findByIdAndUpdate(item.product, {
                         $inc: { quantity: item.quantity }
                     });
                 }
+            }
 
-                // Hoàn tiền vào ví điện tử
+            // Hoàn tiền ví (chỉ 1 lần cho cả nhóm)
+            if (totalPaid > 0) {
                 await refundOrderToWallet(order, {
                     orderId: order._id,
                     orderNumber: order.orderNumber,
                     paymentMethod: 'PAYOS',
-                    description: `Hoàn tiền tự động từ hủy PayOS đơn #${order.orderNumber}`,
+                    description: `Hoàn tiền tự động từ hủy PayOS đơn #${order.orderNumber} (${orders.length} đơn con)`,
                 });
-
-                await order.save();
-                console.log('Order payment failed/cancelled + refund to wallet:', order.orderNumber);
             }
+
+            // Rollback voucher → ACTIVE (vì chưa paid)
+            for (const payosOrder of orders) {
+                if (payosOrder.usedCouponId && !payosOrder.voucherRolledBack) {
+                    await VoucherWallet.findByIdAndUpdate(payosOrder.usedCouponId, {
+                        status: VOUCHER_STATUS.ACTIVE,
+                        usedAt: null,
+                        usedForOrder: null,
+                    });
+                    await Coupon.findByIdAndUpdate(
+                        (await VoucherWallet.findById(payosOrder.usedCouponId))?.coupon,
+                        { $inc: { usedCount: -1 } }
+                    );
+                    payosOrder.voucherRolledBack = true;
+                }
+                payosOrder.paymentStatus = 'failed';
+                payosOrder.status = ORDER_STATUS.CANCELLED;
+                payosOrder.cancelledAt = new Date();
+                payosOrder.statusHistory.push({
+                    status: ORDER_STATUS.CANCELLED,
+                    timestamp: new Date(),
+                    note: `Thanh toán PayOS ${(code || 'CANCELLED').toLowerCase()}`
+                });
+                await payosOrder.save();
+            }
+
+            // Ghi ledger: REFUND_TO_CUSTOMER (chỉ 1 lần cho cả nhóm)
+            if (totalPaid > 0) {
+                await AdminLedger.create([{
+                    order: order._id,
+                    orderNumber: order.orderNumber,
+                    checkoutGroupId: order.checkoutGroupId,
+                    type: LEDGER_TYPE.REFUND_TO_CUSTOMER,
+                    amount: totalPaid,
+                    accountDebit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                    accountCredit: null,
+                    customer: order.user,
+                    status: LEDGER_STATUS.COMPLETED,
+                    description: `Hoàn tiền PayOS cho khách đơn #${order.orderNumber}`,
+                }]);
+            }
+
+            console.log('Order payment failed/cancelled + refund to wallet:', order.orderNumber);
         }
 
         return res.status(200).json({ 

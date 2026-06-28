@@ -162,8 +162,8 @@ const validateAndEnrichItems = async (checkoutItems, products, address) => {
             // Stock
             stock,
             // Promotion
-            promotion: hasVariant
-                ? (product.variants.find(v => v._id?.toString() === item.variantId.toString())?.promotion || null)
+            promotion: variant
+                ? (product.variants.find(v => v._id?.toString() === item.variantId?.toString())?.promotion || null)
                 : (product.promotion || null),
         });
     }
@@ -201,11 +201,13 @@ const calculateShopShipping = async (shopGroup, customerProvinceCode, address) =
     const shopId = shopGroup.shopId;
     const weight = Math.max(1, Math.round(shopGroup.totalWeight)); // kg
     const weightGrams = Math.round(shopGroup.totalWeight * 1000);
+    const additional500gBlocks = Math.max(0, Math.floor((weightGrams - 500) / 500));
 
     // Get shop shipping config
     let shopProvinceCode = null;
     let isUrbanZone = false;
     let enabledProviders = null;
+    let defaultProvider = null;
 
     try {
         const shop = await Shop.findById(shopId)
@@ -215,6 +217,7 @@ const calculateShopShipping = async (shopGroup, customerProvinceCode, address) =
             shopProvinceCode = shop.provinceCode ? String(shop.provinceCode) : null;
             isUrbanZone = shop.shippingConfig?.isUrbanZone || false;
             enabledProviders = shop.shippingConfig?.enabledProviders || null;
+            defaultProvider = shop.shippingConfig?.defaultProvider || null;
         }
     } catch (_) { /* no shop */ }
 
@@ -239,55 +242,65 @@ const calculateShopShipping = async (shopGroup, customerProvinceCode, address) =
         distanceLabel = 'khác vùng';
     }
 
-    // Load rates from DB
+    // Load rates from DB — use CUSTOMER's region (destination), not shop's region
     let rates = [];
+    const targetProviders = defaultProvider
+        ? [defaultProvider]
+        : (enabledProviders && enabledProviders.length > 0 ? enabledProviders : null);
     try {
         const query = {
-            region: shopRegion,
+            region: customerRegion,
             isActive: true,
         };
-        if (enabledProviders && enabledProviders.length > 0) {
-            query.provider = { $in: enabledProviders };
+        if (targetProviders) {
+            query.provider = { $in: targetProviders };
         }
         rates = await ShippingRate.find(query).lean();
     } catch (_) { /* no rates */ }
 
-    const additional500gBlocks = Math.max(0, Math.ceil((weightGrams - 1000) / 500));
-
-    // Build tiers: cheapest provider per tier
-    const tierResults = ['economy', 'express'].map(tier => {
+    // If vendor has set a defaultProvider, show ONLY that provider (both economy + express)
+    // Otherwise pick cheapest per tier across all available providers
+    const pickForTier = (tier) => {
         const tierRates = rates.filter(r => r.serviceType === tier);
         if (!tierRates.length) return null;
-
-        const cheapest = tierRates.reduce((best, r) => {
+        if (defaultProvider) {
+            return tierRates.find(r => r.provider === defaultProvider) || null;
+        }
+        return tierRates.reduce((best, r) => {
             const fee = Math.round((r.baseFee + r.feePer500g * additional500gBlocks) * multiplier);
             const bestFee = Math.round((best.baseFee + best.feePer500g * additional500gBlocks) * multiplier);
             return fee < bestFee ? r : best;
         });
+    };
 
-        const baseFee = cheapest.baseFee + cheapest.feePer500g * additional500gBlocks;
+    // Build tiers — each method carries the provider's label
+    const tierResults = ['economy', 'express'].map(tier => {
+        const chosen = pickForTier(tier);
+        if (!chosen) return null;
+
+        const baseFee = chosen.baseFee + chosen.feePer500g * additional500gBlocks;
         const fee = Math.round(baseFee * multiplier);
 
         return {
             provider: {
-                _id: cheapest.provider,
-                name: PROVIDER_LABELS[cheapest.provider] || cheapest.provider,
-                code: cheapest.provider?.toUpperCase() || cheapest.provider,
+                _id: chosen.provider,
+                name: PROVIDER_LABELS[chosen.provider] || chosen.provider,
+                code: chosen.provider?.toUpperCase() || chosen.provider,
             },
             serviceType: tier,
             serviceName: tier === 'economy' ? 'Tiết Kiệm' : 'Nhanh',
             fee,
             baseFee: Math.round(baseFee),
-            estimatedDays: cheapest.estimatedDays || { min: 2, max: 5 },
+            estimatedDays: chosen.estimatedDays || { min: 2, max: 5 },
             isFree: false,
             distanceLabel,
             weight,
         };
     }).filter(Boolean);
 
-    // Fallback
+    // Fallback: prefer defaultProvider over enabledProviders[0]
     if (tierResults.length === 0) {
-        const fallback = enabledProviders?.[0] || 'ghtk';
+        const fallback = defaultProvider || enabledProviders?.[0] || 'ghtk';
         tierResults.push(
             {
                 provider: { _id: fallback, name: PROVIDER_LABELS[fallback] || fallback, code: fallback.toUpperCase() },
@@ -314,7 +327,7 @@ const calculateShopShipping = async (shopGroup, customerProvinceCode, address) =
 
     return {
         shippingMethods: tierResults,
-        // Auto-select cheapest as default
+        // Auto-select economy tier as default
         selectedShippingMethod: tierResults[0] ? {
             code: tierResults[0].provider.code,
             serviceType: tierResults[0].serviceType,
@@ -327,58 +340,64 @@ const calculateShopShipping = async (shopGroup, customerProvinceCode, address) =
 // STEP 3f: Get available vouchers
 // ────────────────────────────────────────────────────────────────
 const getAvailableVouchers = async (userId, shopGroups, address) => {
-    // Platform vouchers (shop=null) + shop vouchers
     const shopIds = shopGroups.map(g => g.shopId);
 
-    const coupons = await Coupon.find({
-        isActive: true,
-        $or: [
-            { shop: null },                           // platform
-            { shop: { $in: shopIds.map(id => new mongoose.Types.ObjectId(id)) } }, // shop
-        ],
-    }).lean();
+    const now = new Date();
 
-    // User's claimed vouchers
+    // Only return vouchers the user has claimed (in their wallet)
     const userVouchers = await VoucherWallet.find({
         user: userId,
         status: VOUCHER_STATUS.ACTIVE,
     }).populate('coupon').lean();
 
-    const now = new Date();
     const available = [];
 
-    for (const voucher of [...userVouchers, ...coupons]) {
-        const coupon = voucher.coupon || voucher;
+    for (const walletEntry of userVouchers) {
+        const coupon = walletEntry.coupon;
         if (!coupon || !coupon.isActive) continue;
         if (coupon.startDate && new Date(coupon.startDate) > now) continue;
         if (coupon.endDate && new Date(coupon.endDate) < now) continue;
         if (coupon.usageLimit && coupon.usageLimit > 0 && (coupon.usedCount || 0) >= coupon.usageLimit) continue;
 
-        const code = coupon.code || voucher.code;
-        const discountType = coupon.discountType || voucher.discountType;
-        const value = coupon.value || voucher.value || 0;
-        const maxDiscount = coupon.maxDiscount ?? voucher.maxDiscount ?? 0;
-        const minOrderValue = coupon.minOrderValue ?? voucher.minOrderValue ?? 0;
+        // Skip shop vouchers that aren't in this order's shops
+        if (coupon.shop) {
+            const couponShopId = coupon.shop._id
+                ? coupon.shop._id.toString()
+                : coupon.shop.toString();
+            if (!shopIds.includes(couponShopId)) continue;
+        }
 
         available.push({
-            _id: coupon._id?.toString() || voucher._id?.toString(),
-            code,
+            _id: coupon._id.toString(),
+            code: coupon.code,
             description: coupon.description || '',
-            discountType,
-            value,
-            maxDiscount,
-            minOrderValue,
-            shopId: coupon.shop ? coupon.shop.toString() : null,
+            discountType: coupon.discountType,
+            value: coupon.value,
+            maxDiscount: coupon.maxDiscount ?? 0,
+            minOrderValue: coupon.minOrderValue ?? 0,
+            shopId: coupon.shop ? (
+                coupon.shop._id
+                    ? coupon.shop._id.toString()
+                    : coupon.shop.toString()
+            ) : null,
             shopName: coupon.shopName || '',
-            endDate: coupon.endDate || voucher.endDate || null,
+            endDate: coupon.endDate || walletEntry.endDate || null,
+            walletId: walletEntry._id.toString(), // use wallet _id to avoid duplicate _id issues
         });
     }
 
-    // Split into platform + per-shop
-    const platformVouchers = available.filter(v => !v.shopId);
+    // Deduplicate by code (prefer wallet entry over raw coupon)
+    const seen = new Set();
+    const deduped = available.filter(v => {
+        if (seen.has(v.code)) return false;
+        seen.add(v.code);
+        return true;
+    });
+
+    const platformVouchers = deduped.filter(v => !v.shopId);
     const shopVouchersByShop = {};
     for (const shop of shopGroups) {
-        shopVouchersByShop[shop.shopId] = available.filter(v => v.shopId === shop.shopId);
+        shopVouchersByShop[shop.shopId] = deduped.filter(v => v.shopId === shop.shopId);
     }
 
     return { platformVouchers, shopVouchersByShop };

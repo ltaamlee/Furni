@@ -147,10 +147,16 @@ const CheckoutPage = () => {
           setSelectedAddressId(res.data.address._id);
         }
         // Sync selected shipping methods with preview
+        // Re-select if: no current selection, OR current selection no longer exists in new shippingMethods
         const newSelected = { ...shippingInfo.selectedShippingByShop };
         for (const shop of (res.data.shops || [])) {
-          if (shop.selectedShippingMethod && !newSelected[shop.shopId]) {
-            newSelected[shop.shopId] = shop.selectedShippingMethod;
+          const currentSel = newSelected[shop.shopId];
+          const stillValid = currentSel && shop.shippingMethods?.some(f =>
+            f.provider.code?.toLowerCase() === currentSel.code?.toLowerCase() &&
+            f.serviceType === currentSel.serviceType
+          );
+          if (!currentSel || !stillValid) {
+            newSelected[shop.shopId] = shop.selectedShippingMethod || null;
           }
         }
         setShippingInfo(prev => ({ ...prev, selectedShippingByShop: newSelected }));
@@ -348,14 +354,22 @@ const CheckoutPage = () => {
   }, []);
 
   useEffect(() => {
-    if (step >= 2) fetchAvailableVouchers();
-  }, [step, isBuyNow]);
+    // Remove step guard: vouchers should be available from step 1
+    // Trigger on step change, isBuyNow change, AND when checkout data is loaded
+    fetchAvailableVouchers();
+  }, [step, isBuyNow, checkout]);
 
   useEffect(() => {
     const buyNowRaw = localStorage.getItem("buy_now");
     let buyNowMode = false;
-    if (buyNowRaw) {
-      try {
+      if (buyNowRaw) {
+        // Clear any previously selected coupons before starting a new checkout
+        setSelectedProductCoupon(null);
+        setProductCouponDiscount(0);
+        setSelectedShippingCoupon(null);
+        setShippingCouponDiscount(0);
+        setShopProductCoupons({});
+        try {
         const buyNow = JSON.parse(buyNowRaw);
         if (Date.now() - buyNow.timestamp < 30 * 60 * 1000) {
           buyNowMode = true;
@@ -448,6 +462,8 @@ const CheckoutPage = () => {
   };
 
   const fetchAvailableVouchers = async () => {
+    // Wait for checkout data to be loaded before filtering vouchers by shop totals
+    if (!(checkout?.shops?.length > 0)) return;
     try {
       setLoadingVouchers(true);
       const res = await getAvailableVouchersApi();
@@ -1303,7 +1319,7 @@ const CheckoutPage = () => {
       <VoucherModal
         isOpen={showProductVoucherModal}
         onClose={() => setShowProductVoucherModal(false)}
-        availableVouchers={availableVouchers.filter(v => !v.shopId && v.discountType !== 'freeship')}
+        availableVouchers={availableVouchers.filter(v => !v.shopId)}
         selectedVoucher={selectedProductCoupon || selectedShippingCoupon}
         onSelectVoucher={(voucher) => {
           if (voucher.discountType === 'freeship') handleSelectShippingVoucher(voucher);

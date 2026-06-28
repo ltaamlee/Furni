@@ -467,6 +467,8 @@ const createPromotion = async (req, res) => {
         if (data.appliesTo !== 'product') data.products = [];
 
         let promotion = await Promotion.create(data);
+        // Sync lifecycle status để chuyển DRAFT → RUNNING nếu thời gian phù hợp
+        await Promotion.syncLifecycleStatuses({ _id: promotion._id });
         promotion = await populatePromotion(Promotion.findById(promotion._id));
 
         // Tự động tạo Coupon khi vendor tạo khuyến mãi loại "coupon" (Shopee-style)
@@ -1202,9 +1204,9 @@ const updateShippingConfig = async (req, res) => {
             }
         }
 
-        // Merge partial update
+        // Merge partial update — defaultProvider = selectedProvider
         if (selectedProvider !== undefined) {
-            shop.shippingConfig = { ...(shop.shippingConfig || {}), selectedProvider };
+            shop.shippingConfig = { ...(shop.shippingConfig || {}), defaultProvider: selectedProvider };
         }
         if (freeShippingThreshold !== undefined) {
             shop.shippingConfig = { ...(shop.shippingConfig || {}), freeShippingThreshold };
