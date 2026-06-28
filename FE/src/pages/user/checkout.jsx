@@ -125,7 +125,7 @@ const CheckoutPage = () => {
         ...(isBuyNow
           ? {
               mode: 'BUY_NOW',
-              items: [{ productId: buyNowItem?.productId, quantity: buyNowItem?.quantity || 1 }],
+              items: [{ productId: buyNowItem?.productId, quantity: buyNowItem?.quantity || 1, variantId: buyNowItem?.variant?.variantId || null }],
             }
           : {
               mode: 'CART',
@@ -233,12 +233,8 @@ const CheckoutPage = () => {
       });
 
       if (res.success) {
-        // Mark voucher as USED immediately (BE also marks on order creation — idempotent)
-        if (voucher._id) {
-          await applyVoucherApi(voucher._id, null);
-        }
-
-        // 2. Update shop coupon state
+        // Chỉ lưu trạng thái FE — KHÔNG gọi applyVoucherApi ở đây!
+        // applyVoucherApi sẽ được gọi bên trong createOrder khi đơn thực sự được tạo thành công.
         setShopProductCoupons(prev => ({ ...prev, [shopId]: { coupon: res.data.voucher, discount: res.data.discount } }));
 
         // 3. Remove from available vouchers list (so can't be used again)
@@ -365,7 +361,8 @@ const CheckoutPage = () => {
           setIsBuyNow(true);
           isBuyNowRef.current = true;
           const qty = Math.max(1, Number(buyNow.quantity) || 1);
-          setBuyNowItem({ productId: buyNow.productId, quantity: qty });
+          const variant = buyNow.variant || null;
+          setBuyNowItem({ productId: buyNow.productId, quantity: qty, variant });
           setSelectedItemIds(new Set([buyNow.productId]));
           localStorage.setItem("checkout_selected_items", JSON.stringify([buyNow.productId]));
         }
@@ -530,10 +527,8 @@ const CheckoutPage = () => {
       }));
       const res = await validateVoucherApi({ code: voucher.code, orderTotal, cartItems });
       if (res.success) {
-        // Mark voucher as USED immediately so it's removed from wallet
-        if (voucher._id) {
-          await applyVoucherApi(voucher._id, null);
-        }
+        // Chỉ lưu trạng thái FE — KHÔNG gọi applyVoucherApi ở đây!
+        // applyVoucherApi sẽ được gọi bên trong createOrder khi đơn thực sự được tạo thành công.
         setSelectedProductCoupon(res.data.voucher);
         setProductCouponDiscount(res.data.discount);
         // Remove from available vouchers list
@@ -734,7 +729,7 @@ const CheckoutPage = () => {
 
       // ── STEP 11: Chuẩn bị items theo mode ──
       const orderItems = isBuyNow
-        ? [{ productId: buyNowItem?.productId, quantity: Math.max(1, Number(buyNowItem?.quantity) || 1) }]
+        ? [{ productId: buyNowItem?.productId, quantity: Math.max(1, Number(buyNowItem?.quantity) || 1), variantId: buyNowItem?.variant?.variantId || null }]
         : selectedCheckoutProducts.map(item => ({
             productId: item.productId,
             quantity: item.quantity,
@@ -769,6 +764,8 @@ const CheckoutPage = () => {
         mode: isBuyNow ? 'BUY_NOW' : 'CART',
         shippingAddress,
         paymentMethod,
+        note: shippingInfo.note || '',
+        orderNotes: shopNotes,
         shippingProvider: shippingProviderMap,
         shippingFeesByShop,
         couponCode: selectedProductCoupon?.code || null,

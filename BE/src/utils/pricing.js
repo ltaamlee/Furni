@@ -81,7 +81,10 @@ const attachPricing = async (products) => {
     }
 
     for (const p of list) {
-        const best = bestPricing(p, promos);
+        // Nếu product có salePrice đã được attachPricing trước đó (e.g. từ Cart đã lưu với variant đã chọn),
+        // giữ nguyên salePrice đó để đảm bảo giá variant đúng thay vì tính lại sai bằng product.price.
+        // bestPricing chỉ tính giá sale dựa trên product.price (không phải variant.price).
+        const best = p.salePrice ? null : bestPricing(p, promos);
         if (best) {
             p.salePrice = best.salePrice;
             p.originalPrice = p.price;
@@ -89,7 +92,7 @@ const attachPricing = async (products) => {
             p.promotion = { id: best.promotionId, name: best.promotionName, type: best.promotionType };
         }
 
-        // Tính giá sale cho từng variant
+        // Tính giá sale cho từng variant dựa trên base price của variant đó
         if (p.variants && Array.isArray(p.variants)) {
             for (const v of p.variants) {
                 v.originalPrice = v.originalPrice ?? v.price;

@@ -62,8 +62,6 @@ const normalizeToCheckoutItems = async (mode, body, userId) => {
                 quantity: Math.max(1, Number(item.quantity)),
             }));
     }
-
-    // CART mode
     const { cartItemIds = [] } = body;
     console.log('[Checkout] CART mode, cartItemIds:', cartItemIds);
     const cart = await Cart.findOne({ user: userId }).lean();
@@ -74,8 +72,10 @@ const normalizeToCheckoutItems = async (mode, body, userId) => {
 
     return items.map(item => ({
         productId: item.product.toString(),
-        variantId: null,
+        variantId: item.variantId ? item.variantId.toString() : null,
+        cartPrice: item.price, // price at the time of adding to cart
         quantity: item.quantity,
+        cartPromotion: item.promotion || null, // promotion at the time of adding to cart
     }));
 };
 
@@ -85,12 +85,13 @@ const normalizeToCheckoutItems = async (mode, body, userId) => {
 const loadProducts = async (checkoutItems) => {
     const productIds = checkoutItems.map(i => i.productId);
     const products = await Product.find({ _id: { $in: productIds } })
+        .select('+variants') // include variants for pricing
         .populate('shop', 'name avatar code status isActive shippingConfig provinceCode provinceName')
         .lean();
 
     await attachPricing(products);
 
-    return products; // each has salePrice, originalPrice, discountPercent, promotion
+    return products; // each has salePrice, originalPrice, discountPercent, promotion, variants with salePrice
 };
 
 // ────────────────────────────────────────────────────────────────
@@ -114,20 +115,41 @@ const validateAndEnrichItems = async (checkoutItems, products, address) => {
             continue;
         }
 
-        if (product.quantity < item.quantity) {
-            errors.push({ productId: item.productId, error: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!` });
-            continue;
+        // Resolve variant pricing if a variant is selected
+        const hasVariant = item.variantId && product.variants && Array.isArray(product.variants);
+        let variantData = null;
+        let originalPrice;
+        let salePrice;
+        let discountPercent;
+
+        if (hasVariant) {
+            const variant = product.variants.find(v => v._id?.toString() === item.variantId.toString());
+            if (variant) {
+                // Pricing for this variant already computed by attachPricing (uses variant.price as base)
+                variantData = {
+                    _id: variant._id?.toString(),
+                    name: variant.name || '',
+                    price: variant.price,
+                };
+                originalPrice = variant.originalPrice ?? variant.price;
+                salePrice = variant.salePrice ?? variant.price;
+                discountPercent = variant.discountPercent ?? 0;
+            } else {
+                hasVariant = false; // variant not found, fallback to product price
+            }
         }
 
-        const discountPercent = product.discountPercent || 0;
-        const originalPrice = product.originalPrice || product.price;
-        const salePrice = product.salePrice || (discountPercent > 0
-            ? Math.round(originalPrice * (1 - discountPercent / 100))
-            : originalPrice);
+        if (!hasVariant) {
+            // No variant selected: use product-level pricing (already set by attachPricing)
+            discountPercent = product.discountPercent || 0;
+            originalPrice = product.originalPrice || product.price;
+            salePrice = product.salePrice || originalPrice;
+        }
 
         enriched.push({
             productId: item.productId,
             variantId: item.variantId,
+            variant: variantData,
             quantity: item.quantity,
             // Product data
             name: product.name,
@@ -141,9 +163,11 @@ const validateAndEnrichItems = async (checkoutItems, products, address) => {
             shopName: shop.name || 'Cửa hàng',
             shopAvatar: shop.avatar || null,
             // Stock
-            stock: product.quantity,
+            stock: hasVariant ? (variantData ? (product.variants.find(v => v._id?.toString() === item.variantId.toString())?.stock || 0) : 0) : product.quantity,
             // Promotion
-            promotion: product.promotion || null,
+            promotion: hasVariant
+                ? (product.variants.find(v => v._id?.toString() === item.variantId.toString())?.promotion || null)
+                : (product.promotion || null),
         });
     }
 

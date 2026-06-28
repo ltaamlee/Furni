@@ -221,9 +221,13 @@ const ProductDetailPage = () => {
         try {
             setAdding(true);
             // Store "mua ngay" flag - NO add to cart, checkout will handle it directly
+            const variantData = selectedVariant !== null && activeVariant
+                ? { variantId: activeVariant._id, variantName: activeVariant.name, variantPrice: activeVariant.price }
+                : null;
             localStorage.setItem("buy_now", JSON.stringify({
                 productId: product._id,
                 quantity,
+                variant: variantData,
                 timestamp: Date.now()
             }));
             navigate("/checkout");
@@ -387,8 +391,8 @@ const ProductDetailPage = () => {
                                         )}
                                     </div>
                                     <div className="flex items-center gap-1.5 text-xs text-[#A8896A] mt-0.5">
-                                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-                                        Đang hoạt động
+                                        <span className={`w-1.5 h-1.5 rounded-full ${shop.isActive === false ? 'bg-gray-400' : 'bg-green-500'}`} />
+                                        {shop.isActive === false ? 'Tạm ngừng bán' : 'Đang hoạt động'}
                                     </div>
                                     {shop.address && (
                                         <div className="flex items-center gap-1 text-xs text-[#A8896A] mt-1 truncate">
@@ -594,7 +598,22 @@ const ProductDetailPage = () => {
                                     )}
                                 </div>
 
-                                {displayStock > 0 && (
+                                {/* Banner: Shop tạm nghỉ */}
+                                {shop && shop.isActive === false && (
+                                    <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" className="w-5 h-5 shrink-0 mt-0.5">
+                                            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                            <line x1="12" y1="9" x2="12" y2="13" />
+                                            <line x1="12" y1="17" x2="12.01" y2="17" />
+                                        </svg>
+                                        <div>
+                                            <p className="text-sm font-semibold text-amber-800">Cửa hàng tạm ngừng bán</p>
+                                            <p className="text-xs text-amber-600 mt-0.5">Bạn có thể xem thông tin sản phẩm nhưng không thể đặt hàng lúc này.</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {(displayStock > 0 && !(shop && shop.isActive === false)) && (
                                     <>
                                         {/* Quantity picker */}
                                         <div className="flex items-center gap-4 mb-5">

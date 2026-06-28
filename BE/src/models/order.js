@@ -46,6 +46,12 @@ const orderSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
+    shopCode: {
+        type: String,
+        uppercase: true,
+        trim: true,
+        default: ''
+    },
     orderNumber: {
         type: String,
         unique: true
@@ -103,6 +109,22 @@ const orderSchema = new mongoose.Schema({
             type: Number,
             default: 0,
             min: 0
+        },
+        variant: {
+            type: String,
+            default: null
+        },
+        variantId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
+        },
+        variantSku: {
+            type: String,
+            default: null
+        },
+        variantSize: {
+            type: String,
+            default: null
         },
         name: {
             type: String,
@@ -173,7 +195,7 @@ const orderSchema = new mongoose.Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['COD', 'VNPAY', 'MOMO', 'ZALOPAY', 'PAYOS'],
+        enum: ['COD', 'VNPAY', 'MOMO', 'ZALOPAY', 'PAYOS', 'WALLET'],
         default: 'COD'
     },
     paymentStatus: {
@@ -241,6 +263,25 @@ const orderSchema = new mongoose.Schema({
         type: Number,
         required: true,
         min: 0
+    },
+    walletUsedAmount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    payableAmount: {
+        type: Number,
+        default: null,
+        min: 0
+    },
+    walletRefundedAmount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    refundedToWalletAt: {
+        type: Date,
+        default: null
     },
     totalQuantity: {
         type: Number,
@@ -312,20 +353,96 @@ const orderSchema = new mongoose.Schema({
 orderSchema.index({ 'products.shop': 1, status: 1, createdAt: -1 });
 orderSchema.index({ 'products.shopOrderCode': 1 });
 
+const orderCounterSchema = new mongoose.Schema({
+    key: {
+        type: String,
+        unique: true,
+        required: true
+    },
+    shopCode: {
+        type: String,
+        required: true
+    },
+    dateCode: {
+        type: String,
+        required: true
+    },
+    sequence: {
+        type: Number,
+        default: 0
+    }
+}, { timestamps: true });
+
+const OrderCounter = mongoose.models.OrderCounter || mongoose.model('OrderCounter', orderCounterSchema);
+
+const normalizeShopCode = (code) => {
+    const normalized = String(code || 'SHOP').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return normalized || 'SHOP';
+};
+
+const getVietnamDateParts = (date = new Date()) => {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    }).formatToParts(date);
+
+    return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+};
+
+const getVietnamDateCode = (date = new Date()) => {
+    const parts = getVietnamDateParts(date);
+    return `${parts.day}${parts.month}${parts.year.slice(-2)}`;
+};
+
+const getVietnamDayRange = (date = new Date()) => {
+    const parts = getVietnamDateParts(date);
+    const start = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), -7));
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    return { start, end };
+};
+
+const generateOrderNumber = async (order) => {
+    const shopCode = normalizeShopCode(order.shopCode || order.products?.[0]?.shopCode);
+    const dateCode = getVietnamDateCode(order.orderedAt || new Date());
+    const key = `${shopCode}:${dateCode}`;
+
+    const existingCounter = await OrderCounter.findOne({ key }).select('_id');
+    if (!existingCounter) {
+        const { start, end } = getVietnamDayRange(order.orderedAt || new Date());
+        const existingOrderCount = await mongoose.model('Order').countDocuments({
+            orderedAt: { $gte: start, $lt: end },
+            $or: [
+                { shopCode },
+                { 'products.shopCode': shopCode }
+            ]
+        });
+
+        try {
+            await OrderCounter.create({ key, shopCode, dateCode, sequence: existingOrderCount });
+        } catch (error) {
+            if (error.code !== 11000) throw error;
+        }
+    }
+
+    const counter = await OrderCounter.findOneAndUpdate(
+        { key },
+        {
+            $inc: { sequence: 1 },
+            $setOnInsert: { key, shopCode, dateCode }
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    order.shopCode = shopCode;
+    return `${shopCode}${dateCode}${String(counter.sequence).padStart(4, '0')}`;
+};
+
 // Tạo mã đơn hàng tự động
 orderSchema.pre('save', async function(next) {
     if (!this.orderNumber) {
-        const timestamp = Date.now().toString(36).toUpperCase();
-        const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-
-        if (this.isChildOrder) {
-            // Child order: {shopCode}-{timestamp}-{random}
-            const shopCode = (this.shopCode || this.products?.[0]?.shopCode || 'SHOP');
-            this.orderNumber = `${shopCode}-${timestamp}-${random}`;
-        } else {
-            // Parent order (multi-vendor hoặc single shop không có shopCode)
-            this.orderNumber = `ORD-${timestamp}-${random}`;
-        }
+        this.orderNumber = await generateOrderNumber(this);
     }
 
     // Tạo shopCode ở level order nếu chưa có (từ products đầu tiên)
@@ -335,23 +452,10 @@ orderSchema.pre('save', async function(next) {
 
     // Tạo mã đơn riêng cho từng shop trong đơn (multi-vendor)
     if (this.isNew) {
-        const shopOrderCounts = {};
-
         for (const item of this.products) {
-            const shopId = item.shop?.toString() || 'default';
-
-            if (!shopOrderCounts[shopId]) {
-                shopOrderCounts[shopId] = await mongoose.model('Order').countDocuments({
-                    'products.shop': item.shop
-                });
+            if (!item.shopOrderCode) {
+                item.shopOrderCode = this.orderNumber;
             }
-
-            const shopCode = item.shopCode || 'SHOP';
-            const timestamp = Date.now().toString(36).toUpperCase().slice(-6);
-            const sequence = String(shopOrderCounts[shopId] + 1).padStart(4, '0');
-
-            item.shopOrderCode = `${shopCode}-${timestamp}-${sequence}`;
-            shopOrderCounts[shopId]++;
         }
     }
 
@@ -413,6 +517,14 @@ orderSchema.methods.canAutoConfirm = function() {
     const timePassed = Date.now() - new Date(this.orderedAt).getTime();
     return this.status === ORDER_STATUS.PENDING && timePassed >= thirtyMinutes;
 };
+
+// Virtual: serialize orderNotes Map → plain object (works with both .lean() and regular queries)
+orderSchema.virtual('orderNotesObject').get(function () {
+    const raw = this.orderNotes;
+    if (!raw) return {};
+    if (raw instanceof Map) return Object.fromEntries(raw);
+    return raw; // already plain object
+});
 
 // Enable virtuals in JSON
 orderSchema.set('toJSON', { virtuals: true });

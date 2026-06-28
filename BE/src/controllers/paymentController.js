@@ -303,7 +303,7 @@ const createPayOSPayment = async (req, res) => {
  */
 const createPayOSPaymentWithCart = async (req, res) => {
     try {
-        const { shippingAddress, shippingTier = 'express', shippingProvider = null, shippingFee, shippingFeesByShop = {}, note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, couponCode = null, selectedShippingCoupon = null } = req.body;
+        const { shippingAddress, shippingTier = 'express', shippingProvider = null, shippingFee, shippingFeesByShop = {}, note, orderNotes = {}, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, couponCode = null, selectedShippingCoupon = null } = req.body;
         const normalizedBuyNowProduct = buyNowProduct?.productId
             ? buyNowProduct
             : (req.body.buyNowProductId
@@ -492,7 +492,8 @@ const createPayOSPaymentWithCart = async (req, res) => {
             orderedAt: new Date(),
             estimatedDelivery: new Date(Date.now() + (shippingTier === 'express' ? 3 : 7) * 24 * 60 * 60 * 1000),
             // Thanh toán PayOS hết hạn sau 30 phút
-            paymentExpiresAt: new Date(Date.now() + 30 * 60 * 1000)
+            paymentExpiresAt: new Date(Date.now() + 30 * 60 * 1000),
+            orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v))
         });
 
         await order.save();

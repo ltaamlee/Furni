@@ -1,5 +1,6 @@
 const Promotion = require('../models/promotion');
 const Coupon = require('../models/Coupon');
+const { VoucherWallet } = require('../models/voucherWallet');
 
 const updateStatusByDate = (promo) => {
     const now = new Date();
@@ -93,6 +94,9 @@ const createAdminPromotion = async (req, res) => {
             status: status || updateStatusByDate({ startDate, endDate })
         });
 
+        // Sync lifecycle để đảm bảo status chạy đúng (chuyển DRAFT → RUNNING nếu thời gian phù hợp)
+        await Promotion.syncLifecycleStatuses({ _id: newPromo._id });
+
         const newCoupon = await Coupon.create({
             code: promoCode,
             promotion: newPromo._id,
@@ -145,6 +149,21 @@ const updateAdminPromotion = async (req, res) => {
         if (maxUsage !== undefined) promo.maxUsage = maxUsage;
         if (status !== undefined) promo.status = status;
         await promo.save();
+
+        // Cập nhật tất cả VoucherWallet liên quan khi admin sửa coupon
+        // Đồng bộ: value, discountType, maxDiscount, minOrderValue, endDate từ Promo mới nhất
+        const updatedFields = {};
+        if (value !== undefined) updatedFields.value = value;
+        if (discountType !== undefined) updatedFields.discountType = discountType;
+        if (maxDiscount !== undefined) updatedFields.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
+        if (minOrderValue !== undefined) updatedFields.minOrderValue = minOrderValue;
+        if (endDate !== undefined) updatedFields.endDate = endDate;
+        if (Object.keys(updatedFields).length > 0) {
+            await VoucherWallet.updateMany(
+                { coupon: promo._id },
+                { $set: updatedFields }
+            );
+        }
 
         if (code !== undefined) {
             const promoCode = (code || '').trim().toUpperCase();

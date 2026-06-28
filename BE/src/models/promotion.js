@@ -154,7 +154,9 @@ promotionSchema.methods.isCurrentlyActive = function () {
 // Keep lifecycle statuses aligned with the promotion's actual time window.
 // Draft and paused are intentional manual states, so they are never changed here.
 promotionSchema.pre('validate', function () {
-    if (![PROMO_STATUS.SCHEDULED, PROMO_STATUS.RUNNING, PROMO_STATUS.ENDED].includes(this.status)) return;
+    // Nếu status chưa được set (undefined), áp dụng logic tự động theo ngày.
+    // Nếu đã có giá trị (draft/running/paused/...) → giữ nguyên (FE vendor gửi 'running' khi kích hoạt)
+    if (this.status !== undefined) return;
 
     const now = Date.now();
     const startsAt = new Date(this.startDate).getTime();

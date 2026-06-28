@@ -215,8 +215,9 @@ const getProduct = async (req, res) => {
       });
     }
 
-    // Kiểm tra shop có đang hoạt động không
-    if (product.shop && (product.shop.status === 'suspended' || product.shop.isActive === false)) {
+    // Shop bị khóa (suspended) thì không hiển thị sản phẩm.
+    // isActive = false (tạm nghỉ) thì vẫn cho xem nhưng FE sẽ ẩn nút mua.
+    if (product.shop && product.shop.status === 'suspended') {
       return res.status(404).json({
         success: false,
         message: 'Sản phẩm không tồn tại hoặc cửa hàng đã ngừng hoạt động'

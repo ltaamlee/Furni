@@ -388,6 +388,21 @@ const AdminOrdersPage = () => {
                                         </div>
                                     </div>
 
+                                    {/* Lời nhắn cho shop (orderNotes) */}
+                                    {(() => {
+                                        const notes = detailModal.data.orderNotes;
+                                        const notesObj = (notes instanceof Map ? Object.fromEntries(notes) : (notes || {})) || detailModal.data.orderNotesObject || {};
+                                        const shopId = detailModal.data.shop?._id?.toString() || detailModal.data.shop || '';
+                                        const note = notesObj[shopId] || '';
+                                        if (!note) return null;
+                                        return (
+                                            <div className="p-3 rounded-[8px] bg-amber-50 border border-amber-200/60">
+                                                <div className="text-[12px] font-bold text-amber-700 mb-1">💬 Lời nhắn cho cửa hàng</div>
+                                                <p className="text-[13px] text-amber-800 italic">"{note}"</p>
+                                            </div>
+                                        );
+                                    })()}
+
                                     {/* Khối 2: Trạng thái & Thanh toán */}
                                     <div className="p-4 rounded-[8px] border border-[#e2d8d0] bg-[#faf7f5] grid grid-cols-2 sm:grid-cols-3 gap-4 text-[13px]">
                                         <div>

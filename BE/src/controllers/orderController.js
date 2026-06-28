@@ -62,6 +62,7 @@ const createOrder = async (req, res) => {
             shippingAddress,
             paymentMethod = 'COD',
             note,
+            orderNotes = {},     // { [shopId]: string } — lời nhắn cho từng shop
             shippingProvider = null,   // { [shopId]: { _id, name, code } } (STEP 11)
             shippingFeesByShop = {},    // { [shopId]: fee } (STEP 11)
             couponCode = null,
@@ -80,10 +81,10 @@ const createOrder = async (req, res) => {
         // Normalize items
         let checkoutItems = [];
         if (isBuyNow && Array.isArray(items) && items.length > 0) {
-            // STEP 11 format: items = [{ productId, quantity }]
+            // STEP 11 format: items = [{ productId, quantity, variantId? }]
             checkoutItems = items
                 .filter(i => i.productId && Number(i.quantity) > 0)
-                .map(i => ({ product: i.productId, quantity: Math.max(1, Number(i.quantity)) }));
+                .map(i => ({ product: i.productId, quantity: Math.max(1, Number(i.quantity)), variantId: i.variantId || null }));
         } else if (isBuyNow && legacyBuyNowActive) {
             // Legacy format
             checkoutItems = [{ product: legacyBuyNow.productId, quantity: Math.max(1, Number(legacyBuyNow.quantity)) }];
@@ -186,13 +187,26 @@ const createOrder = async (req, res) => {
                 };
             }
 
-            // Dùng discountPercent từ attachPricing (từ promotion), fallback về discount field thủ công
-            const productDiscount = pricedProduct.discountPercent || pricedProduct.discount || 0;
-            // originalPrice = giá gốc (chưa sale), salePrice = giá sau giảm
-            const originalPrice = pricedProduct.originalPrice || product.price;
-            const salePrice = pricedProduct.salePrice || (productDiscount > 0
-                ? Math.round(originalPrice * (1 - productDiscount / 100))
-                : originalPrice);
+            // Resolve variant pricing if a variant is selected (Buy Now flow)
+            const hasVariant = item.variantId && product.variants && Array.isArray(product.variants);
+            let productDiscount, originalPrice, salePrice;
+            if (hasVariant) {
+                const variant = product.variants.find(v => v._id?.toString() === item.variantId.toString());
+                if (variant) {
+                    // Attach pricing đã tính salePrice cho variant dựa trên variant.price
+                    productDiscount = variant.discountPercent ?? pricedProduct.discountPercent ?? 0;
+                    originalPrice = variant.originalPrice ?? variant.price;
+                    salePrice = variant.salePrice ?? variant.price;
+                } else {
+                    hasVariant = false;
+                }
+            }
+            if (!hasVariant) {
+                // Không có variant: dùng product-level pricing đã attach bởi attachPricing
+                productDiscount = pricedProduct.discountPercent || pricedProduct.discount || 0;
+                originalPrice = pricedProduct.originalPrice || product.price;
+                salePrice = pricedProduct.salePrice || originalPrice;
+            }
 
             shopGroups[shopId].items.push({
                 product: item.product,
@@ -204,7 +218,8 @@ const createOrder = async (req, res) => {
                 originalPrice: originalPrice,
                 discount: productDiscount,
                 name: product.name,
-                image: getProductImage(product)
+                image: getProductImage(product),
+                ...(item.variantId ? { variantId: item.variantId } : {}),
             });
             shopGroups[shopId].subtotal += salePrice * item.quantity;
             shopGroups[shopId].totalQuantity += item.quantity;
@@ -319,7 +334,8 @@ const createOrder = async (req, res) => {
                     totalPrice: groupTotal,
                     totalQuantity: group.totalQuantity,
                     orderedAt: new Date(),
-                    estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000)
+                    estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000),
+                    orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v))
                 });
 
                 // Trừ tồn kho
@@ -399,7 +415,8 @@ const createOrder = async (req, res) => {
                 totalPrice: groupTotal,
                 totalQuantity: group.totalQuantity,
                 orderedAt: new Date(),
-                estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000)
+                estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000),
+                orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v))
             });
 
             // Trừ tồn kho cho sản phẩm của shop này

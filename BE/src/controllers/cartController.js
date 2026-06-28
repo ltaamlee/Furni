@@ -144,7 +144,9 @@ const addToCart = async (req, res) => {
     try {
         const { productId, quantity = 1, variantIndex = null } = req.body;
 
-        const product = await Product.findById(productId).populate('shop', 'name avatar logo status isActive');
+        const product = await Product.findById(productId)
+            .populate('shop', 'name avatar logo status isActive')
+            .select('+variants');
         if (!product) {
             return res.status(404).json({
                 success: false,
@@ -189,6 +191,10 @@ const addToCart = async (req, res) => {
                     : `Chỉ còn ${product.quantity} sản phẩm trong kho`
             });
         }
+
+        // Gắn pricing (attachPricing) để tính discountPercent và salePrice đúng cho cả product và variant
+        // attachPricing ghi đè salePrice/originalPrice/discountPercent trên object product (và variants)
+        await attachPricing([product]);
 
         // Discount: ưu tiên discountPercent từ attachPricing, fallback về discount field thủ công
         const discount = product.discountPercent || product.discount || 0;
@@ -344,7 +350,7 @@ const updateCartItem = async (req, res) => {
             });
         }
 
-        const product = await Product.findById(productId);
+        const product = await Product.findById(productId).select('+variants');
         if (!product) {
             return res.status(404).json({
                 success: false,
@@ -361,11 +367,13 @@ const updateCartItem = async (req, res) => {
         }
 
         cartItem.quantity = quantity;
+
         // Re-evaluate giá KM hiện tại (hỗ trợ variant)
+        await attachPricing([product]);
+        cartItem.discount = product.discountPercent || product.discount || 0;
+        cartItem.originalPrice = cartItem.variantPrice ?? product.price;
         const salePrice = await currentSalePrice(product, cartItem.variantPrice || null);
         cartItem.price = salePrice;
-        cartItem.originalPrice = cartItem.variantPrice ?? product.price;
-        cartItem.discount = product.discountPercent || product.discount || 0;
 
         await cart.save();
 
