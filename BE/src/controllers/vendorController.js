@@ -11,6 +11,8 @@ const Wallet = require('../models/wallet');
 const Transaction = require('../models/transaction');
 const Review = require('../models/review');
 const Notification = require('../models/notification');
+const { refundOrderToWallet } = require('../services/walletService');
+const { notifyCustomerOrderStatus } = require('../services/notificationService');
 
 // Lấy shop của vendor đang đăng nhập (helper dùng chung)
 const getOwnerShop = async (userId) => Shop.findOne({ owner: userId });
@@ -798,21 +800,30 @@ const updateMyOrderStatus = async (req, res) => {
         }
 
         // Nếu huỷ: hoàn tồn kho cho các sản phẩm trong đơn
+        let refundResult = null;
         if (status === ORDER_STATUS.CANCELLED && order.products) {
             await Promise.all(order.products.map((it) =>
                 Product.findByIdAndUpdate(it.product, { $inc: { quantity: it.quantity, sold: -it.quantity } })
             ));
+            refundResult = await refundOrderToWallet(order, {
+                description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
+            });
+            order.cancelledAt = new Date();
         }
 
         // Cập nhật trạng thái
         order.status = status;
-        if (note) order.statusHistory.push({ status, timestamp: new Date(), note });
+        order.statusHistory.push({ status, timestamp: new Date(), note: note || '' });
         if (status === 'shipping') {
             const effectiveProvider = pickShopShippingProvider(shippingProvider || order.shippingProvider, shop._id);
             if (effectiveProvider) order.shippingProvider = effectiveProvider;
             if (trackingNumber) order.trackingNumber = trackingNumber;
         }
         await order.save();
+        await notifyCustomerOrderStatus(order, status, {
+            message: status === ORDER_STATUS.CANCELLED ? 'Shop đã hủy đơn hàng.' : undefined,
+            refundedAmount: refundResult?.amount || 0,
+        });
 
         res.status(200).json({ success: true, message: 'Cập nhật trạng thái thành công', data: { status: order.status, shippingProvider: order.shippingProvider } });
     } catch (error) {

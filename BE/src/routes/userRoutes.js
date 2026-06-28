@@ -21,9 +21,17 @@ const {
   setDefaultAddress,
   getDefaultAddress
 } = require('../controllers/addressController');
+const {
+  getCustomerNotifications,
+  markCustomerNotificationRead,
+  markAllCustomerNotificationsRead,
+  streamCustomerNotifications
+} = require('../controllers/customerNotificationController');
 
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { validateUpdateProfile } = require('../middleware/validationMiddleware');
+
+router.get('/notifications/stream', streamCustomerNotifications);
 
 // All routes require authentication
 router.use(protect);
@@ -50,6 +58,10 @@ router.post('/avatar', authorize('customer'), uploadAvatarMiddleware, uploadAvat
 
 // Change password
 router.put('/change-password', authorize('customer'), changePassword);
+
+router.get('/notifications', authorize('customer'), getCustomerNotifications);
+router.put('/notifications/read-all', authorize('customer'), markAllCustomerNotificationsRead);
+router.put('/notifications/:id/read', authorize('customer'), markCustomerNotificationRead);
 
 // Current user — phải đặt TRƯỚC '/:id' để không bị shadow; mở cho mọi role đã đăng nhập
 router.get('/me', authorize('customer', 'admin', 'vendor'), getProfile);

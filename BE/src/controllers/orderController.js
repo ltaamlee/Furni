@@ -15,6 +15,10 @@ const {
     normalizeMoney,
     refundOrderToWallet,
 } = require('../services/walletService');
+const {
+    notifyCustomerOrderCreated,
+    notifyCustomerOrderStatus,
+} = require('../services/notificationService');
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
 const getProductImage = (product) => {
@@ -423,6 +427,7 @@ const createOrder = async (req, res) => {
             // Thông báo vendors
             for (const order of createdOrders) {
                 await notifyVendorsNewOrder(order);
+                await notifyCustomerOrderCreated(order);
             }
 
             return res.status(201).json({
@@ -518,6 +523,7 @@ const createOrder = async (req, res) => {
         // Gửi thông báo cho vendors
         for (const order of createdOrders) {
             await notifyVendorsNewOrder(order);
+            await notifyCustomerOrderCreated(order);
         }
 
         // Trả về danh sách đơn hàng đã tạo (luôn là mảng)
@@ -777,7 +783,7 @@ const cancelOrder = async (req, res) => {
 
         order.status = ORDER_STATUS.CANCELLED;
         order.cancelledAt = new Date();
-        await refundOrderToWallet(order, {
+        const refundResult = await refundOrderToWallet(order, {
             description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
         });
         order.statusHistory.push({
@@ -787,6 +793,10 @@ const cancelOrder = async (req, res) => {
         });
 
         await order.save();
+        await notifyCustomerOrderStatus(order, ORDER_STATUS.CANCELLED, {
+            message: 'Đơn hàng đã được hủy.',
+            refundedAmount: refundResult?.amount || 0,
+        });
 
         res.status(200).json({
             success: true,
@@ -832,6 +842,7 @@ const confirmOrder = async (req, res) => {
         });
 
         await order.save();
+        await notifyCustomerOrderStatus(order, ORDER_STATUS.CONFIRMED);
 
         res.status(200).json({
             success: true,
@@ -900,7 +911,22 @@ const updateOrderStatus = async (req, res) => {
                 });
         }
 
+        let refundResult = null;
+        if (status === ORDER_STATUS.CANCELLED) {
+            for (const item of order.products || []) {
+                await Product.findByIdAndUpdate(item.product, { $inc: { quantity: item.quantity } });
+            }
+            refundResult = await refundOrderToWallet(order, {
+                description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
+            });
+            order.cancelledAt = new Date();
+        }
+
         await order.save();
+        await notifyCustomerOrderStatus(order, status, {
+            message: status === ORDER_STATUS.CANCELLED ? 'Đơn hàng đã được hủy.' : undefined,
+            refundedAmount: refundResult?.amount || 0,
+        });
 
         res.status(200).json({
             success: true,
@@ -1037,7 +1063,7 @@ const processCancelRequest = async (req, res) => {
 
             order.status = ORDER_STATUS.CANCELLED;
             order.cancelledAt = new Date();
-            await refundOrderToWallet(order, {
+            const refundResult = await refundOrderToWallet(order, {
                 description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
             });
             order.cancelRequest.processedAt = new Date();
@@ -1050,6 +1076,10 @@ const processCancelRequest = async (req, res) => {
             });
 
             await order.save();
+            await notifyCustomerOrderStatus(order, ORDER_STATUS.CANCELLED, {
+                message: 'Yêu cầu hủy đơn đã được chấp nhận.',
+                refundedAmount: refundResult?.amount || 0,
+            });
 
             return res.status(200).json({
                 success: true,
@@ -1069,6 +1099,9 @@ const processCancelRequest = async (req, res) => {
             });
 
             await order.save();
+            await notifyCustomerOrderStatus(order, ORDER_STATUS.PREPARING, {
+                message: 'Yêu cầu hủy đơn bị từ chối. Đơn hàng tiếp tục được chuẩn bị.',
+            });
 
             return res.status(200).json({
                 success: true,
@@ -1107,6 +1140,9 @@ const autoConfirmOrders = async (req, res) => {
                 note: 'Tự động xác nhận sau 30 phút'
             });
             await order.save();
+            await notifyCustomerOrderStatus(order, ORDER_STATUS.CONFIRMED, {
+                message: 'Đơn hàng đã được tự động xác nhận.',
+            });
             count++;
         }
 
@@ -1157,6 +1193,9 @@ const confirmReceived = async (req, res) => {
         });
 
         await order.save();
+        await notifyCustomerOrderStatus(order, ORDER_STATUS.DELIVERED, {
+            message: 'Bạn đã xác nhận nhận hàng thành công.',
+        });
 
         res.status(200).json({
             success: true,
@@ -1264,7 +1303,7 @@ const adminForceCancelOrder = async (req, res) => {
         // Đổi trạng thái và lưu lịch sử
         order.status = ORDER_STATUS.CANCELLED;
         order.cancelledAt = new Date();
-        await refundOrderToWallet(order, {
+        const refundResult = await refundOrderToWallet(order, {
             description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
         });
         order.statusHistory.push({
@@ -1274,6 +1313,10 @@ const adminForceCancelOrder = async (req, res) => {
         });
 
         await order.save();
+        await notifyCustomerOrderStatus(order, ORDER_STATUS.CANCELLED, {
+            message: 'Đơn hàng đã bị hủy bởi sàn.',
+            refundedAmount: refundResult?.amount || 0,
+        });
 
         res.status(200).json({
             success: true,

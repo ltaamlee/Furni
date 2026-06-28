@@ -16,11 +16,16 @@ const {
     allocateWalletAmount,
     getOrCreateWallet,
     normalizeMoney,
+    refundWallet,
     refundOrderToWallet,
 } = require('../services/walletService');
 const AdminLedger = require('../models/adminLedger');
 const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 const { attachPricing } = require('../utils/pricing');
+const {
+    notifyCustomerOrderCreated,
+    notifyCustomerOrderStatus,
+} = require('../services/notificationService');
 
 // Sử dụng thư viện PayOS SDK
 const { PayOS } = require('@payos/node');
@@ -758,6 +763,10 @@ const createPayOSPaymentWithCart = async (req, res) => {
                 // Đánh dấu voucher USED chỉ được xử lý trong webhook khi thanh toán thành công
                 // (tránh trường hợp PayOS chưa trả tiền mà voucher đã bị đánh dấu USED)
 
+                for (const order of createdOrders) {
+                    await notifyCustomerOrderCreated(order);
+                }
+
                 return res.status(200).json({
                     success: true,
                     message: 'Táº¡o link thanh toÃ¡n thÃ nh cÃ´ng',
@@ -883,6 +892,9 @@ const payOSWebhook = async (req, res) => {
                 }
 
                 await payosOrder.save();
+                await notifyCustomerOrderStatus(payosOrder, ORDER_STATUS.PENDING, {
+                    message: 'Thanh toán PayOS thành công. Đơn hàng đang chờ shop xác nhận.',
+                });
                 console.log('Order paid successfully:', payosOrder.orderNumber);
             }
 
@@ -908,7 +920,6 @@ const payOSWebhook = async (req, res) => {
             // Hoàn tiền ví 1 LẦN cho CẢ NHÓM
             if (totalPaid > 0) {
                 // Refund bằng walletService trực tiếp để kiểm soát amount (không dùng refundOrderToWallet vì nó tính theo single order)
-                const { refundWallet } = require('./walletService');
                 await refundWallet(order.user, totalPaid, {
                     orderId: order._id,
                     orderNumber: order.orderNumber,
@@ -948,6 +959,10 @@ const payOSWebhook = async (req, res) => {
                     note: `Thanh toán PayOS ${(code || 'CANCELLED').toLowerCase()}`
                 });
                 await payosOrder.save();
+                await notifyCustomerOrderStatus(payosOrder, ORDER_STATUS.CANCELLED, {
+                    message: 'Thanh toán PayOS đã bị hủy hoặc thất bại.',
+                    refundedAmount: normalizeMoney(payosOrder.walletUsedAmount),
+                });
             }
 
             // Ghi ledger: REFUND_TO_CUSTOMER (chỉ 1 lần cho cả nhóm)
@@ -1140,6 +1155,10 @@ const cancelPayOSPayment = async (req, res) => {
                             : 'Huy thanh toan PayOS (khong co thanh toan vi)'
                     });
                     await payosOrder.save();
+                    await notifyCustomerOrderStatus(payosOrder, ORDER_STATUS.CANCELLED, {
+                        message: 'Bạn đã hủy thanh toán PayOS.',
+                        refundedAmount: normalizeMoney(payosOrder.walletUsedAmount),
+                    });
                 }
             }
 
@@ -1185,13 +1204,17 @@ const cancelPayOSPayment = async (req, res) => {
         }
 
         // Hoàn tiền vào ví điện tử của khách
-        await refundOrderToWallet(order, {
+        const refundResult = await refundOrderToWallet(order, {
             orderId: order._id,
             orderNumber: order.orderNumber,
             paymentMethod: 'PAYOS',
             description: `Hoàn tiền từ hủy PayOS đơn #${order.orderNumber}`,
         });
         await order.save();
+        await notifyCustomerOrderStatus(order, ORDER_STATUS.CANCELLED, {
+            message: 'Đơn PayOS đã được hủy.',
+            refundedAmount: refundResult?.amount || 0,
+        });
 
         return res.status(200).json({
             success: true,

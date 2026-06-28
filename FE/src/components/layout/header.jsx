@@ -1,7 +1,13 @@
 import { useContext, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/authContext.jsx";
-import { getCartApi, getCategoriesApi } from "../../utils/api.js";
+import {
+  getCartApi,
+  getCategoriesApi,
+  getCustomerNotificationsApi,
+  markAllCustomerNotificationsReadApi,
+  markCustomerNotificationReadApi,
+} from "../../utils/api.js";
 
 export default function Header() {
   const { auth, setAuth, logout, token } = useContext(AuthContext);
@@ -9,6 +15,11 @@ export default function Header() {
   const [cartCount, setCartCount] = useState(0);
   const [categories, setCategories] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [notificationFeedback, setNotificationFeedback] = useState("");
   const navigate = useNavigate();
   const { user } = auth;
 
@@ -67,6 +78,104 @@ export default function Header() {
     } catch (error) {
       console.error("Error fetching categories:", error);
     }
+  };
+
+  const fetchNotifications = async ({ silent = false } = {}) => {
+    if (!token || user?.role !== "customer") {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+
+    try {
+      if (!silent) setLoadingNotifications(true);
+      const res = await getCustomerNotificationsApi({ limit: 8 });
+      if (res.success) {
+        setNotifications(res.data.notifications || []);
+        setUnreadCount(res.data.unreadCount || 0);
+      }
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+    } finally {
+      if (!silent) setLoadingNotifications(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const refresh = () => fetchNotifications();
+    const refreshSilent = () => fetchNotifications({ silent: true });
+    let notificationStream = null;
+
+    if (token && user?.role === "customer") {
+      const apiBase = import.meta.env.VITE_BE_URL;
+      notificationStream = new EventSource(`${apiBase}/api/user/notifications/stream?token=${encodeURIComponent(token)}`);
+      notificationStream.addEventListener("notifications", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          setNotifications(data.notifications || []);
+          setUnreadCount(data.unreadCount || 0);
+          setLoadingNotifications(false);
+        } catch (error) {
+          console.error("Error parsing notification stream:", error);
+        }
+      });
+      notificationStream.onerror = () => {
+        refreshSilent();
+      };
+    }
+
+    window.addEventListener("customer-notifications:changed", refresh);
+    window.addEventListener("focus", refreshSilent);
+    document.addEventListener("visibilitychange", refreshSilent);
+    const timer = setInterval(refreshSilent, 30000);
+    return () => {
+      notificationStream?.close();
+      window.removeEventListener("customer-notifications:changed", refresh);
+      window.removeEventListener("focus", refreshSilent);
+      document.removeEventListener("visibilitychange", refreshSilent);
+      clearInterval(timer);
+    };
+  }, [!!token, user?.role]);
+
+  useEffect(() => {
+    if (!notificationFeedback) return;
+    const timer = setTimeout(() => setNotificationFeedback(""), 1800);
+    return () => clearTimeout(timer);
+  }, [notificationFeedback]);
+
+  const formatNotificationTime = (date) => {
+    if (!date) return "";
+    const diff = Date.now() - new Date(date).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return "Vừa xong";
+    if (minutes < 60) return `${minutes} phút trước`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} giờ trước`;
+    return new Date(date).toLocaleDateString("vi-VN");
+  };
+
+  const handleNotificationClick = async (notification) => {
+    if (!notification) return;
+    if (!notification.isRead) {
+      setNotifications((prev) => prev.map((item) => item._id === notification._id ? { ...item, isRead: true } : item));
+      setUnreadCount((count) => Math.max(0, count - 1));
+      setNotificationFeedback("Đã đánh dấu đã đọc");
+      await markCustomerNotificationReadApi(notification._id).catch(() => {});
+      await fetchNotifications({ silent: true });
+    }
+    window.dispatchEvent(new CustomEvent("customer-notifications:changed"));
+    setNotificationOpen(false);
+    if (notification.link) navigate(notification.link);
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
+    setUnreadCount(0);
+    setNotificationFeedback("Đã đọc tất cả thông báo");
+    await markAllCustomerNotificationsReadApi().catch(() => {});
+    await fetchNotifications({ silent: true });
+    window.dispatchEvent(new CustomEvent("customer-notifications:changed"));
   };
 
   const handleLogout = () => {
@@ -139,12 +248,78 @@ export default function Header() {
             </nav>
 
             {/* Notifications */}
-            <button className="relative p-2.5 hover:bg-[#FAF7F4] rounded-lg transition-colors">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5.5 h-5.5 text-[#6B5C4C]">
-                <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <span className="absolute top-2 right-2 w-2 h-2 bg-[#BF4343] rounded-full border border-white"></span>
-            </button>
+            {user?.role !== "vendor" && user?.role !== "admin" && (
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    if (!auth.isAuthenticated) return navigate("/login");
+                    const nextOpen = !notificationOpen;
+                    setNotificationOpen(nextOpen);
+                    setOpen(false);
+                    if (nextOpen) fetchNotifications();
+                  }}
+                  className="relative p-2.5 hover:bg-[#FAF7F4] rounded-lg transition-colors"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5.5 h-5.5 text-[#6B5C4C]">
+                    <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 bg-[#BF4343] text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold min-w-4.5 text-center">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {notificationFeedback && !notificationOpen && (
+                  <div className="absolute right-0 mt-2 w-56 px-3 py-2 bg-white shadow-xl rounded-lg border border-green-100 text-[12px] font-semibold text-green-700 z-50">
+                    {notificationFeedback}
+                  </div>
+                )}
+
+                {notificationOpen && (
+                  <div className="absolute right-0 mt-2 w-80 bg-white shadow-xl rounded-xl overflow-hidden border border-[#EDE8E0] z-50">
+                    <div className="px-4 py-3 bg-[#FAF7F4] border-b border-[#EDE8E0] flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-[#1C1108]">Thông báo</p>
+                        <p className="text-xs text-[#A8896A]">{unreadCount > 0 ? `${unreadCount} chưa đọc` : "Không có thông báo mới"}</p>
+                      </div>
+                      {unreadCount > 0 && (
+                        <button onClick={handleMarkAllNotificationsRead} className="text-xs font-semibold text-[#95520B] hover:underline">
+                          Đọc hết
+                        </button>
+                      )}
+                    </div>
+                    {notificationFeedback && (
+                      <div className="px-4 py-2 bg-green-50 border-b border-green-100 text-[12px] font-semibold text-green-700">
+                        {notificationFeedback}
+                      </div>
+                    )}
+                    <div className="max-h-[360px] overflow-y-auto">
+                      {loadingNotifications ? (
+                        <div className="px-4 py-6 text-center text-sm text-[#9E8E7E]">Đang tải...</div>
+                      ) : notifications.length === 0 ? (
+                        <div className="px-4 py-6 text-center text-sm text-[#9E8E7E]">Chưa có thông báo</div>
+                      ) : notifications.map((notification) => (
+                        <button
+                          key={notification._id}
+                          onClick={() => handleNotificationClick(notification)}
+                          className={`w-full text-left px-4 py-3 border-b border-[#F1ECE5] hover:bg-[#FDFAF7] transition-colors ${notification.isRead ? "bg-white" : "bg-[#FFFCF5]"}`}
+                        >
+                          <div className="flex items-start gap-2">
+                            {!notification.isRead && <span className="w-2 h-2 mt-1.5 rounded-full bg-[#BF4343] shrink-0" />}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] font-bold text-[#1C1108] line-clamp-1">{notification.title}</p>
+                              <p className="text-[12px] text-[#6B5C4C] mt-0.5 line-clamp-2">{notification.body}</p>
+                              <p className="text-[11px] text-[#A8896A] mt-1">{formatNotificationTime(notification.createdAt)}</p>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* User */}
             <div className="relative">
@@ -314,10 +489,13 @@ export default function Header() {
       </div>
 
       {/* Click outside to close dropdown */}
-      {open && (
+      {(open || notificationOpen) && (
         <div
           className="fixed inset-0 z-40"
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            setOpen(false);
+            setNotificationOpen(false);
+          }}
         />
       )}
     </header>

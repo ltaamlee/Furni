@@ -417,6 +417,10 @@ const getAdminNotificationsApi = (params) => axios.get("/admin/notifications", {
 const markAdminNotificationReadApi = (id) => axios.put("/admin/notifications/read", { id });
 const markAllAdminNotificationsReadApi = () => axios.put("/admin/notifications/read");
 const deleteAdminNotificationApi = (id) => axios.delete(`/admin/notifications/${id}`);
+// Customer notifications
+const getCustomerNotificationsApi = (params = {}) => axios.get("/user/notifications", { params });
+const markCustomerNotificationReadApi = (id) => axios.put(`/user/notifications/${id}/read`);
+const markAllCustomerNotificationsReadApi = () => axios.put("/user/notifications/read-all");
 // Admin — quản lý user 
 const getAdminUsersApi = (params = {}) => axios.get("/admin/users", { params });
 const updateAdminUserApi = (id, data) => axios.put(`/admin/users/${id}`, data);
@@ -675,6 +679,9 @@ export {
     markAdminNotificationReadApi,
     markAllAdminNotificationsReadApi,
     deleteAdminNotificationApi,
+    getCustomerNotificationsApi,
+    markCustomerNotificationReadApi,
+    markAllCustomerNotificationsReadApi,
     getAdminRevenueApi,
     // Shipping Region Fee APIs
     getShippingRegionFeesApi,
