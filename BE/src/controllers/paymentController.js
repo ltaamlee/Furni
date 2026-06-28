@@ -838,14 +838,24 @@ const payOSWebhook = async (req, res) => {
                 }
             }
 
-            // Hoàn tiền ví (chỉ 1 lần cho cả nhóm)
+            // Hoàn tiền ví 1 LẦN cho CẢ NHÓM
             if (totalPaid > 0) {
-                await refundOrderToWallet(order, {
+                // Refund bằng walletService trực tiếp để kiểm soát amount (không dùng refundOrderToWallet vì nó tính theo single order)
+                const { refundWallet } = require('./walletService');
+                await refundWallet(order.user, totalPaid, {
                     orderId: order._id,
                     orderNumber: order.orderNumber,
                     paymentMethod: 'PAYOS',
-                    description: `Hoàn tiền tự động từ hủy PayOS đơn #${order.orderNumber} (${orders.length} đơn con)`,
+                    description: `Hoan tien tu huy PayOS ${orders.length} don (#${order.orderNumber}...)`,
                 });
+                // Cập nhật mỗi order → refunded
+                for (const o of orders) {
+                    if (normalizeMoney(o.walletUsedAmount) > 0) {
+                        o.paymentStatus = 'refunded';
+                        o.walletRefundedAmount = normalizeMoney(o.walletUsedAmount);
+                        o.refundedToWalletAt = new Date();
+                    }
+                }
             }
 
             // Rollback voucher → ACTIVE (vì chưa paid)
@@ -1035,18 +1045,32 @@ const cancelPayOSPayment = async (req, res) => {
             const relatedOrders = order.payosOrderCode
                 ? await Order.find({ payosOrderCode: order.payosOrderCode })
                 : [order];
+
+            // Tính tổng wallet đã dùng cho CẢ NHÓM (tránh refund nhiều lần)
+            const totalWalletUsed = relatedOrders.reduce(
+                (sum, o) => sum + normalizeMoney(o.walletUsedAmount), 0
+            );
+
+            // Hoàn tiền 1 LẦN cho cả nhóm (chỉ nếu có walletUsedAmount)
+            let refunded = false;
+            if (totalWalletUsed > 0) {
+                const result = await refundOrderToWallet(order, {
+                    description: `Hoan tien ${totalWalletUsed.toLocaleString('vi-VN')}đ phan vi da dung cho ${relatedOrders.length} don (${relatedOrders.map(o => o.orderNumber).join(', ')})`,
+                });
+                refunded = result.amount > 0;
+            }
+
             for (const payosOrder of relatedOrders) {
                 if (payosOrder.status !== ORDER_STATUS.CANCELLED) {
                     payosOrder.status = ORDER_STATUS.CANCELLED;
-                    payosOrder.paymentStatus = 'failed';
+                    payosOrder.paymentStatus = refunded ? 'refunded' : 'failed';
                     payosOrder.cancelledAt = new Date();
                     payosOrder.statusHistory.push({
                         status: ORDER_STATUS.CANCELLED,
                         timestamp: new Date(),
-                        note: 'Huy thanh toan PayOS'
-                    });
-                    await refundOrderToWallet(payosOrder, {
-                        description: `Hoan tien phan vi da dung cho don #${payosOrder.orderNumber}`,
+                        note: refunded
+                            ? `Huy don, hoan ${normalizeMoney(payosOrder.walletUsedAmount).toLocaleString('vi-VN')}đ vao vi`
+                            : 'Huy thanh toan PayOS (khong co thanh toan vi)'
                     });
                     await payosOrder.save();
                 }
@@ -1054,7 +1078,10 @@ const cancelPayOSPayment = async (req, res) => {
 
             return res.status(200).json({
                 success: true,
-                message: 'Da huy thanh toan PayOS'
+                message: refunded
+                    ? `Da huy ${relatedOrders.length} don, hoan ${totalWalletUsed.toLocaleString('vi-VN')}đ vao vi`
+                    : `Da huy ${relatedOrders.length} don thanh toan PayOS`,
+                refundedAmount: refunded ? totalWalletUsed : 0,
             });
         }
 

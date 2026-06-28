@@ -114,14 +114,19 @@ const CheckoutPage = () => {
   const [checkoutError, setCheckoutError] = useState(null);
 
   // Fetch unified checkout preview (STEP 7 — replaces all individual fetches)
-  const fetchCheckoutPreview = async () => {
+  const fetchCheckoutPreview = async (opts = {}) => {
+    const { explicitAddressId } = opts;
     if (!user?.id) return;
     setLoadingCheckout(true);
+    // Clear stale checkout data immediately so UI shows loading state (avoids stale price flash)
+    if (!opts.keepStale) setCheckout(null);
     setCheckoutError(null);
     try {
-      // Use pendingAddressIdRef to capture the latest addressId immediately (bypasses React batch delay)
-      const currentAddressId = pendingAddressIdRef.current || selectedAddressId;
-      const selectedAddr = addresses.find(a => a._id === currentAddressId);
+      // Resolve address: prefer explicit override > pending ref > local state
+      const addressId = explicitAddressId || pendingAddressIdRef.current || selectedAddressId;
+      const selectedAddr = addresses.find(a => a._id === addressId);
+      // Derive provinceCode directly from the resolved address object — never from a potentially-stale ref
+      const provinceCode = selectedAddr?.provinceCode ? Number(selectedAddr.provinceCode) : null;
       const body = {
         ...(isBuyNow
           ? {
@@ -132,14 +137,33 @@ const CheckoutPage = () => {
               mode: 'CART',
               cartItemIds: [...selectedItemIds],
             }),
-        address: selectedAddr ? { provinceCode: selectedAddr.provinceCode ? Number(selectedAddr.provinceCode) : null } : {},
+        address: { provinceCode },
       };
 
-      console.log("[Checkout] fetchCheckoutPreview called", { mode: isBuyNow ? 'BUY_NOW' : 'CART', body, userId: user?.id });
+      console.log("[Checkout] fetchCheckoutPreview called", {
+        mode: isBuyNow ? 'BUY_NOW' : 'CART',
+        body,
+        resolvedAddressId: addressId,
+        resolvedProvinceCode: provinceCode,
+        addressName: selectedAddr ? `${selectedAddr.fullName}, ${selectedAddr.provinceName}` : 'UNKNOWN',
+        userId: user?.id,
+      });
       const res = await getCheckoutPreviewApi(body);
       console.log("[Checkout] preview response:", res);
       if (res.success) {
-        console.log("[Checkout] checkout data:", res.data);
+        console.log("[Checkout] checkout data received:", {
+          subtotal: res.data?.summary?.subtotal,
+          totalShippingFee: res.data?.summary?.totalShippingFee,
+          total: res.data?.summary?.total,
+          shopsCount: res.data?.shops?.length,
+          shopsShippingFees: res.data?.shops?.map(s => ({
+            shopId: s.shopId,
+            shopName: s.shopName,
+            shippingFee: s.shippingFee,
+            shippingMethods: s.shippingMethods?.map(m => ({ provider: m.provider?.code, service: m.serviceType, fee: m.fee })),
+          })),
+          grandTotal: (res.data?.summary?.subtotal || 0) + (res.data?.summary?.totalShippingFee || 0),
+        });
         setCheckout(res.data);
         // Sync selected address — use ref to bypass batch delay; prefer local selected address over backend's default
         const currentAddrId = pendingAddressIdRef.current || selectedAddressId;
@@ -189,6 +213,35 @@ const CheckoutPage = () => {
     }
     return result;
   }, [checkout?.shops, shippingInfo.selectedShippingByShop]);
+
+  // ── Log all computed prices whenever checkout or shipping changes ──
+  useEffect(() => {
+    const subtotal = checkout?.summary?.subtotal
+      || (checkout?.items || []).reduce((s, i) => s + (i.salePrice || 0) * (i.quantity || 1), 0);
+    const shopFees = computedShippingFeesByShop || {};
+    const totalShippingFee = Object.values(shopFees).reduce((s, f) => s + f, 0);
+    const totalProductCouponDiscount = Object.values(shopProductCoupons || {}).reduce((s, v) => s + (v.discount || 0), 0) + productCouponDiscount;
+    const totalBeforeShipping = subtotal - totalProductCouponDiscount;
+    const effectiveShippingFee = selectedShippingCoupon ? 0 : totalShippingFee;
+    const grandTotal = Math.max(0, totalBeforeShipping + effectiveShippingFee);
+    const walletDiscount = useWalletBalance ? Math.min(Math.max(0, Number(walletBalance) || 0), grandTotal) : 0;
+    const amountToPay = Math.max(0, grandTotal - walletDiscount);
+
+    console.log("[Checkout] PRICE UPDATE", {
+      selectedAddressId,
+      selectedProvinceCode: shippingInfo.provinceCode,
+      subtotal,
+      totalShippingFee,
+      effectiveShippingFee,
+      totalProductCouponDiscount,
+      shopFees,
+      selectedShippingCoupon: selectedShippingCoupon?.code || null,
+      grandTotal,
+      useWalletBalance,
+      walletDiscount,
+      amountToPay,
+    });
+  }, [checkout, computedShippingFeesByShop, productCouponDiscount, selectedShippingCoupon, shippingInfo.provinceCode, selectedAddressId, walletBalance, useWalletBalance]);
 
   // selectedCheckoutAddress: always derive from local addresses state (authoritative)
   const selectedCheckoutAddress = addresses.find(a => a._id === selectedAddressId) || null;
@@ -420,14 +473,22 @@ const CheckoutPage = () => {
     setLoading(false);
   }, []);
 
+  // Ref to prevent Effect 7 from firing a duplicate call when selectAddress just handled the fetch
+  const selectAddressInFlightRef = useRef(false);
+
   // STEP 7: Gọi checkout preview khi địa chỉ đã được chọn
   useEffect(() => {
-    console.log('[Checkout] Effect 7 running', { userId: user?.id, addressesLen: addresses.length, loadingAddresses, selectedAddressId });
+    console.log('[Checkout] Effect 7 running', { userId: user?.id, addressesLen: addresses.length, loadingAddresses, selectedAddressId, inFlight: selectAddressInFlightRef.current });
     if (!user?.id) return;
     if (!addresses.length || loadingAddresses) return;
     if (!selectedAddressId) return; // chờ selectAddress xong trước
+    // Skip if selectAddress just handled the fetch (within last 2s) to avoid duplicate call
+    if (selectAddressInFlightRef.current) {
+      console.log('[Checkout] Effect 7: skipping, selectAddress is in flight');
+      return;
+    }
     console.log('[Checkout] Effect 7: calling fetchCheckoutPreview');
-    fetchCheckoutPreview();
+    fetchCheckoutPreview({ keepStale: false });
   }, [user?.id, isBuyNow, addresses.length, loadingAddresses, selectedAddressId]);
 
   useEffect(() => {
@@ -656,6 +717,12 @@ const CheckoutPage = () => {
   const selectedShopItems = checkout?.shops || [];
 
   const selectAddress = (addr) => {
+    console.log("[Checkout] selectAddress called", {
+      addrId: addr._id,
+      addrName: addr.fullName,
+      addrProvinceCode: addr.provinceCode,
+      addrProvinceName: addr.provinceName,
+    });
     pendingAddressIdRef.current = addr._id;  // capture immediately, bypasses React batch delay
     setSelectedAddressId(addr._id);
     setShippingInfo((prev) => ({
@@ -672,11 +739,75 @@ const CheckoutPage = () => {
       phone: addr.phone || prev.phone,
     }));
 
-    // Trigger preview refetch immediately (debounced 200ms so rapid picks collapse to one call)
-    if (shippingDebounceRef.current) clearTimeout(shippingDebounceRef.current);
-    shippingDebounceRef.current = setTimeout(() => {
-      fetchCheckoutPreview();
-    }, 200);
+    // Clear stale checkout immediately so UI shows loading state before new preview arrives
+    setCheckout(null);
+    setLoadingCheckout(true);
+    // Mark that selectAddress is handling the fetch so Effect 7 skips its own call
+    selectAddressInFlightRef.current = true;
+    // Safety net: reset the flag after 3s in case the API call hangs
+    setTimeout(() => { selectAddressInFlightRef.current = false; }, 3000);
+
+    // Call preview immediately with the new address — no debounce, provinceCode from addr object directly
+    const provinceCode = addr.provinceCode ? Number(addr.provinceCode) : null;
+    const body = {
+      ...(isBuyNow
+        ? {
+            mode: 'BUY_NOW',
+            items: [{ productId: buyNowItem?.productId, quantity: buyNowItem?.quantity || 1, variantId: buyNowItem?.variant?.variantId || null }],
+          }
+        : {
+            mode: 'CART',
+            cartItemIds: [...selectedItemIds],
+          }),
+      address: { provinceCode },
+    };
+
+    console.log("[Checkout] selectAddress: fetching preview immediately", {
+      addrId: addr._id,
+      provinceCode,
+      body,
+    });
+
+    getCheckoutPreviewApi(body)
+      .then((res) => {
+        console.log("[Checkout] selectAddress: preview response received", {
+          success: res.success,
+          subtotal: res.data?.summary?.subtotal,
+          totalShippingFee: res.data?.summary?.totalShippingFee,
+          total: res.data?.summary?.total,
+          shopsCount: res.data?.shops?.length,
+          shopsShippingFees: res.data?.shops?.map(s => ({
+            shopId: s.shopId,
+            shopName: s.shopName,
+            shippingFee: s.shippingFee,
+          })),
+        });
+        if (res.success) {
+          setCheckout(res.data);
+          setLoadingCheckout(false);
+          const newSelected = { ...shippingInfo.selectedShippingByShop };
+          for (const shop of (res.data.shops || [])) {
+            const currentSel = newSelected[shop.shopId];
+            const stillValid = currentSel && shop.shippingMethods?.some(f =>
+              f.provider.code?.toLowerCase() === currentSel.code?.toLowerCase() &&
+              f.serviceType === currentSel.serviceType
+            );
+            if (!currentSel || !stillValid) {
+              newSelected[shop.shopId] = shop.selectedShippingMethod || null;
+            }
+          }
+          setShippingInfo(prev => ({ ...prev, selectedShippingByShop: newSelected }));
+        } else {
+          setLoadingCheckout(false);
+          setCheckoutError(res.message);
+        }
+      })
+      .catch((err) => {
+        console.error("[Checkout] selectAddress: preview error", err);
+        setLoadingCheckout(false);
+        selectAddressInFlightRef.current = false;
+        setCheckoutError(err?.response?.data?.message || 'Lỗi khi tải checkout!');
+      });
   };
 
   const handleStep1Submit = (e) => {
@@ -943,7 +1074,7 @@ const CheckoutPage = () => {
               ) : checkoutError ? (
                 <div className="p-4 text-center">
                   <p className="text-[13px] text-red-500 mb-3">{checkoutError}</p>
-                  <button onClick={fetchCheckoutPreview} className="px-4 py-2 bg-[#95520B] text-white text-[13px] font-semibold rounded-[8px]">Thử lại</button>
+                  <button onClick={() => fetchCheckoutPreview({ explicitAddressId: selectedAddressId })} className="px-4 py-2 bg-[#95520B] text-white text-[13px] font-semibold rounded-[8px]">Thử lại</button>
                 </div>
               ) : selectedCheckoutAddress ? (
                 <div onClick={() => setShowAddressPicker(true)} className="p-4 flex items-start gap-3 cursor-pointer hover:bg-[#fff8f0] transition-colors">

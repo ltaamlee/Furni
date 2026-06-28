@@ -17,27 +17,12 @@ const Coupon = mongoose.models.Coupon || require('../models/Coupon');
 const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 const { attachPricing } = require('../utils/pricing');
 const { ShippingRate } = require('../models/shippingRate');
-
-// ─── Shipping helpers (copied from shippingController.js to keep service self-contained) ───
-const PROVINCE_REGION_MAP = {
-    79: 'south', 74: 'south', 75: 'south', 80: 'south', 83: 'south', 84: 'south', 82: 'south',
-    60: 'south', 64: 'south', 86: 'south', 71: 'south', 52: 'south', 51: 'south',
-    92: 'central', 38: 'central', 39: 'central', 40: 'central', 42: 'central', 43: 'central',
-    44: 'central', 46: 'central', 56: 'central', 62: 'central', 58: 'central', 68: 'central',
-    1: 'north', 15: 'north', 16: 'north', 17: 'north', 18: 'north', 19: 'north', 20: 'north',
-    23: 'north', 24: 'north', 26: 'north', 31: 'north', 33: 'north', 36: 'north', 66: 'north',
-    67: 'north', 45: 'north', 10: 'north', 11: 'north', 13: 'north', 14: 'north', 25: 'north',
-    29: 'north', 30: 'north',
-};
+const { PROVINCE_REGION_MAP, getRegion } = require('../config/provinces');
 
 const PROVIDER_LABELS = {
     jt: 'J&T Express',
     ghtk: 'Giao Hàng Tiết Kiệm',
     viettel: 'Viettel Post',
-};
-
-const getRegion = (provinceCode) => {
-    return PROVINCE_REGION_MAP[Number(provinceCode)] || 'south';
 };
 
 // ────────────────────────────────────────────────────────────────
