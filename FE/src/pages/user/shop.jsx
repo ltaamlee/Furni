@@ -124,10 +124,31 @@ const ShopPage = () => {
         return `-${voucher.value}%`;
     };
 
-    const getVoucherBorderColor = (voucher) => {
-        if (voucher.discountType === 'freeship') return 'border-blue-400';
-        if (voucher.discountType === 'fixed') return 'border-orange-400';
-        return 'border-[#B86B05]';
+    const getVoucherKind = (voucher) => {
+        if (voucher.promotion?.type === 'bundle') return 'bundle';
+        if (voucher.discountType === 'freeship' || voucher.promotion?.type === 'freeship') return 'freeship';
+        return 'voucher';
+    };
+
+    const voucherStyles = {
+        voucher: {
+            border: 'border-[#B86B05]',
+            panel: 'from-[#B86B05] to-[#95520B]',
+            button: 'bg-[#B86B05] hover:bg-[#9a5a04]',
+            label: 'Voucher',
+        },
+        bundle: {
+            border: 'border-[#DD9BB1]',
+            panel: 'from-[#DD9BB1] to-[#C86F91]',
+            button: 'bg-[#DD9BB1] hover:bg-[#C86F91]',
+            label: 'Mua bộ',
+        },
+        freeship: {
+            border: 'border-[#36AA00]',
+            panel: 'from-[#36AA00] to-[#238300]',
+            button: 'bg-[#36AA00] hover:bg-[#238300]',
+            label: 'Freeship',
+        },
     };
 
     if (loading) {
@@ -264,54 +285,55 @@ const ShopPage = () => {
                                         )}
                                         <span className="text-sm font-semibold text-[#1C1108]">{group.name}</span>
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                        {group.items.map((voucher) => (
-                                            <div
-                                                key={voucher._id}
-                                                className={`rounded-xl border-2 ${getVoucherBorderColor(voucher)} bg-white shadow-sm overflow-hidden`}
-                                            >
-                                                <div className="p-3 text-center">
-                                                    <div className="text-xl font-black text-[#B86B05] mb-1">
-                                                        {formatDiscount(voucher)}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
+                                        {group.items.map((voucher) => {
+                                            const style = voucherStyles[getVoucherKind(voucher)];
+                                            return (
+                                                <div
+                                                    key={voucher._id}
+                                                    className={`rounded-xl border-2 ${style.border} bg-gradient-to-br from-[#fffbeb] to-[#fef9f0] shadow-sm overflow-hidden flex min-h-[88px]`}
+                                                >
+                                                    <div className={`w-20 shrink-0 flex flex-col items-center justify-center p-2 text-center bg-gradient-to-br ${style.panel}`}>
+                                                        <span className="text-[17px] font-black text-white leading-tight">
+                                                            {formatDiscount(voucher)}
+                                                        </span>
+                                                        <span className="text-[10px] font-semibold text-white/85 mt-1">{style.label}</span>
                                                     </div>
-                                                    <div className="text-[11px] font-bold text-[#1C1108] tracking-wide mb-1">
-                                                        {voucher.code}
+                                                    <div className="flex-1 p-2 flex flex-col justify-between min-w-0">
+                                                        <div>
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <p className="font-bold text-[13px] text-[#1C1108] truncate">{voucher.code}</p>
+                                                                {voucher.maxDiscount > 0 && (
+                                                                    <span className="text-[10px] text-[#A8896A] shrink-0">Tối đa {Number(voucher.maxDiscount).toLocaleString('vi-VN')}đ</span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-[11px] text-[#6B5C4C] mt-0.5 line-clamp-1">
+                                                                {voucher.description || voucher.promotion?.name || 'Giảm giá đặc biệt'}
+                                                            </p>
+                                                            <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[10px] text-[#A8896A]">
+                                                                {voucher.minOrderValue > 0 && (
+                                                                    <span>Đơn từ {Number(voucher.minOrderValue).toLocaleString('vi-VN')}đ</span>
+                                                                )}
+                                                                {voucher.remaining !== null && voucher.remaining !== undefined && (
+                                                                    <span>Còn {voucher.remaining} lượt</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleClaimVoucher(voucher._id)}
+                                                            disabled={claimingId === voucher._id || voucher._claimed}
+                                                            className={`mt-1.5 w-full py-1.5 rounded-md text-[11px] font-bold text-white transition-colors ${
+                                                                voucher._claimed
+                                                                    ? 'bg-[#16a34a] text-white shadow-sm shadow-[#16a34a]/25 ring-1 ring-[#15803d]/20 cursor-default'
+                                                                    : style.button
+                                                            } disabled:opacity-60`}
+                                                        >
+                                                            {claimingId === voucher._id ? 'Đang nhận...' : voucher._claimed ? 'Đã nhận' : (voucher.usageLimit === 0 ? 'Lưu Voucher' : 'Nhận Voucher')}
+                                                        </button>
                                                     </div>
-                                                    <div className="text-xs text-[#6B5C4C] line-clamp-2">
-                                                        {voucher.description || 'Giảm giá đặc biệt'}
-                                                    </div>
-                                                    {voucher.maxDiscount > 0 && (
-                                                        <div className="text-[10px] text-[#A8896A] mt-0.5">
-                                                            Tối đa {Number(voucher.maxDiscount).toLocaleString('vi-VN')}đ
-                                                        </div>
-                                                    )}
-                                                    {voucher.minOrderValue > 0 && (
-                                                        <div className="text-[10px] text-[#A8896A]">
-                                                            Đơn từ {Number(voucher.minOrderValue).toLocaleString('vi-VN')}đ
-                                                        </div>
-                                                    )}
-                                                    {voucher.remaining !== null && voucher.remaining !== undefined && (
-                                                        <div className="text-[10px] text-[#A8896A]">
-                                                            Còn {voucher.remaining} lượt
-                                                        </div>
-                                                    )}
                                                 </div>
-                                                <div className="border-t border-dashed border-[#EDE8E0]" />
-                                                <div className="p-2">
-                                                    <button
-                                                        onClick={() => handleClaimVoucher(voucher._id)}
-                                                        disabled={claimingId === voucher._id || voucher._claimed}
-                                                        className={`w-full py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                                                            voucher._claimed
-                                                                ? 'bg-green-100 text-green-600 cursor-default'
-                                                                : 'bg-[#B86B05] text-white hover:bg-[#9a5a04]'
-                                                        } disabled:opacity-60`}
-                                                    >
-                                                        {claimingId === voucher._id ? 'Đang nhận...' : voucher._claimed ? 'Đã nhận' : (voucher.usageLimit === 0 ? 'Lưu Voucher' : 'Nhận Voucher')}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             ))}

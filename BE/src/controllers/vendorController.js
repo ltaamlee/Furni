@@ -231,6 +231,12 @@ const couponActiveFromPromotion = (promotion) => (
     [Promotion.STATUS.SCHEDULED, Promotion.STATUS.RUNNING].includes(promotion.status)
 );
 
+const VOUCHER_PROMOTION_TYPES = [
+    Promotion.TYPE.COUPON,
+    Promotion.TYPE.BUNDLE,
+    Promotion.TYPE.FREESHIP,
+];
+
 const couponPayloadFromPromotion = (promotion, shopId) => ({
     promotion: promotion._id,
     shop: shopId,
@@ -248,7 +254,7 @@ const couponPayloadFromPromotion = (promotion, shopId) => ({
 const syncCouponForPromotion = async (promotion, shopId, requestedCode) => {
     const coupon = await Coupon.findOne({ promotion: promotion._id });
 
-    if (promotion.type !== Promotion.TYPE.COUPON) {
+    if (!VOUCHER_PROMOTION_TYPES.includes(promotion.type)) {
         if (coupon) {
             coupon.isActive = false;
             await coupon.save();
@@ -484,11 +490,14 @@ const createPromotion = async (req, res) => {
         }
 
         const data = pickPromoFields(req.body);
-        const requestedCouponCode = data.type === 'coupon' ? normalizeCouponCode(req.body.code) : '';
-        if (data.type === 'coupon') {
+        const isCodeRequired = data.type === Promotion.TYPE.COUPON;
+        const requestedCouponCode = VOUCHER_PROMOTION_TYPES.includes(data.type) ? normalizeCouponCode(req.body.code) : '';
+        if (isCodeRequired) {
             if (!requestedCouponCode) {
                 return res.status(400).json({ success: false, message: 'Vui lòng nhập mã voucher!' });
             }
+        }
+        if (requestedCouponCode) {
             const existingCoupon = await Coupon.findOne({ code: requestedCouponCode });
             if (existingCoupon) {
                 return res.status(400).json({ success: false, message: 'Mã voucher này đã tồn tại!' });
@@ -533,8 +542,9 @@ const updatePromotion = async (req, res) => {
         }
 
         const data = pickPromoFields(req.body);
-        const requestedCouponCode = data.type === 'coupon' ? normalizeCouponCode(req.body.code) : undefined;
-        if (data.type === 'coupon' && !requestedCouponCode) {
+        const isCodeRequired = data.type === Promotion.TYPE.COUPON;
+        const requestedCouponCode = VOUCHER_PROMOTION_TYPES.includes(data.type) ? normalizeCouponCode(req.body.code) : undefined;
+        if (isCodeRequired && !requestedCouponCode) {
             return res.status(400).json({ success: false, message: 'Vui lòng nhập mã voucher!' });
         }
         if (data.type === 'freeship') {
@@ -681,17 +691,31 @@ const getMyOrders = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
         }
 
-        const { status, search, page = 1, limit = 10 } = req.query;
+        const { status, search, dateFrom, dateTo, page = 1, limit = 10 } = req.query;
         // Đơn độc lập thuộc về shop này
-        const query = { shop: shop._id };
-        if (status && status !== 'all') query.status = status;
+        const baseQuery = { shop: shop._id };
+        if (dateFrom || dateTo) {
+            baseQuery.createdAt = {};
+            if (dateFrom) {
+                const from = new Date(dateFrom);
+                from.setHours(0, 0, 0, 0);
+                baseQuery.createdAt.$gte = from;
+            }
+            if (dateTo) {
+                const to = new Date(dateTo);
+                to.setHours(23, 59, 59, 999);
+                baseQuery.createdAt.$lte = to;
+            }
+        }
         if (search) {
-            query.$or = [
+            baseQuery.$or = [
                 { orderNumber: { $regex: search, $options: 'i' } },
                 { 'shippingAddress.fullName': { $regex: search, $options: 'i' } },
                 { 'shippingAddress.phone': { $regex: search, $options: 'i' } }
             ];
         }
+        const query = { ...baseQuery };
+        if (status && status !== 'all') query.status = status;
 
         const skip = (Number(page) - 1) * Number(limit);
         const [ordersRaw, total] = await Promise.all([
@@ -701,10 +725,9 @@ const getMyOrders = async (req, res) => {
         const orders = ordersRaw.map((order) => attachVendorOrderRevenue(order, shop));
 
         // Số đếm theo trạng thái (đơn của shop)
-        const sb = { shop: shop._id };
         const statuses = ['pending', 'confirmed', 'preparing', 'shipping', 'delivered', 'cancelled'];
-        const counts = { all: await Order.countDocuments(sb) };
-        await Promise.all(statuses.map(async (s) => { counts[s] = await Order.countDocuments({ ...sb, status: s }); }));
+        const counts = { all: await Order.countDocuments(baseQuery) };
+        await Promise.all(statuses.map(async (s) => { counts[s] = await Order.countDocuments({ ...baseQuery, status: s }); }));
 
         res.status(200).json({
             success: true,

@@ -52,6 +52,8 @@ const BADGE_TONE = {
     red: "bg-[#fee2e2] text-[#b91c1c]",
     blue: "bg-[#dbeafe] text-[#1d4ed8]",
     orange: "bg-[#ffedd5] text-[#c2410c]",
+    pink: "bg-[#FBE8EF] text-[#A84468]",
+    ship: "bg-[#E8F8E3] text-[#2D8F00]",
     purple: "bg-[#ede9fe] text-[#6d28d9]",
     gray: "bg-[#FAF7F4] text-[#6B5C4C] border border-[#EDE8E0]",
 };

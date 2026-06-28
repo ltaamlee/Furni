@@ -250,6 +250,8 @@ const Orders = () => {
     const { showToast } = useToast();
     const [tab, setTab] = useState("all");
     const [search, setSearch] = useState("");
+    const [dateFrom, setDateFrom] = useState("");
+    const [dateTo, setDateTo] = useState("");
     const [page, setPage] = useState(1);
 
     const [orders, setOrders] = useState([]);
@@ -264,7 +266,14 @@ const Orders = () => {
     const fetchOrders = useCallback(async () => {
         try {
             setLoading(true);
-            const res = await getVendorOrdersApi({ status: tab, search: search || undefined, page, limit: 10 });
+            const res = await getVendorOrdersApi({
+                status: tab,
+                search: search || undefined,
+                dateFrom: dateFrom || undefined,
+                dateTo: dateTo || undefined,
+                page,
+                limit: 10
+            });
             if (res.success) {
                 setOrders(res.data.orders || []);
                 setCounts(res.data.counts || {});
@@ -277,7 +286,7 @@ const Orders = () => {
         } finally {
             setLoading(false);
         }
-    }, [tab, search, page]);
+    }, [tab, search, dateFrom, dateTo, page]);
 
     useEffect(() => {
         const t = setTimeout(fetchOrders, 300);
@@ -323,7 +332,34 @@ const Orders = () => {
 
             <div className="flex items-center gap-2 mb-3.5 flex-wrap">
                 <SearchInput placeholder="Mã đơn, tên / SĐT khách hàng..." value={search} onChange={(e) => changeFilter(() => setSearch(e.target.value))} />
-                {search && <Btn variant="ghost" size="sm" className="text-[#9E8E7E]" onClick={() => changeFilter(() => setSearch(""))}>Xóa lọc</Btn>}
+                <div className="flex items-center gap-1.5 text-[12px] text-[#6B5C4C]">
+                    <span>Từ</span>
+                    <input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => changeFilter(() => setDateFrom(e.target.value))}
+                        className="px-2.5 py-[7px] border-[1.5px] border-[#EDE8E0] rounded-[6px] text-[13px] text-[#1C1108] bg-white outline-none focus:border-[#B86B05]"
+                    />
+                </div>
+                <div className="flex items-center gap-1.5 text-[12px] text-[#6B5C4C]">
+                    <span>Đến</span>
+                    <input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => changeFilter(() => setDateTo(e.target.value))}
+                        className="px-2.5 py-[7px] border-[1.5px] border-[#EDE8E0] rounded-[6px] text-[13px] text-[#1C1108] bg-white outline-none focus:border-[#B86B05]"
+                    />
+                </div>
+                {(search || dateFrom || dateTo) && (
+                    <Btn
+                        variant="ghost"
+                        size="sm"
+                        className="text-[#9E8E7E]"
+                        onClick={() => changeFilter(() => { setSearch(""); setDateFrom(""); setDateTo(""); })}
+                    >
+                        Xóa lọc
+                    </Btn>
+                )}
             </div>
 
             <div className="rounded-[10px] overflow-x-auto border border-[#EDE8E0]">

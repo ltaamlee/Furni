@@ -20,6 +20,7 @@ const {
 } = require('../services/walletService');
 const AdminLedger = require('../models/adminLedger');
 const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
+const { attachPricing } = require('../utils/pricing');
 
 // Sử dụng thư viện PayOS SDK
 const { PayOS } = require('@payos/node');
@@ -275,7 +276,7 @@ const createPayOSPayment = async (req, res) => {
             buyerEmail: req.user.email || '',
             buyerPhone: order.shippingAddress?.phone || '',
             returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${order._id}`,
-            cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?payment=cancelled&orderId=${order._id}`,
+            cancelUrl: `${PAYOS_CLIENT_URL}/orders/${order._id}`,
         };
 
         const response = await payos.paymentRequests.create(paymentData);
@@ -339,6 +340,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
             selectedProducts = [],
             buyNowProduct = null,
             couponCode = null,
+            shopCouponCodes = {},
             selectedShippingCoupon = null,
             useWalletBalance = false,
             walletAmount = 0
@@ -399,8 +401,9 @@ const createPayOSPaymentWithCart = async (req, res) => {
         }
 
         const productMap = {};
+        const productList = [];
         for (const item of checkoutItems) {
-            const product = await Product.findById(item.product).populate('shop', 'name code status isActive');
+            const product = await Product.findById(item.product).select('+variants').populate('shop', 'name code status isActive');
             if (!product) {
                 return res.status(400).json({
                     success: false,
@@ -422,17 +425,40 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     message: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!`
                 });
             }
-            const productDiscount = item.discount ?? product.discount ?? 0;
-            if (item.price === undefined || item.price === null || Number.isNaN(Number(item.price))) {
-                item.price = productDiscount > 0
-                    ? Math.round(product.price * (1 - productDiscount / 100))
-                    : product.price;
-            }
-            item.originalPrice = item.originalPrice ?? product.price;
-            item.discount = productDiscount;
-            item.name = item.name || product.name;
-            item.image = item.image || getProductImage(product);
             productMap[item.product.toString()] = product;
+            productList.push(product.toObject ? product.toObject() : product);
+        }
+
+        // Sync PayOS order pricing with checkout preview: use current promotion/flash-sale pricing.
+        await attachPricing(productList);
+        const pricedProductMap = Object.fromEntries(productList.map((product) => [product._id.toString(), product]));
+
+        for (const item of checkoutItems) {
+            const pricedProduct = pricedProductMap[item.product.toString()];
+            const variant = item.variantId
+                ? pricedProduct?.variants?.find((v) => v._id?.toString() === item.variantId.toString())
+                : null;
+            const productDiscount = variant?.discountPercent ?? pricedProduct?.discountPercent ?? item.discount ?? pricedProduct?.discount ?? 0;
+            const originalPrice = item.originalPrice ?? item.variantPrice ?? variant?.originalPrice ?? variant?.price ?? pricedProduct?.originalPrice ?? pricedProduct?.price ?? 0;
+            const salePrice = variant?.salePrice ?? pricedProduct?.salePrice ?? (productDiscount > 0
+                ? Math.round(originalPrice * (1 - productDiscount / 100))
+                : originalPrice);
+
+            item.price = salePrice;
+            item.originalPrice = originalPrice;
+            item.discount = productDiscount || 0;
+            item.variantId = item.variantId || variant?._id || null;
+            item.variant = item.variant || variant?.name || null;
+            item.variantSku = item.variantSku || variant?.sku || null;
+            item.variantSize = item.variantSize || variant?.size || null;
+            item.variantColor = item.variantColor || variant?.color || null;
+            item.variantMaterial = item.variantMaterial || variant?.material || null;
+            item.variantStyle = item.variantStyle || variant?.style || null;
+            item.variantDimensions = item.variantDimensions || variant?.dimensions || null;
+            item.variantWeight = item.variantWeight ?? variant?.weight ?? 0;
+            item.variantDescription = item.variantDescription || variant?.description || null;
+            item.name = item.name || pricedProduct?.name;
+            item.image = item.image || getProductImage(pricedProduct);
         }
 
         const subtotal = checkoutItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -490,6 +516,45 @@ const createPayOSPaymentWithCart = async (req, res) => {
             }
         }
 
+        const globalCouponDiscount = couponDiscount;
+        const shopCouponDiscounts = {};
+        const usedShopCoupons = {};
+        if (shopCouponCodes && typeof shopCouponCodes === 'object') {
+            for (const [shopId, code] of Object.entries(shopCouponCodes)) {
+                if (!code) continue;
+                const voucher = await VoucherWallet.findOne({ user: req.user._id, code: String(code).toUpperCase() })
+                    .populate('coupon');
+                if (!voucher || voucher.status !== VOUCHER_STATUS.ACTIVE || !voucher.coupon?.isActive) continue;
+
+                const coupon = voucher.coupon;
+                const couponShopId = coupon.shop ? coupon.shop.toString() : null;
+                if (couponShopId && couponShopId !== shopId) continue;
+
+                const applicableSubtotal = (shopGroups[shopId]?.items || []).reduce(
+                    (sum, item) => sum + (Number(item.price) * Number(item.quantity)),
+                    0
+                );
+                const couponEndDate = coupon.endDate || voucher.endDate;
+                const minOrderValue = coupon.minOrderValue ?? voucher.minOrderValue;
+                if (couponEndDate && new Date(couponEndDate) < new Date()) continue;
+                if (applicableSubtotal <= 0 || (minOrderValue && applicableSubtotal < minOrderValue)) continue;
+
+                const couponValue = coupon.value ?? voucher.value;
+                const maxDiscount = coupon.maxDiscount ?? voucher.maxDiscount;
+                let discount = 0;
+                if ((coupon.discountType || voucher.discountType) === 'percent') {
+                    discount = Math.round(applicableSubtotal * couponValue / 100);
+                    if (maxDiscount) discount = Math.min(discount, maxDiscount);
+                } else {
+                    discount = Math.min(couponValue, applicableSubtotal);
+                }
+
+                shopCouponDiscounts[shopId] = discount;
+                usedShopCoupons[shopId] = voucher;
+                couponDiscount += discount;
+            }
+        }
+
         {
             const checkoutGroupId = new mongoose.Types.ObjectId().toString();
             const createdOrders = [];
@@ -509,9 +574,10 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     : (shippingFee || 0);
                 if (isShippingFree) groupShippingFee = 0;
 
-                const groupCouponDiscount = usedCouponShopId
-                    ? (shopId === usedCouponShopId ? couponDiscount : 0)
-                    : (subtotal > 0 ? Math.round(couponDiscount * groupSubtotal / subtotal) : 0);
+                const globalGroupDiscount = usedCouponShopId
+                    ? (shopId === usedCouponShopId ? globalCouponDiscount : 0)
+                    : (usedCoupon ? (subtotal > 0 ? Math.round(globalCouponDiscount * groupSubtotal / subtotal) : 0) : 0);
+                const groupCouponDiscount = globalGroupDiscount + (shopCouponDiscounts[shopId] || 0);
                 totalByShop[shopId] = Math.max(0, groupSubtotal - groupCouponDiscount + groupShippingFee);
             }
 
@@ -544,9 +610,10 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     : (shippingFee || 0);
                 if (isShippingFree) groupShippingFee = 0;
 
-                const groupCouponDiscount = usedCouponShopId
-                    ? (shopId === usedCouponShopId ? couponDiscount : 0)
-                    : (subtotal > 0 ? Math.round(couponDiscount * groupSubtotal / subtotal) : 0);
+                const globalGroupDiscount = usedCouponShopId
+                    ? (shopId === usedCouponShopId ? globalCouponDiscount : 0)
+                    : (usedCoupon ? (subtotal > 0 ? Math.round(globalCouponDiscount * groupSubtotal / subtotal) : 0) : 0);
+                const groupCouponDiscount = globalGroupDiscount + (shopCouponDiscounts[shopId] || 0);
                 const groupTotal = Math.max(0, groupSubtotal - groupCouponDiscount + groupShippingFee);
                 const walletUsedAmount = normalizeMoney(walletAllocationByShop[shopId]);
                 const groupPayableAmount = Math.max(0, groupTotal - walletUsedAmount);
@@ -559,9 +626,9 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     : shippingProvider;
 
                 // ── Xác định ai tài trợ voucher ───────────────────────
-                const isPlatformCoupon = !usedCouponShopId; // coupon.shop === null
+                const isPlatformCoupon = Boolean(usedCoupon) && !usedCouponShopId; // coupon.shop === null
                 const groupVoucherPlatformAmount = isPlatformCoupon
-                    ? groupCouponDiscount
+                    ? globalGroupDiscount
                     : 0;
 
                 const order = new Order({
@@ -607,7 +674,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     couponDiscount: groupCouponDiscount,
                     couponCode: usedCoupon
                         ? (usedCouponShopId ? (shopId === usedCouponShopId ? couponCode.toUpperCase() : null) : (shopId === shopKeys[0] ? couponCode.toUpperCase() : null))
-                        : null,
+                        : (usedShopCoupons[shopId]?.code || null),
                     shippingFee: groupShippingFee,
                     shippingTier,
                     shippingProvider: groupShippingProvider,
@@ -615,12 +682,12 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     totalQuantity: groupItems.reduce((sum, item) => sum + Number(item.quantity), 0),
                     usedCouponId: usedCoupon
                         ? (usedCouponShopId ? (shopId === usedCouponShopId ? usedCoupon._id : null) : (shopId === shopKeys[0] ? usedCoupon._id : null))
-                        : null,
+                        : (usedShopCoupons[shopId]?._id || null),
                     orderedAt: now,
                     estimatedDelivery,
                     paymentExpiresAt: new Date(now.getTime() + 30 * 60 * 1000),
                     // ── Platform ledger fields ───────────────────────────
-                    voucherSponsorType: isPlatformCoupon ? 'platform' : 'shop',
+                    voucherSponsorType: groupCouponDiscount > 0 ? (isPlatformCoupon ? 'platform' : 'shop') : null,
                     voucherPlatformAmount: groupVoucherPlatformAmount,
                     shippingSponsorType: isShippingFree ? 'platform' : null,
                     shippingPlatformAmount: isShippingFree ? (groupShippingFee) : 0,
@@ -662,7 +729,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                 buyerEmail: req.user.email || '',
                 buyerPhone: shippingAddress?.phone || '',
                 returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${firstOrder._id}`,
-                cancelUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?payment=cancelled&orderId=${firstOrder._id}`,
+                cancelUrl: `${PAYOS_CLIENT_URL}/orders/${firstOrder._id}`,
             };
 
             const response = await payos.paymentRequests.create(paymentData);

@@ -276,6 +276,12 @@ const CheckoutPage = () => {
   const closeShopVoucherModal = () => setShopVoucherModal({ open: false, shopId: null });
 
   const handleSelectShopProductVoucher = async (voucher, shopId) => {
+    const unavailableReason = getVoucherUnavailableReason(voucher, shopId);
+    if (unavailableReason) {
+      showToast(unavailableReason, "warning");
+      return;
+    }
+
     try {
       // 1. Validate voucher
       const shopData = checkout?.shops?.find(s => s.shopId === shopId);
@@ -313,6 +319,33 @@ const CheckoutPage = () => {
   const formatPrice = (price) => {
     return new Intl.NumberFormat("vi-VN").format(price) + " đ";
   };
+
+  const getVoucherApplicableTotal = (voucher, explicitShopId = null) => {
+    const voucherShopId = (explicitShopId || voucher?.shopId)?.toString();
+    if (voucherShopId) {
+      const shopData = checkout?.shops?.find(s => String(s.shopId) === voucherShopId);
+      return (shopData?.items || []).reduce((sum, item) => sum + (item.salePrice || 0) * (item.quantity || 1), 0);
+    }
+
+    return checkout?.summary?.subtotal
+      || (checkout?.items || []).reduce((sum, item) => sum + (item.salePrice || 0) * (item.quantity || 1), 0);
+  };
+
+  const getVoucherUnavailableReason = (voucher, explicitShopId = null) => {
+    if (!voucher) return "Voucher không hợp lệ";
+    if (voucher.isUsed) return "Voucher đã sử dụng";
+    if (voucher.isExpired) return "Voucher đã hết hạn";
+
+    const applicableTotal = getVoucherApplicableTotal(voucher, explicitShopId);
+    if (applicableTotal <= 0) return "Không áp dụng cho sản phẩm đang chọn";
+    if (voucher.minOrderValue > 0 && applicableTotal < voucher.minOrderValue) {
+      return `Cần mua thêm ${formatPrice(voucher.minOrderValue - applicableTotal)} để dùng`;
+    }
+
+    return "";
+  };
+
+  const isVoucherUsable = (voucher, explicitShopId = null) => !getVoucherUnavailableReason(voucher, explicitShopId);
 
   // Step indicator bar
   const StepsBar = () => (
@@ -589,6 +622,12 @@ const CheckoutPage = () => {
   };
 
   const handleSelectProductVoucher = async (voucher) => {
+    const unavailableReason = getVoucherUnavailableReason(voucher);
+    if (unavailableReason) {
+      showToast(unavailableReason, "warning");
+      return;
+    }
+
     try {
       setApplyingProductCoupon(true);
       const orderTotal = checkout?.summary?.subtotal || selectedCheckoutProducts.reduce((sum, item) => sum + (item.salePrice || 0) * (item.quantity || 1), 0);
@@ -611,6 +650,12 @@ const CheckoutPage = () => {
   };
 
   const handleSelectShippingVoucher = async (voucher) => {
+    const unavailableReason = getVoucherUnavailableReason(voucher);
+    if (unavailableReason) {
+      showToast(unavailableReason, "warning");
+      return;
+    }
+
     try {
       setApplyingShippingCoupon(true);
       setSelectedShippingCoupon(voucher);
@@ -908,6 +953,11 @@ const CheckoutPage = () => {
         shippingProvider: shippingProviderMap,
         shippingFeesByShop,
         couponCode: selectedProductCoupon?.code || null,
+        shopCouponCodes: Object.fromEntries(
+          Object.entries(shopProductCoupons)
+            .map(([shopId, data]) => [shopId, data?.coupon?.code])
+            .filter(([, code]) => Boolean(code))
+        ),
         selectedShippingCoupon: selectedShippingCoupon ? true : null,
         // Dùng checkout preview items
         ...(isBuyNow
@@ -1192,7 +1242,7 @@ const CheckoutPage = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <svg className="w-4 h-4 text-[#95520B]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
-                    <span className="text-[13px] font-bold text-[#1C1108]">Mã giảm giá Furni</span>
+                    <span className="text-[13px] font-bold text-[#1C1108]">Mã giảm giá Sora</span>
                   </div>
                   <button onClick={() => setShowProductVoucherModal(true)} className="text-[12px] text-[#95520B] font-medium hover:underline">
                     {selectedProductCoupon || selectedShippingCoupon ? "Thay đổi" : "Chọn voucher"}
@@ -1342,18 +1392,32 @@ const CheckoutPage = () => {
               <button onClick={closeShopVoucherModal} className="text-[#9E8E7E] hover:text-[#1C1108]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
-              {availableVouchers.filter(v => !v.isUsed && !v.isExpired && v.discountType !== 'freeship' && String(v.shopId || '') === String(shopVoucherModal.shopId)).length === 0 ? (
+              {availableVouchers.filter(v => v.discountType !== 'freeship' && String(v.shopId || '') === String(shopVoucherModal.shopId)).length === 0 ? (
                 <p className="text-center text-[13px] text-[#9E8E7E] py-6">Không có voucher nào của {checkout?.shops?.find(s => s.shopId === shopVoucherModal.shopId)?.shopName || 'shop'} này</p>
               ) : (
-                availableVouchers.filter(v => !v.isUsed && !v.isExpired && v.discountType !== 'freeship' && String(v.shopId || '') === String(shopVoucherModal.shopId)).map(v => (
-                  <div key={v._id || v.code} onClick={() => handleSelectShopProductVoucher(v, shopVoucherModal.shopId)} className="flex items-center gap-3 p-4 rounded-[10px] border-2 border-[#EDE8E0] bg-white hover:border-[#95520B] cursor-pointer transition-all mb-2">
-                    <div className="w-10 h-10 bg-[#95520B] rounded-lg flex items-center justify-center shrink-0"><span className="text-white font-extrabold text-[13px]">%</span></div>
-                    <div className="flex-1">
-                      <p className="font-bold text-[13px] text-[#1C1108]">{v.code}</p>
-                      <p className="text-[11.5px] text-[#6B5C4C]">{v.discountType === 'percent' ? `Giảm ${v.value}%` : `Giảm ${formatPrice(v.value)}`}{v.minOrderValue ? ` • Đơn từ ${formatPrice(v.minOrderValue)}` : ''}</p>
+                availableVouchers.filter(v => v.discountType !== 'freeship' && String(v.shopId || '') === String(shopVoucherModal.shopId)).map(v => {
+                  const unavailableReason = getVoucherUnavailableReason(v, shopVoucherModal.shopId);
+                  const disabled = Boolean(unavailableReason);
+
+                  return (
+                    <div
+                      key={v._id || v.code}
+                      onClick={() => !disabled && handleSelectShopProductVoucher(v, shopVoucherModal.shopId)}
+                      className={`flex items-center gap-3 p-4 rounded-[10px] border-2 transition-all mb-2 ${
+                        disabled
+                          ? "border-[#EDE8E0] bg-[#F5F1EC] opacity-55 cursor-not-allowed"
+                          : "border-[#EDE8E0] bg-white hover:border-[#95520B] cursor-pointer"
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${disabled ? "bg-[#CBBEAF]" : "bg-[#95520B]"}`}><span className="text-white font-extrabold text-[13px]">%</span></div>
+                      <div className="flex-1">
+                        <p className={`font-bold text-[13px] ${disabled ? "text-[#7D7064]" : "text-[#1C1108]"}`}>{v.code}</p>
+                        <p className={`text-[11.5px] ${disabled ? "text-[#9E8E7E]" : "text-[#6B5C4C]"}`}>{v.discountType === 'percent' ? `Giảm ${v.value}%` : `Giảm ${formatPrice(v.value)}`}{v.minOrderValue ? ` • Đơn từ ${formatPrice(v.minOrderValue)}` : ''}</p>
+                        {disabled && <p className="text-[11px] font-semibold text-[#A16207] mt-1">{unavailableReason}</p>}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -1438,6 +1502,7 @@ const CheckoutPage = () => {
         onClose={() => setShowProductVoucherModal(false)}
         availableVouchers={availableVouchers.filter(v => !v.shopId)}
         selectedVoucher={selectedProductCoupon || selectedShippingCoupon}
+        getUnavailableReason={getVoucherUnavailableReason}
         onSelectVoucher={(voucher) => {
           if (voucher.discountType === 'freeship') handleSelectShippingVoucher(voucher);
           else handleSelectProductVoucher(voucher);

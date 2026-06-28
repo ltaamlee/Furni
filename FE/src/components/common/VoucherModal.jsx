@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 
-const VoucherModal = ({ isOpen, onClose, availableVouchers, onSelectVoucher, selectedVoucher }) => {
+const VoucherModal = ({
+  isOpen,
+  onClose,
+  availableVouchers,
+  onSelectVoucher,
+  selectedVoucher,
+  getUnavailableReason = () => "",
+}) => {
   const [loading, setLoading] = useState(false);
   const [platformTab, setPlatformTab] = useState("discount"); // "discount" | "freeship"
   const [shopTab, setShopTab] = useState("discount");       // "discount" | "freeship"
@@ -27,6 +34,8 @@ const VoucherModal = ({ isOpen, onClose, availableVouchers, onSelectVoucher, sel
   const shopFreeship     = shopVouchers.filter(v => v.discountType === 'freeship');
 
   const handleSelect = async (voucher) => {
+    if (getUnavailableReason(voucher)) return;
+
     setLoading(true);
     try {
       await onSelectVoucher(voucher);
@@ -38,6 +47,8 @@ const VoucherModal = ({ isOpen, onClose, availableVouchers, onSelectVoucher, sel
 
   const renderVoucherCard = (voucher, isFreeship = false) => {
     const isSelected = selectedVoucher?.code === voucher.code;
+    const unavailableReason = getUnavailableReason(voucher);
+    const disabled = Boolean(unavailableReason);
     const gradient = isFreeship
       ? "from-blue-400 to-blue-600"
       : "from-rose-400 to-rose-600";
@@ -47,12 +58,14 @@ const VoucherModal = ({ isOpen, onClose, availableVouchers, onSelectVoucher, sel
     return (
       <div
         key={voucher._id}
-        onClick={() => !loading && handleSelect(voucher)}
-        className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
-          isSelected ? selectedBorder + " shadow-md" : normalBorder + " bg-white hover:shadow-md"
+        onClick={() => !loading && !disabled && handleSelect(voucher)}
+        className={`relative p-4 rounded-xl border-2 transition-all ${
+          disabled
+            ? "border-gray-200 bg-gray-50 opacity-55 cursor-not-allowed"
+            : isSelected ? selectedBorder + " shadow-md cursor-pointer" : normalBorder + " bg-white hover:shadow-md cursor-pointer"
         }`}
       >
-        {isSelected && (
+        {isSelected && !disabled && (
           <div className="absolute top-3 right-3">
             <div className={`w-6 h-6 ${isFreeship ? "bg-blue-500" : "bg-teal-500"} rounded-full flex items-center justify-center`}>
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -63,7 +76,7 @@ const VoucherModal = ({ isOpen, onClose, availableVouchers, onSelectVoucher, sel
         )}
 
         <div className="flex gap-3">
-          <div className={`w-20 h-20 bg-gradient-to-br ${gradient} rounded-xl flex flex-col items-center justify-center text-white shadow-lg shrink-0`}>
+          <div className={`w-20 h-20 bg-gradient-to-br ${disabled ? "from-gray-300 to-gray-400" : gradient} rounded-xl flex flex-col items-center justify-center text-white shadow-lg shrink-0`}>
             {isFreeship ? (
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -76,7 +89,7 @@ const VoucherModal = ({ isOpen, onClose, availableVouchers, onSelectVoucher, sel
           </div>
 
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-gray-800 text-sm">{voucher.code}</p>
+            <p className={`font-bold text-sm ${disabled ? "text-gray-500" : "text-gray-800"}`}>{voucher.code}</p>
             {voucher.description && (
               <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{voucher.description}</p>
             )}
@@ -98,6 +111,9 @@ const VoucherModal = ({ isOpen, onClose, availableVouchers, onSelectVoucher, sel
               <p className="text-xs text-gray-400 mt-1.5">
                 HSD: {new Date(voucher.endDate).toLocaleDateString('vi-VN')}
               </p>
+            )}
+            {disabled && (
+              <p className="text-xs font-semibold text-amber-700 mt-1.5">{unavailableReason}</p>
             )}
           </div>
         </div>

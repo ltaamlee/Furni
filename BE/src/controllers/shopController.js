@@ -1,12 +1,137 @@
 const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
 const Shop = require('../models/Shop');
 const Product = require('../models/product');
 const User = require('../models/user');
 const Category = require('../models/category');
 const Notification = require('../models/notification');
 const Coupon = require('../models/coupon');
+const Promotion = require('../models/promotion');
+const { VoucherWallet } = require('../models/voucherWallet');
 const { attachPricing } = require('../utils/pricing');
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
+const SHOP_VOUCHER_PROMOTION_TYPES = [
+    Promotion.TYPE.COUPON,
+    Promotion.TYPE.BUNDLE,
+    Promotion.TYPE.FREESHIP,
+];
+
+const getOptionalUserId = (req) => {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) return null;
+
+    const token = authHeader.split(' ')[1];
+    if (!token || token === 'null' || token === 'undefined') return null;
+
+    try {
+        return jwt.verify(token, process.env.JWT_SECRET)?.id || null;
+    } catch {
+        return null;
+    }
+};
+
+const getClaimedCouponIds = async (req, couponIds) => {
+    const userId = getOptionalUserId(req);
+    if (!userId || !couponIds.length) return new Set();
+
+    const wallets = await VoucherWallet.find({
+        user: userId,
+        coupon: { $in: couponIds },
+    }).select('coupon').lean();
+
+    return new Set(wallets.map((wallet) => wallet.coupon.toString()));
+};
+
+const generateShopVoucherCode = async () => {
+    for (let i = 0; i < 8; i += 1) {
+        const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const code = `SHOP${randomCode}`;
+        const exists = await Coupon.exists({ code });
+        if (!exists) return code;
+    }
+    return `SHOP${Date.now().toString(36).toUpperCase().slice(-6)}`;
+};
+
+const syncShopVoucherCoupons = async (shopId) => {
+    const promotions = await Promotion.find({
+        shop: shopId,
+        type: { $in: SHOP_VOUCHER_PROMOTION_TYPES },
+    });
+
+    await Promise.all(promotions.map(async (promotion) => {
+        const coupon = await Coupon.findOne({ promotion: promotion._id });
+        const payload = {
+            promotion: promotion._id,
+            shop: shopId,
+            description: promotion.description || promotion.name,
+            discountType: promotion.discountType || 'percent',
+            value: promotion.value || 0,
+            maxDiscount: promotion.discountType === 'percent' ? (promotion.maxDiscount || 0) : 0,
+            minOrderValue: promotion.minOrderValue || 0,
+            startDate: promotion.startDate,
+            endDate: promotion.endDate,
+            usageLimit: promotion.maxUsage || 0,
+            isActive: [Promotion.STATUS.SCHEDULED, Promotion.STATUS.RUNNING].includes(promotion.status),
+        };
+
+        if (coupon) {
+            Object.assign(coupon, payload);
+            await coupon.save();
+            return;
+        }
+
+        await Coupon.create({
+            code: await generateShopVoucherCode(),
+            ...payload,
+        });
+    }));
+};
+
+const generatePlatformVoucherCode = async () => {
+    for (let i = 0; i < 8; i += 1) {
+        const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const code = `FURNI${randomCode}`;
+        const exists = await Coupon.exists({ code });
+        if (!exists) return code;
+    }
+    return `FURNI${Date.now().toString(36).toUpperCase().slice(-6)}`;
+};
+
+const syncPlatformVoucherCoupons = async () => {
+    await Promotion.syncLifecycleStatuses({ shop: null });
+    const promotions = await Promotion.find({
+        shop: null,
+        type: Promotion.TYPE.COUPON,
+    });
+
+    await Promise.all(promotions.map(async (promotion) => {
+        const coupon = await Coupon.findOne({ promotion: promotion._id });
+        const payload = {
+            promotion: promotion._id,
+            shop: null,
+            description: promotion.description || promotion.name,
+            discountType: promotion.discountType || 'percent',
+            value: promotion.value || 0,
+            maxDiscount: promotion.discountType === 'percent' ? (promotion.maxDiscount || 0) : 0,
+            minOrderValue: promotion.minOrderValue || 0,
+            startDate: promotion.startDate,
+            endDate: promotion.endDate,
+            usageLimit: promotion.maxUsage || 0,
+            isActive: [Promotion.STATUS.SCHEDULED, Promotion.STATUS.RUNNING].includes(promotion.status),
+        };
+
+        if (coupon) {
+            Object.assign(coupon, payload);
+            await coupon.save();
+            return;
+        }
+
+        await Coupon.create({
+            code: await generatePlatformVoucherCode(),
+            ...payload,
+        });
+    }));
+};
 
 // @desc    Lấy thông tin công khai của 1 shop (theo id hoặc slug)
 // @route   GET /api/shops/:idOrSlug
@@ -519,6 +644,8 @@ const getShopVouchers = async (req, res) => {
             shopId = shop._id;
         }
 
+        await syncShopVoucherCoupons(shopId);
+
         const now = new Date();
         const coupons = await Coupon.find({
             shop: shopId,
@@ -529,8 +656,13 @@ const getShopVouchers = async (req, res) => {
                 { usageLimit: 0 },
                 { $expr: { $lt: ['$usedCount', '$usageLimit'] } }
             ]
-        }).populate('shop', 'name slug logo').sort({ value: -1 }).limit(10);
+        })
+        .populate('shop', 'name slug logo')
+        .populate('promotion', 'type name')
+        .sort({ value: -1 })
+        .limit(10);
 
+        const claimedCouponIds = await getClaimedCouponIds(req, coupons.map((c) => c._id));
         const vouchers = coupons.map((c) => ({
             _id: c._id,
             code: c.code,
@@ -542,13 +674,18 @@ const getShopVouchers = async (req, res) => {
             endDate: c.endDate,
             remaining: c.usageLimit === 0 ? null : Math.max(0, c.usageLimit - c.usedCount),
             usageLimit: c.usageLimit,
-            promotion: c.promotion,
+            promotion: c.promotion ? {
+                _id: c.promotion._id,
+                type: c.promotion.type,
+                name: c.promotion.name,
+            } : null,
             shop: c.shop ? {
                 _id: c.shop._id,
                 name: c.shop.name,
                 slug: c.shop.slug,
                 logo: c.shop.logo,
             } : null,
+            _claimed: claimedCouponIds.has(c._id.toString()),
         }));
 
         res.status(200).json({ success: true, data: vouchers });
@@ -609,6 +746,8 @@ const getAllVouchers = async (req, res) => {
 // @access  Public
 const getPlatformCoupons = async (req, res) => {
     try {
+        await syncPlatformVoucherCoupons();
+
         const now = new Date();
         const coupons = await Coupon.find({
             shop: null,
@@ -623,6 +762,7 @@ const getPlatformCoupons = async (req, res) => {
         .sort({ value: -1 })
         .limit(20);
 
+        const claimedCouponIds = await getClaimedCouponIds(req, coupons.map((c) => c._id));
         const data = coupons.map((c) => ({
             _id: c._id,
             code: c.code,
@@ -633,6 +773,7 @@ const getPlatformCoupons = async (req, res) => {
             minOrderValue: c.minOrderValue,
             endDate: c.endDate,
             remaining: c.usageLimit === 0 ? null : Math.max(0, c.usageLimit - c.usedCount),
+            _claimed: claimedCouponIds.has(c._id.toString()),
         }));
 
         res.status(200).json({ success: true, data });

@@ -81,24 +81,24 @@ const HomePage = () => {
         console.log("Fetching home page data...");
         try {
             setLoading(true);
-            const [categoriesRes, bestSellersRes, trendingRes, couponsRes] = await Promise.all([
+            const [categoriesRes, bestSellersRes, trendingRes, couponsRes] = await Promise.allSettled([
                 getCategoriesApi(),
                 getBestSellersApi({ limit: 8 }),
                 getTrendingProductsApi({ limit: 8 }),
                 getPlatformCouponsApi(),
             ]);
 
-            if (categoriesRes.success) {
-                setCategories(categoriesRes.data.categories || []);
+            if (categoriesRes.status === "fulfilled" && categoriesRes.value.success) {
+                setCategories(categoriesRes.value.data.categories || []);
             }
-            if (bestSellersRes.success) {
-                setBestSellers(bestSellersRes.data.products || []);
+            if (bestSellersRes.status === "fulfilled" && bestSellersRes.value.success) {
+                setBestSellers(bestSellersRes.value.data.products || []);
             }
-            if (trendingRes.success) {
-                setTrending(trendingRes.data.products || []);
+            if (trendingRes.status === "fulfilled" && trendingRes.value.success) {
+                setTrending(trendingRes.value.data.products || []);
             }
-            if (couponsRes.success) {
-                setPlatformCoupons(couponsRes.data || []);
+            if (couponsRes.status === "fulfilled" && couponsRes.value.success) {
+                setPlatformCoupons(couponsRes.value.data || []);
             }
         } catch (error) {
             console.error("Error fetching data:", error);

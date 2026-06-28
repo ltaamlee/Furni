@@ -32,9 +32,9 @@ const DISCOUNTS_BY_CARD = {
 const TYPE_META = {
     flash_sale: { label: "Flash Sale", tone: "red" },
     coupon: { label: "Voucher", tone: "purple" },
-    bundle: { label: "Mua bộ", tone: "orange" },
+    bundle: { label: "Mua bộ", tone: "pink" },
     gift: { label: "Quà tặng", tone: "blue" },
-    freeship: { label: "Free ship", tone: "blue" },
+    freeship: { label: "Free ship", tone: "ship" },
 };
 const STATUS_META = {
     running: { label: "Đang chạy", tone: "green" },
@@ -91,6 +91,13 @@ const discountText = (p) => {
     const hi = p.discountType === "percent" ? `${p.value}%` : formatVND(p.value);
     const cond = p.minOrderValue ? ` cho đơn từ ${formatVND(p.minOrderValue)}` : "";
     return { hi, cond, tone: p.type === "flash_sale" ? "text-[#dc2626]" : "text-[#B86B05]" };
+};
+
+const PROMO_VISUAL = {
+    flash: { preview: "from-[#3a1d06] to-[#7B440C]", accent: "text-[#FBC309]" },
+    coupon: { preview: "from-[#3a1d06] to-[#7B440C]", accent: "text-[#FBC309]" },
+    combo: { preview: "from-[#DD9BB1] to-[#C86F91]", accent: "text-white" },
+    freeship: { preview: "from-[#36AA00] to-[#238300]", accent: "text-white" },
 };
 
 /* ---- Create / Edit promotion drawer ---- */
@@ -179,6 +186,7 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
     const previewAfter = form.discountType === "percent"
         ? Math.round(6500000 * (1 - (Number(form.value) || 0) / 100))
         : Math.max(0, 6500000 - (Number(form.value) || 0));
+    const previewVisual = PROMO_VISUAL[form.cardType] || PROMO_VISUAL.coupon;
 
     // Bộ chọn sản phẩm (kèm ảnh nhỏ) — dùng cho "Sản phẩm cụ thể" và "Mua bộ"
     const productPicker = (
@@ -336,7 +344,7 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
             </div>
 
             {/* Preview */}
-            <div className="rounded-[10px] p-[18px] text-white mt-1 bg-gradient-to-br from-[#3a1d06] to-[#7B440C]">
+            <div className={`rounded-[10px] p-[18px] text-white mt-1 bg-gradient-to-br ${previewVisual.preview}`}>
                 <span className="inline-block bg-white/20 backdrop-blur border border-white/30 px-2.5 py-[3px] rounded-full text-[11px] font-bold mb-2">Preview</span>
                 <div className="text-[18px] font-extrabold mb-1">
                     {promoTypes.find((t) => t.key === form.cardType)?.label} {!isFreeship && `– Giảm ${form.value || 0}${unit}`}
@@ -345,7 +353,7 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
                 {!isFreeship && (
                     <div className="mt-2.5 flex gap-2">
                         <div className="bg-white/15 rounded-md px-3 py-2 text-[12px]"><div className="opacity-70 text-[10px]">Giá gốc</div><div className="font-bold line-through">6.500.000₫</div></div>
-                        <div className="bg-white/25 rounded-md px-3 py-2 text-[12px]"><div className="opacity-70 text-[10px]">Sau giảm</div><div className="font-extrabold text-[15px] text-[#FBC309]">{previewAfter.toLocaleString("vi-VN")}₫</div></div>
+                        <div className="bg-white/25 rounded-md px-3 py-2 text-[12px]"><div className="opacity-70 text-[10px]">Sau giảm</div><div className={`font-extrabold text-[15px] ${previewVisual.accent}`}>{previewAfter.toLocaleString("vi-VN")}₫</div></div>
                     </div>
                 )}
             </div>
@@ -353,8 +361,13 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
             <div className="flex gap-2.5 mt-5 pt-4 border-t border-[#EDE8E0]">
                 <Btn variant="outline" onClick={onClose}>Hủy</Btn>
                 <Btn variant="ghost" onClick={() => submit("draft")} disabled={saving}>Lưu nháp</Btn>
-                <Btn variant="primary" className="ml-auto" onClick={() => submit(editing ? (editing.status || "running") : "running")} disabled={saving}>
-                    {saving ? "Đang lưu..." : editing ? "Lưu thay đổi" : "Kích hoạt ngay"}
+                <Btn
+                    variant="primary"
+                    className="ml-auto"
+                    onClick={() => submit(editing && editing.status !== "draft" ? (editing.status || "running") : "running")}
+                    disabled={saving}
+                >
+                    {saving ? "Đang lưu..." : editing?.status === "draft" ? "Đăng công khai" : editing ? "Lưu thay đổi" : "Kích hoạt ngay"}
                 </Btn>
             </div>
         </SlideOver>
@@ -405,6 +418,15 @@ const Promotions = () => {
         if (res.success) { showToast("Đã xóa khuyến mãi", "success"); fetchPromotions(); }
         else showToast(msgOf(res) || "Xóa thất bại", "error");
     };
+    const publishDraft = async (p) => {
+        const res = await updateVendorPromotionApi(p._id, { status: "running" });
+        if (res.success) {
+            showToast("Đã đăng công khai khuyến mãi", "success");
+            fetchPromotions();
+        } else {
+            showToast(msgOf(res) || "Đăng công khai thất bại", "error");
+        }
+    };
 
     return (
         <div className="vendor-fade-in">
@@ -447,6 +469,7 @@ const Promotions = () => {
                                     )}
                                 </div>
                                 <div className="flex gap-1.5 shrink-0">
+                                    {p.status === "draft" && <Btn variant="success" size="xs" onClick={() => publishDraft(p)}>Đăng</Btn>}
                                     <Btn variant="outline" size="xs" onClick={() => openEdit(p)}>Sửa</Btn>
                                     <Btn variant="danger" size="xs" onClick={() => remove(p)}>Xóa</Btn>
                                 </div>
