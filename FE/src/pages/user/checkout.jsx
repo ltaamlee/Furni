@@ -723,6 +723,8 @@ const CheckoutPage = () => {
       addrProvinceCode: addr.provinceCode,
       addrProvinceName: addr.provinceName,
     });
+    // Capture cartItemIds NOW (before setCheckout(null) re-renders and clears selectedItemIds)
+    const capturedCartItemIds = isBuyNow ? null : [...selectedItemIds];
     pendingAddressIdRef.current = addr._id;  // capture immediately, bypasses React batch delay
     setSelectedAddressId(addr._id);
     setShippingInfo((prev) => ({
@@ -757,7 +759,7 @@ const CheckoutPage = () => {
           }
         : {
             mode: 'CART',
-            cartItemIds: [...selectedItemIds],
+            cartItemIds: capturedCartItemIds,   // use captured value, NOT selectedItemIds (which resets on re-render)
           }),
       address: { provinceCode },
     };
