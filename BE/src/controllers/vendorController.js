@@ -215,6 +215,8 @@ const pickPromoFields = (body) => {
     return data;
 };
 
+const normalizeCouponCode = (code) => (code || '').trim().toUpperCase();
+
 const generateVendorCouponCode = async () => {
     for (let i = 0; i < 8; i += 1) {
         const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -243,7 +245,7 @@ const couponPayloadFromPromotion = (promotion, shopId) => ({
     isActive: couponActiveFromPromotion(promotion),
 });
 
-const syncCouponForPromotion = async (promotion, shopId) => {
+const syncCouponForPromotion = async (promotion, shopId, requestedCode) => {
     const coupon = await Coupon.findOne({ promotion: promotion._id });
 
     if (promotion.type !== Promotion.TYPE.COUPON) {
@@ -255,14 +257,24 @@ const syncCouponForPromotion = async (promotion, shopId) => {
     }
 
     const payload = couponPayloadFromPromotion(promotion, shopId);
+    const promoCode = requestedCode !== undefined ? normalizeCouponCode(requestedCode) : '';
     if (coupon) {
+        if (promoCode) {
+            const existing = await Coupon.findOne({ code: promoCode, _id: { $ne: coupon._id } });
+            if (existing) throw new Error('Mã voucher này đã tồn tại!');
+            coupon.code = promoCode;
+        }
         Object.assign(coupon, payload);
         await coupon.save();
         return coupon;
     }
 
+    const code = promoCode || await generateVendorCouponCode();
+    const existing = await Coupon.findOne({ code });
+    if (existing) throw new Error('Mã voucher này đã tồn tại!');
+
     return Coupon.create({
-        code: await generateVendorCouponCode(),
+        code,
         ...payload,
     });
 };
@@ -429,11 +441,27 @@ const getMyPromotions = async (req, res) => {
             populatePromotion(Promotion.find(query).sort(sort).skip(skip).limit(Number(limit))),
             Promotion.countDocuments(query)
         ]);
+        const coupons = await Coupon.find({
+            promotion: { $in: promotions.map((promotion) => promotion._id) }
+        }).select('promotion code usageLimit usedCount');
+        const couponByPromotion = new Map(
+            coupons.map((coupon) => [coupon.promotion.toString(), coupon])
+        );
+        const enrichedPromotions = promotions.map((promotion) => {
+            const item = promotion.toObject();
+            const coupon = couponByPromotion.get(promotion._id.toString());
+            return {
+                ...item,
+                couponCode: coupon?.code || 'N/A',
+                usageLimit: coupon?.usageLimit || item.maxUsage || 0,
+                usedCount: coupon?.usedCount ?? item.usedCount ?? 0,
+            };
+        });
 
         res.status(200).json({
             success: true,
             data: {
-                promotions,
+                promotions: enrichedPromotions,
                 pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)), limit: Number(limit) }
             }
         });
@@ -456,6 +484,16 @@ const createPromotion = async (req, res) => {
         }
 
         const data = pickPromoFields(req.body);
+        const requestedCouponCode = data.type === 'coupon' ? normalizeCouponCode(req.body.code) : '';
+        if (data.type === 'coupon') {
+            if (!requestedCouponCode) {
+                return res.status(400).json({ success: false, message: 'Vui lòng nhập mã voucher!' });
+            }
+            const existingCoupon = await Coupon.findOne({ code: requestedCouponCode });
+            if (existingCoupon) {
+                return res.status(400).json({ success: false, message: 'Mã voucher này đã tồn tại!' });
+            }
+        }
         data.shop = shop._id;
         // Free ship: ép discountType = freeship, không cần giá trị giảm
         if (data.type === 'freeship') {
@@ -469,31 +507,9 @@ const createPromotion = async (req, res) => {
         let promotion = await Promotion.create(data);
         // Sync lifecycle status để chuyển DRAFT → RUNNING nếu thời gian phù hợp
         await Promotion.syncLifecycleStatuses({ _id: promotion._id });
+        promotion = await Promotion.findById(promotion._id);
+        await syncCouponForPromotion(promotion, shop._id, requestedCouponCode);
         promotion = await populatePromotion(Promotion.findById(promotion._id));
-
-        // Tự động tạo Coupon khi vendor tạo khuyến mãi loại "coupon" (Shopee-style)
-        // User nhận coupon → lưu vào kho voucher → áp dụng khi checkout
-        if (data.type === 'coupon') {
-            // Sinh mã coupon: SORA + 4 ký tự random
-            const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
-            const couponCode = `SORA${randomCode}`;
-
-            // Nếu có promotion thì gắn vào coupon để quản lý liên kết
-            await Coupon.create({
-                code: couponCode,
-                promotion: promotion._id,
-                shop: shop._id,
-                description: data.description || data.name,
-                discountType: data.discountType || 'percent',
-                value: data.value || 0,
-                maxDiscount: data.maxDiscount || 0,
-                minOrderValue: data.minOrderValue || 0,
-                startDate: data.startDate || new Date(),
-                endDate: data.endDate,
-                usageLimit: data.maxUsage || 0,
-                isActive: true,
-            });
-        }
 
         res.status(201).json({ success: true, message: 'Tạo khuyến mãi thành công', data: { promotion } });
     } catch (error) {
@@ -517,6 +533,10 @@ const updatePromotion = async (req, res) => {
         }
 
         const data = pickPromoFields(req.body);
+        const requestedCouponCode = data.type === 'coupon' ? normalizeCouponCode(req.body.code) : undefined;
+        if (data.type === 'coupon' && !requestedCouponCode) {
+            return res.status(400).json({ success: false, message: 'Vui lòng nhập mã voucher!' });
+        }
         if (data.type === 'freeship') {
             data.discountType = 'freeship';
             data.value = 0;
@@ -527,7 +547,7 @@ const updatePromotion = async (req, res) => {
 
         Object.assign(promotion, data);
         await promotion.save();
-        await syncCouponForPromotion(promotion, shop._id);
+        await syncCouponForPromotion(promotion, shop._id, requestedCouponCode);
         const populated = await populatePromotion(Promotion.findById(promotion._id));
 
         res.status(200).json({ success: true, message: 'Cập nhật khuyến mãi thành công', data: { promotion: populated } });
@@ -551,6 +571,7 @@ const deletePromotion = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Bạn không có quyền xóa khuyến mãi này' });
         }
 
+        await Coupon.findOneAndDelete({ promotion: promotion._id });
         await promotion.deleteOne();
         res.status(200).json({ success: true, message: 'Xóa khuyến mãi thành công' });
     } catch (error) {

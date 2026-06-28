@@ -224,10 +224,9 @@ const ShopPage = () => {
                     </div>
                 </div>
 
-                {/* Voucher Section — chỉ hiển thị coupon thường, không phải Flash Sale/Combo */}
+                {/* Voucher Section */}
                 {vouchers.length > 0 && (() => {
-                    // Chỉ hiển thị voucher coupon thường (promotion = null hoặc undefined)
-                    const couponVouchers = vouchers.filter(v => !v.promotion);
+                    const couponVouchers = vouchers;
                     
                     if (couponVouchers.length === 0) return null;
                     
@@ -274,6 +273,9 @@ const ShopPage = () => {
                                                 <div className="p-3 text-center">
                                                     <div className="text-xl font-black text-[#B86B05] mb-1">
                                                         {formatDiscount(voucher)}
+                                                    </div>
+                                                    <div className="text-[11px] font-bold text-[#1C1108] tracking-wide mb-1">
+                                                        {voucher.code}
                                                     </div>
                                                     <div className="text-xs text-[#6B5C4C] line-clamp-2">
                                                         {voucher.description || 'Giảm giá đặc biệt'}

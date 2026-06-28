@@ -10,7 +10,6 @@ import {
   getAddressesApi,
   createAddressApi,
   validateVoucherApi,
-  applyVoucherApi,
   getAvailableVouchersApi,
   getShopShippingConfigApi,
   getCheckoutPreviewApi,
@@ -293,12 +292,7 @@ const CheckoutPage = () => {
       });
 
       if (res.success) {
-        // Chỉ lưu trạng thái FE — KHÔNG gọi applyVoucherApi ở đây!
-        // applyVoucherApi sẽ được gọi bên trong createOrder khi đơn thực sự được tạo thành công.
         setShopProductCoupons(prev => ({ ...prev, [shopId]: { coupon: res.data.voucher, discount: res.data.discount } }));
-
-        // 3. Remove from available vouchers list (so can't be used again)
-        setAvailableVouchers(prev => prev.filter(v => v._id !== voucher._id));
 
         showToast(`Áp dụng mã ${voucher.code} thành công! Giảm ${formatPrice(res.data.discount)}`, "success");
         closeShopVoucherModal();
@@ -605,12 +599,8 @@ const CheckoutPage = () => {
       }));
       const res = await validateVoucherApi({ code: voucher.code, orderTotal, cartItems });
       if (res.success) {
-        // Chỉ lưu trạng thái FE — KHÔNG gọi applyVoucherApi ở đây!
-        // applyVoucherApi sẽ được gọi bên trong createOrder khi đơn thực sự được tạo thành công.
         setSelectedProductCoupon(res.data.voucher);
         setProductCouponDiscount(res.data.discount);
-        // Remove from available vouchers list
-        setAvailableVouchers(prev => prev.filter(v => v._id !== voucher._id));
         showToast(`Áp dụng mã ${voucher.code} thành công! Giảm ${formatPrice(res.data.discount)}`, "success");
       }
     } catch (error) {
@@ -623,13 +613,7 @@ const CheckoutPage = () => {
   const handleSelectShippingVoucher = async (voucher) => {
     try {
       setApplyingShippingCoupon(true);
-      // Mark voucher as USED immediately to remove from wallet
-      if (voucher._id) {
-        await applyVoucherApi(voucher._id, null);
-      }
       setSelectedShippingCoupon(voucher);
-      // Remove from available vouchers list
-      setAvailableVouchers(prev => prev.filter(v => v._id !== voucher._id));
       showToast(`Áp dụng voucher miễn phí vận chuyển thành công!`, "success");
     } catch (error) {
       showToast(error.response?.data?.message || "Không thể áp dụng mã này!", "error");

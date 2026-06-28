@@ -31,7 +31,7 @@ const DISCOUNTS_BY_CARD = {
 
 const TYPE_META = {
     flash_sale: { label: "Flash Sale", tone: "red" },
-    coupon: { label: "Coupon", tone: "purple" },
+    coupon: { label: "Voucher", tone: "purple" },
     bundle: { label: "Mua bộ", tone: "orange" },
     gift: { label: "Quà tặng", tone: "blue" },
     freeship: { label: "Free ship", tone: "blue" },
@@ -63,7 +63,7 @@ const idOf = (x) => (typeof x === "string" ? x : x?._id);
 
 const buildForm = (editing) => {
     if (!editing) return {
-        cardType: "flash", name: "", discountType: "percent", value: "25",
+        cardType: "flash", name: "", code: "", discountType: "percent", value: "25",
         maxDiscount: "", minOrderValue: "0", appliesTo: "all",
         startDate: "", endDate: "", maxUsage: "",
         categories: [], products: [],
@@ -71,6 +71,7 @@ const buildForm = (editing) => {
     return {
         cardType: TYPE_TO_CARD[editing.type] || "flash",
         name: editing.name || "",
+        code: editing.couponCode && editing.couponCode !== "N/A" ? editing.couponCode : "",
         discountType: editing.discountType || "percent",
         value: editing.value ?? "",
         maxDiscount: editing.maxDiscount || "",
@@ -128,9 +129,11 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
     const unit = form.discountType === "percent" ? "%" : "₫";
     const isFreeship = form.discountType === "freeship";
     const isCombo = form.cardType === "combo";
+    const isVoucher = form.cardType === "coupon";
 
     const submit = async (status) => {
         if (!form.name.trim()) return showToast("Vui lòng nhập tên chương trình", "error");
+        if (isVoucher && !form.code.trim()) return showToast("Vui lòng nhập mã voucher", "error");
         if (!form.startDate || !form.endDate) return showToast("Vui lòng chọn thời gian bắt đầu/kết thúc", "error");
         if (isCombo && form.products.length < 2)
             return showToast("Mua bộ cần chọn ít nhất 2 sản phẩm trong combo", "error");
@@ -141,6 +144,7 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
 
         const payload = {
             name: form.name.trim(),
+            code: isVoucher ? form.code.trim().toUpperCase() : undefined,
             type: CARD_TO_TYPE[form.cardType],
             discountType: form.discountType,
             value: isFreeship ? 0 : Number(form.value) || 0,
@@ -232,6 +236,20 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
                 <Label required>Tên chương trình</Label>
                 <input className={inputClass} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="VD: Flash Sale Sofa cuối tuần" />
             </div>
+
+            {isVoucher && (
+                <div className="mb-3.5">
+                    <Label required>Mã voucher</Label>
+                    <input
+                        className={`${inputClass} uppercase`}
+                        value={form.code}
+                        onChange={(e) => set("code", e.target.value.toUpperCase())}
+                        placeholder="VD: SHOPSALE20"
+                        maxLength={30}
+                    />
+                    <Hint>Tối đa 30 ký tự, gồm chữ in hoa, số, gạch ngang hoặc gạch dưới</Hint>
+                </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3 mb-3.5">
                 <div>

@@ -529,7 +529,7 @@ const getShopVouchers = async (req, res) => {
                 { usageLimit: 0 },
                 { $expr: { $lt: ['$usedCount', '$usageLimit'] } }
             ]
-        }).sort({ value: -1 }).limit(10);
+        }).populate('shop', 'name slug logo').sort({ value: -1 }).limit(10);
 
         const vouchers = coupons.map((c) => ({
             _id: c._id,
@@ -542,7 +542,13 @@ const getShopVouchers = async (req, res) => {
             endDate: c.endDate,
             remaining: c.usageLimit === 0 ? null : Math.max(0, c.usageLimit - c.usedCount),
             usageLimit: c.usageLimit,
-            promotion: c.promotion, // null = coupon thường, có giá trị = Flash Sale/Combo
+            promotion: c.promotion,
+            shop: c.shop ? {
+                _id: c.shop._id,
+                name: c.shop.name,
+                slug: c.shop.slug,
+                logo: c.shop.logo,
+            } : null,
         }));
 
         res.status(200).json({ success: true, data: vouchers });

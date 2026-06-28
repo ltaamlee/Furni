@@ -161,7 +161,7 @@ export const promoTabs = [
 
 export const promotions = [
     { id: "pr1", name: "Flash Sale Sofa – Cuối tuần", type: { label: "Flash Sale", tone: "red" }, status: { label: "Đang chạy", tone: "green" }, highlight: "25%", highlightTone: "text-[#dc2626]", desc: "toàn bộ Sofa", period: "07/06 – 08/06/2026", usage: "Đã dùng: 38 / 100 lượt", progress: 38, actions: ["edit", "stop"] },
-    { id: "pr2", name: "Coupon SUMMER20", type: { label: "Coupon", tone: "purple" }, status: { label: "Đang chạy", tone: "green" }, highlight: "20%", highlightTone: "text-[#B86B05]", desc: "đơn từ 3.000.000₫", period: "01/06 – 30/06/2026", usage: "Đã dùng: 156 / 500 lượt", progress: 31, actions: ["edit", "copy"] },
+    { id: "pr2", name: "Voucher SUMMER20", type: { label: "Voucher", tone: "purple" }, status: { label: "Đang chạy", tone: "green" }, highlight: "20%", highlightTone: "text-[#B86B05]", desc: "đơn từ 3.000.000₫", period: "01/06 – 30/06/2026", usage: "Đã dùng: 156 / 500 lượt", progress: 31, actions: ["edit", "copy"] },
     { id: "pr3", name: "Combo Bàn + Ghế", type: { label: "Mua bộ", tone: "orange" }, status: { label: "Đang chạy", tone: "green" }, highlight: "500.000₫", highlightTone: "text-[#B86B05]", desc: "khi mua combo", period: "01/06 – 15/06/2026", usage: "Đã dùng: 24 / 50 lượt", progress: 48, actions: ["edit", "copy"] },
     { id: "pr4", name: "Freeship toàn quốc T6", type: { label: "Free ship", tone: "blue" }, status: { label: "Đang chạy", tone: "green" }, desc: "Miễn phí ship toàn quốc đơn từ 1.000.000₫", period: "01/06 – 30/06/2026", usage: "Không giới hạn lượt", actions: ["edit", "stop"] },
     { id: "pr5", name: "Flash Sale 12/12", type: { label: "Flash Sale", tone: "red" }, status: { label: "Đã kết thúc", tone: "gray" }, desc: "Giảm 30% toàn bộ sản phẩm", period: "12/12/2025 – 13/12/2025", usage: "Đã dùng: 200 / 200 lượt", ended: true, actions: ["report", "duplicate"] },
@@ -169,7 +169,7 @@ export const promotions = [
 
 export const promoTypes = [
     { key: "flash", label: "Flash Sale", sub: "Giảm % trong thời gian giới hạn" },
-    { key: "coupon", label: "Mã coupon", sub: "Mã giảm giá nhập khi thanh toán" },
+    { key: "coupon", label: "Voucher", sub: "Mã voucher nhập khi thanh toán" },
     { key: "combo", label: "Mua bộ", sub: "Giảm khi mua combo sản phẩm" },
     { key: "freeship", label: "Free ship", sub: "Miễn phí vận chuyển" },
 ];
