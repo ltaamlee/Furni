@@ -10,7 +10,7 @@ const Transaction = require('../models/transaction');
 const Order = require('../models/order');
 const PlatformConfig = require('../models/platformConfig');
 
-const { TX_TYPE, TX_CATEGORY, TX_STATUS } = Transaction;
+const { TYPE: TX_TYPE, CATEGORY: TX_CATEGORY, STATUS: TX_STATUS } = Transaction;
 const { CONFIG_KEYS } = PlatformConfig;
 
 /**
@@ -37,15 +37,16 @@ const getShopSliceOfOrder = (order, shopId) => {
  * @returns {Promise<Wallet>}
  */
 const getOrCreateWallet = async (shop) => {
-    let wallet = await Wallet.findOne({ shop: shop._id });
+    let wallet = await Wallet.findOne({ user: shop.owner });
     if (!wallet) {
         wallet = await Wallet.create({
-            shop: shop._id,
-            owner: shop.owner,
+            user: shop.owner,
+            accounts: [],
+            transactions: [],
             balance: 0,
-            pendingBalance: 0
         });
     }
+    wallet._vendorShopId = shop._id;
     return wallet;
 };
 
@@ -84,13 +85,13 @@ const calculatePlatformFee = async (amount) => {
  * @param {string} description - Mô tả
  * @returns {Promise<Object>} - Transaction document
  */
-const creditToWallet = async (wallet, amount, description) => {
+const creditToWallet = async (wallet, amount, description, shopId) => {
     wallet.balance += amount;
     await wallet.save();
 
     const transaction = await Transaction.create({
         wallet: wallet._id,
-        shop: wallet.shop,
+        shop: shopId || wallet._vendorShopId || null,
         type: TX_TYPE.CREDIT,
         category: TX_CATEGORY.ORDER_INCOME,
         amount,

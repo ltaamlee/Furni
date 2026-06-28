@@ -21,12 +21,16 @@ const Shop = require('../src/models/shop');
 const Wallet = require('../src/models/wallet');
 const Product = require('../src/models/product');
 const Promotion = require('../src/models/promotion');
+const Coupon = require('../src/models/coupon');
+const { VoucherWallet, VOUCHER_STATUS } = require('../src/models/voucherWallet');
 const Order = require('../src/models/order');
 const Cart = require('../src/models/cart');
 const Transaction = require('../src/models/transaction');
 const Review = require('../src/models/review');
 const Notification = require('../src/models/notification');
 const Blog = require('../src/models/blog');
+const Address = require('../src/models/Address');
+const { ShippingRate } = require('../src/models/shippingRate');
 
 const now = new Date();
 const daysFromNow = (n) => new Date(now.getTime() + n * 86400000);
@@ -40,6 +44,12 @@ const USERS = [
 ];
 
 // ── Danh mục (ảnh tham khảo từ seedProducts.js) ──────────────
+USERS.push(
+    { fullName: 'Le Thi Mai Anh', email: 'maianh@gmail.com', phone: '0909555123', username: 'customer02', password: 'Customer123', role: 'customer', isVerified: true, gender: 'female', dateOfBirth: daysFromNow(-10950) },
+    { fullName: 'Pham Quang Huy', email: 'huypham@gmail.com', phone: '0918666777', username: 'customer03', password: 'Customer123', role: 'customer', isVerified: true, gender: 'male', dateOfBirth: daysFromNow(-12410) },
+    { fullName: 'Khach Google Demo', email: 'google.customer@gmail.com', phone: '0933444555', username: 'google_customer', password: 'Customer123', role: 'customer', authProvider: 'google', googleId: 'google-demo-001', isVerified: true }
+);
+
 const CATEGORIES = [
     { name: 'Sofa', description: 'Bộ sưu tập sofa cao cấp, hiện đại và sang trọng', image: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=400' },
     { name: 'Giường Ngủ', description: 'Giường ngủ gỗ tự nhiên, thiết kế tinh tế và thoải mái', image: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=400' },
@@ -140,20 +150,58 @@ const seed = async () => {
             Wallet.deleteMany({}),
             Product.deleteMany({}),
             Promotion.deleteMany({}),
+            Coupon.deleteMany({}),
+            VoucherWallet.deleteMany({}),
             Order.deleteMany({}),
             Cart.deleteMany({}),
             Transaction.deleteMany({}),
             Review.deleteMany({}),
             Notification.deleteMany({}),
-            Blog.deleteMany({})
+            Blog.deleteMany({}),
+            Address.deleteMany({}),
+            ShippingRate.deleteMany({})
         ]);
-        console.log('Cleared: users, categories, shops, wallets, products, promotions, orders, carts, transactions, reviews, notifications');
+        console.log('Cleared: users, addresses, categories, shops, wallets, products, promotions, coupons, vouchers, shipping rates, orders, carts, transactions, reviews, notifications');
 
         // 2) Users (create -> hash mật khẩu)
         const users = await User.create(USERS);
         const vendor = users.find((u) => u.email === 'vendor@gmail.com');
         const secondVendor = users.find((u) => u.email === 'vendor2@gmail.com');
-        console.log(`Created ${users.length} users (admin/2 vendors/customer)`);
+        const customer = users.find((u) => u.email === 'customer@gmail.com');
+        const customer2 = users.find((u) => u.email === 'maianh@gmail.com');
+        const customer3 = users.find((u) => u.email === 'huypham@gmail.com');
+        const googleCustomer = users.find((u) => u.email === 'google.customer@gmail.com');
+        const customers = [customer, customer2, customer3, googleCustomer].filter(Boolean);
+        console.log(`Created ${users.length} users (admin/2 vendors/${customers.length} customers)`);
+
+        const addressDocs = customers.flatMap((u, index) => ([
+            {
+                user: u._id,
+                fullName: u.fullName,
+                phone: u.phone || '0900000000',
+                street: index % 2 === 0 ? '123 Le Loi' : '45 Tran Phu',
+                provinceCode: index % 3 === 0 ? '79' : (index % 3 === 1 ? '01' : '48'),
+                provinceName: index % 3 === 0 ? 'TP. Ho Chi Minh' : (index % 3 === 1 ? 'Ha Noi' : 'Da Nang'),
+                districtCode: index % 3 === 0 ? '760' : (index % 3 === 1 ? '001' : '490'),
+                districtName: index % 3 === 0 ? 'Quan 1' : (index % 3 === 1 ? 'Quan Ba Dinh' : 'Quan Hai Chau'),
+                wardName: index % 3 === 0 ? 'Phuong Ben Nghe' : (index % 3 === 1 ? 'Phuong Phuc Xa' : 'Phuong Hai Chau I'),
+                formattedAddress: index % 3 === 0
+                    ? '123 Le Loi, Phuong Ben Nghe, Quan 1, TP. Ho Chi Minh'
+                    : (index % 3 === 1
+                        ? '45 Tran Phu, Phuong Phuc Xa, Quan Ba Dinh, Ha Noi'
+                        : '45 Tran Phu, Phuong Hai Chau I, Quan Hai Chau, Da Nang'),
+                lat: index % 3 === 0 ? 10.7769 : (index % 3 === 1 ? 21.0285 : 16.0544),
+                lng: index % 3 === 0 ? 106.7009 : (index % 3 === 1 ? 105.8542 : 108.2022),
+                isDefault: true
+            }
+        ]));
+        const addresses = [];
+        for (const addr of addressDocs) addresses.push(await Address.create(addr));
+        for (const u of customers) {
+            u.addresses = addresses.filter((a) => a.user.toString() === u._id.toString()).map((a) => a._id);
+            await u.save();
+        }
+        console.log(`Created ${addresses.length} customer addresses across south/north/central regions`);
 
         // 3) Categories (create -> sinh slug)
         const cats = await Category.create(CATEGORIES);
@@ -161,22 +209,85 @@ const seed = async () => {
         cats.forEach((c) => { catId[c.name] = c._id; });
         console.log(`Created ${cats.length} categories`);
 
+        const shippingRates = [];
+        for (const region of ['south', 'central', 'north']) {
+            for (const provider of ['ghtk', 'jt', 'viettel']) {
+                shippingRates.push(
+                    {
+                        provider,
+                        serviceType: 'economy',
+                        region,
+                        minWeight: 0,
+                        maxWeight: 30000,
+                        baseFee: region === 'south' ? 26000 : (region === 'central' ? 34000 : 42000),
+                        feePer500g: provider === 'viettel' ? 4500 : 4000,
+                        estimatedDays: { min: region === 'south' ? 2 : 3, max: region === 'north' ? 7 : 5 },
+                        notes: `Economy ${provider.toUpperCase()} ${region}`
+                    },
+                    {
+                        provider,
+                        serviceType: 'express',
+                        region,
+                        minWeight: 0,
+                        maxWeight: 30000,
+                        baseFee: region === 'south' ? 36000 : (region === 'central' ? 47000 : 59000),
+                        feePer500g: provider === 'jt' ? 6500 : 7000,
+                        estimatedDays: { min: 1, max: region === 'north' ? 4 : 3 },
+                        notes: `Express ${provider.toUpperCase()} ${region}`
+                    }
+                );
+            }
+        }
+        await ShippingRate.create(shippingRates);
+        console.log(`Created ${shippingRates.length} shipping rates`);
+
         // 4) Shop của vendor + ví
-        const shop = await Shop.create({ ...SHOP, slug: SHOP.name, owner: vendor._id, status: 'approved' });
+        const shop = await Shop.create({
+            ...SHOP,
+            slug: SHOP.name,
+            owner: vendor._id,
+            status: 'approved',
+            provinceCode: '79',
+            provinceName: 'TP. Ho Chi Minh',
+            shippingConfig: { enabledProviders: ['ghtk', 'jt'], freeShippingThreshold: 5000000, defaultProvider: 'ghtk', isUrbanZone: true }
+        });
         const wallet = await Wallet.create({
             user: vendor._id,
             balance: 45320000,
             currency: 'VND',
             accounts: [{ type: 'bank', bankName: 'Vietcombank', accountNumber: '0123456789', accountHolder: 'NGUYEN VAN VENDOR', branch: 'TP.HCM', isDefault: true }]
         });
-        const secondShop = await Shop.create({ ...SECOND_SHOP, slug: SECOND_SHOP.name, owner: secondVendor._id, status: 'approved', commissionRate: 3 });
+        const secondShop = await Shop.create({
+            ...SECOND_SHOP,
+            slug: SECOND_SHOP.name,
+            owner: secondVendor._id,
+            status: 'approved',
+            commissionRate: 3,
+            provinceCode: '01',
+            provinceName: 'Ha Noi',
+            shippingConfig: { enabledProviders: ['viettel', 'jt'], freeShippingThreshold: 7000000, defaultProvider: 'viettel', isUrbanZone: false }
+        });
         const secondWallet = await Wallet.create({
             user: secondVendor._id,
             balance: 18750000,
             currency: 'VND',
             accounts: [{ type: 'bank', bankName: 'Techcombank', accountNumber: '19039876543210', accountHolder: 'TRAN MINH DECOR', branch: 'TP.HCM', isDefault: true }]
         });
-        console.log(`Created 2 shops ("${shop.name}", "${secondShop.name}") + wallets`);
+        const customerWallets = [];
+        for (const [index, u] of customers.entries()) {
+            customerWallets.push(await Wallet.create({
+                user: u._id,
+                balance: [32000000, 8500000, 1200000, 0][index] || 0,
+                currency: 'VND',
+                accounts: index === 0 ? [{ type: 'momo', accountNumber: u.phone || `090000000${index}`, accountHolder: u.fullName, isDefault: true }] : [],
+                transactions: index === 0 ? [
+                    { type: 'deposit', amount: 35000000, description: 'Nap tien demo vao vi SORA', paymentMethod: 'MOMO', status: 'completed', createdAt: daysFromNow(-14) },
+                    { type: 'payment', amount: 2500000, description: 'Thanh toan don hang bang vi', paymentMethod: 'WALLET', status: 'completed', createdAt: daysFromNow(-5) },
+                    { type: 'refund', amount: 500000, description: 'Hoan tien voucher don hang', paymentMethod: 'WALLET', status: 'completed', createdAt: daysFromNow(-4) }
+                ] : []
+            }));
+        }
+        console.log(`Created 2 shops + ${customerWallets.length + 2} wallets`);
 
         // 5) Products (create -> sinh slug + đồng bộ status theo tồn kho)
         const productDocs = PRODUCTS.map(({ _cat, ...p }) => {
@@ -220,8 +331,60 @@ const seed = async () => {
         ]);
         console.log(`Created ${promos.length + secondPromos.length} promotions for 2 shops`);
 
+        const coupons = await Coupon.create([
+            { code: 'FURNI10', promotion: promos[1]._id, description: 'Giam 10% toan san cho don tu 2 trieu', discountType: 'percent', value: 10, maxDiscount: 800000, minOrderValue: 2000000, usageLimit: 500, usedCount: 67, perUserLimit: 1, startDate: daysFromNow(-5), endDate: daysFromNow(20), isActive: true },
+            { code: 'FREESHIP79', promotion: promos[3]._id, description: 'Mien phi van chuyen noi thanh TP.HCM', discountType: 'freeship', value: 0, maxDiscount: 120000, minOrderValue: 1000000, usageLimit: 0, usedCount: 18, perUserLimit: 3, startDate: daysFromNow(-2), endDate: daysFromNow(12), isActive: true },
+            { code: 'MOCHAN12', shop: secondShop._id, promotion: secondPromos[0]._id, description: 'Giam 12% rieng cho Moc An Living', discountType: 'percent', value: 12, maxDiscount: 1200000, minOrderValue: 4000000, usageLimit: 200, usedCount: 47, perUserLimit: 1, startDate: daysFromNow(-3), endDate: daysFromNow(14), isActive: true },
+            { code: 'FURNI500K', shop: shop._id, description: 'Giam 500k cho noi that go tu nhien', discountType: 'fixed', value: 500000, maxDiscount: 500000, minOrderValue: 6000000, usageLimit: 100, usedCount: 99, perUserLimit: 1, startDate: daysFromNow(-10), endDate: daysFromNow(5), isActive: true },
+            { code: 'OLDSPRING', description: 'Voucher het han de test UI', discountType: 'percent', value: 15, maxDiscount: 1000000, minOrderValue: 3000000, usageLimit: 100, usedCount: 100, perUserLimit: 1, startDate: daysFromNow(-60), endDate: daysFromNow(-1), isActive: false }
+        ]);
+        const couponByCode = Object.fromEntries(coupons.map((coupon) => [coupon.code, coupon]));
+        const voucherDocs = customers.flatMap((u, index) => [
+            {
+                user: u._id,
+                coupon: couponByCode.FURNI10._id,
+                code: couponByCode.FURNI10.code,
+                description: couponByCode.FURNI10.description,
+                discountType: couponByCode.FURNI10.discountType,
+                value: couponByCode.FURNI10.value,
+                maxDiscount: couponByCode.FURNI10.maxDiscount,
+                minOrderValue: couponByCode.FURNI10.minOrderValue,
+                endDate: couponByCode.FURNI10.endDate,
+                status: index === 2 ? VOUCHER_STATUS.USED : VOUCHER_STATUS.ACTIVE,
+                usedAt: index === 2 ? daysFromNow(-4) : null
+            },
+            {
+                user: u._id,
+                coupon: couponByCode.MOCHAN12._id,
+                code: couponByCode.MOCHAN12.code,
+                description: couponByCode.MOCHAN12.description,
+                discountType: couponByCode.MOCHAN12.discountType,
+                value: couponByCode.MOCHAN12.value,
+                maxDiscount: couponByCode.MOCHAN12.maxDiscount,
+                minOrderValue: couponByCode.MOCHAN12.minOrderValue,
+                endDate: couponByCode.MOCHAN12.endDate,
+                shopId: secondShop._id,
+                shopName: secondShop.name,
+                status: VOUCHER_STATUS.ACTIVE
+            }
+        ]);
+        voucherDocs.push({
+            user: customer._id,
+            coupon: couponByCode.OLDSPRING._id,
+            code: couponByCode.OLDSPRING.code,
+            description: couponByCode.OLDSPRING.description,
+            discountType: couponByCode.OLDSPRING.discountType,
+            value: couponByCode.OLDSPRING.value,
+            maxDiscount: couponByCode.OLDSPRING.maxDiscount,
+            minOrderValue: couponByCode.OLDSPRING.minOrderValue,
+            endDate: couponByCode.OLDSPRING.endDate,
+            status: VOUCHER_STATUS.EXPIRED
+        });
+        await VoucherWallet.create(voucherDocs);
+        console.log(`Created ${coupons.length} coupons and ${voucherDocs.length} voucher-wallet entries`);
+
         // 7) Đơn hàng mẫu của khách (gắn shop cho từng dòng - Hướng B)
-        const customer = users.find((u) => u.role === 'customer');
+        // customer variables are defined right after user creation
         const lineItem = (name, qty) => {
             const p = byName[name];
             return { product: p._id, shop: shop._id, shopName: shop.name, quantity: qty, price: p.price, name: p.name, image: p.images?.[0] || null };
@@ -247,6 +410,8 @@ const seed = async () => {
             };
         };
         const ORDERS = [
+            buildOrder([lineItem('Ghế Bar Gỗ Óc Chó Cao Cấp', 1)], 'confirmed', 'PAYOS', 0, 'paid'),
+            buildOrder([lineItem('Bàn Làm Việc Gỗ Sồi Simple Desk', 1)], 'delivered', 'WALLET', 5, 'paid'),
             buildOrder([lineItem('Sofa Gỗ Sồi 3 Chỗ CLASSIC', 1)], 'pending', 'VNPAY', 0, 'paid'),
             buildOrder([lineItem('Bàn Ăn Tròn Gỗ Keo 4 Chỗ', 1), lineItem('Ghế Ăn Gỗ Sồi Nordic', 2)], 'preparing', 'COD', 1),
             buildOrder([lineItem('Tủ TV Gỗ Sồi Minimalist', 1)], 'delivered', 'MOMO', 2, 'paid'),
@@ -289,6 +454,8 @@ const seed = async () => {
             };
         };
         const SECOND_ORDERS = [
+            buildSecondOrder([secondLineItem('Sofa Vải Bouclé MÂY', 1)], 'preparing', 'PAYOS', 2, 'paid'),
+            buildSecondOrder([secondLineItem('Bàn Làm Việc Nâng Hạ FLEXI', 1)], 'delivered', 'WALLET', 8, 'paid'),
             buildSecondOrder([secondLineItem('Sofa Vải Bouclé MÂY', 1)], 'confirmed', 'VNPAY', 1, 'paid'),
             buildSecondOrder([secondLineItem('Ghế Thư Giãn Mây Đan AN NHIÊN', 2)], 'shipping', 'COD', 3),
             buildSecondOrder([secondLineItem('Bàn Ăn Mở Rộng HẠT DẺ', 1), secondLineItem('Ghế Thư Giãn Mây Đan AN NHIÊN', 1)], 'delivered', 'MOMO', 12, 'paid'),
@@ -304,7 +471,60 @@ const seed = async () => {
         ];
         const secondOrders = [];
         for (const o of SECOND_ORDERS) secondOrders.push(await Order.create(o));
-        console.log(`Created ${createdOrders.length + secondOrders.length} sample orders across 2 shops and the last 90 days`);
+        const makeVariantLine = (product, ownerShop, qty = 1, variantIndex = 0) => {
+            const variant = product.variants?.[variantIndex] || null;
+            return {
+                product: product._id,
+                shop: ownerShop._id,
+                shopName: ownerShop.name,
+                shopCode: ownerShop.code,
+                quantity: qty,
+                price: variant?.price || product.price,
+                originalPrice: variant?.price || product.originalPrice || product.price,
+                discount: product.discountPercent || product.discount || 0,
+                variant: variant?.name || null,
+                variantId: variant?._id || null,
+                variantSku: variant?.sku || null,
+                variantSize: variant?.size || null,
+                name: product.name,
+                image: product.images?.[0] || null
+            };
+        };
+        const payosGroupId = new mongoose.Types.ObjectId().toString();
+        const payosOrderCode = Number(`${Date.now()}`.slice(0, 10));
+        const payosShop1Items = [makeVariantLine(products.find((p) => p.variants?.length), shop, 1, 1)];
+        const payosShop2Items = [makeVariantLine(secondProducts.find((p) => p.variants?.length), secondShop, 1, 0)];
+        const buildGroupedPayOSOrder = (items, ownerShop, ageInDays, status = 'confirmed') => {
+            const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+            const shippingFee = subtotal >= 7000000 ? 0 : 45000;
+            const placedAt = daysFromNow(-ageInDays);
+            return {
+                user: customer2._id,
+                checkoutGroupId: payosGroupId,
+                shop: ownerShop._id,
+                shopName: ownerShop.name,
+                shopCode: ownerShop.code,
+                products: items,
+                shippingAddress: { fullName: customer2.fullName, phone: customer2.phone, address: '45 Tran Phu, Quan Ba Dinh, Ha Noi', city: 'Ha Noi', provinceCode: 1, provinceName: 'Ha Noi', wardName: 'Phuong Phuc Xa', note: 'Don PayOS nhieu shop' },
+                paymentMethod: 'PAYOS',
+                paymentStatus: 'paid',
+                payosOrderCode,
+                subtotal,
+                shippingFee,
+                totalPrice: subtotal + shippingFee,
+                totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
+                status,
+                orderedAt: placedAt,
+                createdAt: placedAt,
+                updatedAt: placedAt,
+                estimatedDelivery: new Date(placedAt.getTime() + 5 * 86400000)
+            };
+        };
+        const payosGroupOrders = [
+            await Order.create(buildGroupedPayOSOrder(payosShop1Items, shop, 2, 'preparing')),
+            await Order.create(buildGroupedPayOSOrder(payosShop2Items, secondShop, 2, 'confirmed'))
+        ];
+        console.log(`Created ${createdOrders.length + secondOrders.length + payosGroupOrders.length} sample orders across 2 shops and the last 90 days`);
 
         // 8) Giao dịch ví (doanh thu / phí sàn / rút tiền)
         const TX = [
@@ -346,7 +566,13 @@ const seed = async () => {
             { type: 'shop', user: customer._id, targetId: secondShop._id, shop: secondShop._id, order: secondOrders[2]._id, rating: 5, content: 'Shop tư vấn kích thước rất kỹ, đội lắp đặt lịch sự.', vendorReply: { content: 'Cảm ơn anh/chị đã chia sẻ trải nghiệm với Mộc An!', repliedAt: daysFromNow(-7) } }
         ];
         await Review.create(SECOND_REVIEWS);
-        console.log(`Created ${REVIEWS.length + SECOND_REVIEWS.length} product/shop reviews for 2 shops`);
+        const EXTRA_REVIEWS = [
+            { type: 'product', user: customer2._id, targetId: byName['Ghế Bar Gỗ Óc Chó Cao Cấp']._id, product: byName['Ghế Bar Gỗ Óc Chó Cao Cấp']._id, shop: shop._id, order: createdOrders[0]._id, rating: 4, content: 'Mau go dep, giao dung hen, chan ghe rat chac.', vendorReply: { content: 'Shop cam on anh/chi da danh gia san pham!', repliedAt: daysFromNow(-1) } },
+            { type: 'product', user: customer3._id, targetId: secondByName['Sofa Vải Bouclé MÂY']._id, product: secondByName['Sofa Vải Bouclé MÂY']._id, shop: secondShop._id, order: payosGroupOrders[1]._id, rating: 2, content: 'Vai dep nhung mau sang hon anh, can tu van ky hon.', vendorReply: { content: '', repliedAt: null } },
+            { type: 'shop', user: googleCustomer._id, targetId: shop._id, shop: shop._id, rating: 5, content: 'Trai nghiem mua online tot, nhieu mau noi that de chon.', vendorReply: { content: 'Cam on ban da tin tuong Furni Official Store!', repliedAt: daysFromNow(0) } }
+        ];
+        await Review.create(EXTRA_REVIEWS);
+        console.log(`Created ${REVIEWS.length + SECOND_REVIEWS.length + EXTRA_REVIEWS.length} product/shop reviews for 2 shops`);
 
         // Giỏ hàng có sản phẩm từ hai vendor để kiểm thử luồng checkout multi-vendor.
         await Cart.create({
@@ -356,7 +582,29 @@ const seed = async () => {
                 { product: secondByName['Sofa Vải Bouclé MÂY']._id, quantity: 1, price: secondByName['Sofa Vải Bouclé MÂY'].price, name: secondByName['Sofa Vải Bouclé MÂY'].name, image: secondByName['Sofa Vải Bouclé MÂY'].images?.[0] || null }
             ]
         });
-        console.log('Created a mixed-vendor cart');
+        const variantCartProduct = products.find((p) => p.variants?.length >= 2);
+        await Cart.create({
+            user: customer2._id,
+            products: variantCartProduct.variants.slice(0, 2).map((variant, index) => ({
+                product: variantCartProduct._id,
+                quantity: index + 1,
+                price: variant.price,
+                originalPrice: variant.price,
+                name: variantCartProduct.name,
+                image: variantCartProduct.images?.[0] || null,
+                shop: shop._id,
+                shopName: shop.name,
+                shopAvatar: shop.logo,
+                variant: variant.name,
+                variantId: variant._id,
+                variantIndex: index,
+                variantSku: variant.sku || `SEED-VAR-${index + 1}`,
+                variantSize: variant.size || null,
+                variantPrice: variant.price,
+                variantStock: variant.stock
+            }))
+        });
+        console.log('Created mixed-vendor cart + variant cart with 2 rows for the same product');
 
         // 10) Thông báo cho vendor
         const NOTIFS = [
@@ -399,6 +647,9 @@ const seed = async () => {
         console.log('  Vendor   : vendor@gmail.com   / Vendor123');
         console.log('  Vendor 2 : vendor2@gmail.com  / Vendor123  (Mộc An Living)');
         console.log('  Customer : customer@gmail.com / Customer123');
+        console.log('  Customer2: maianh@gmail.com   / Customer123');
+        console.log('  Customer3: huypham@gmail.com  / Customer123');
+        console.log('  Google   : google.customer@gmail.com / Customer123');
         console.log('=============================================');
 
         await mongoose.disconnect();

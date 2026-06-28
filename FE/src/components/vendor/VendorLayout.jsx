@@ -1,8 +1,8 @@
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect, useContext, useCallback } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import "./vendor.css";
 import { AuthContext } from "../context/authContext";
-import { getMyShopApi } from "../../utils/api";
+import { getMyShopApi, getVendorNotificationsApi } from "../../utils/api";
 import {
     IconGrid, IconBox, IconBag, IconTag, IconWallet, IconReport,
     IconStar, IconBell, IconGear, IconHome, IconChevronDown, IconX, IconDoc,
@@ -61,7 +61,7 @@ const NavRow = ({ item, onNavigate }) => {
             <Icon size={16} className="opacity-75 shrink-0" />
             {item.label}
             {item.badge && (
-                <span className="ml-auto bg-[#BF4343] text-white text-[10px] font-bold px-1.5 py-px rounded-full min-w-[18px] text-center">
+                <span className="ml-auto min-w-5 h-5 px-1 rounded-full bg-[#dc2626] border border-[#fecaca] text-white text-[10px] font-bold flex items-center justify-center leading-none">
                     {item.badge}
                 </span>
             )}
@@ -101,7 +101,7 @@ const NavRow = ({ item, onNavigate }) => {
     );
 };
 
-const Sidebar = ({ open, onClose, shop }) => (
+const Sidebar = ({ open, onClose, shop, notificationCount }) => (
     <>
         {/* Mobile backdrop */}
         {open && (
@@ -152,9 +152,12 @@ const Sidebar = ({ open, onClose, shop }) => (
                             {section.label}
                         </p>
                         <div className="space-y-0.5">
-                            {section.items.map((item) => (
-                                <NavRow key={item.label} item={item} onNavigate={onClose} />
-                            ))}
+                            {section.items.map((item) => {
+                                const badge = item.to === "/vendor/notifications" && notificationCount > 0
+                                    ? (notificationCount > 99 ? "99+" : notificationCount)
+                                    : item.badge;
+                                return <NavRow key={item.label} item={{ ...item, badge }} onNavigate={onClose} />;
+                            })}
                         </div>
                     </div>
                 ))}
@@ -218,9 +221,19 @@ const Topbar = ({ crumbs, onOpenSidebar, user, shop }) => (
 const VendorLayout = () => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [shop, setShop] = useState(null);
+    const [notificationCount, setNotificationCount] = useState(0);
     const { auth } = useContext(AuthContext);
     const { pathname } = useLocation();
     const crumbs = BREADCRUMBS[pathname] || ["Vendor"];
+
+    const fetchNotificationCount = useCallback(async () => {
+        try {
+            const res = await getVendorNotificationsApi({ limit: 1 });
+            if (res.success) setNotificationCount(res.data.unreadCount || 0);
+        } catch {
+            setNotificationCount(0);
+        }
+    }, []);
 
     useEffect(() => {
         let active = true;
@@ -230,9 +243,18 @@ const VendorLayout = () => {
         return () => { active = false; };
     }, []);
 
+    useEffect(() => {
+        fetchNotificationCount();
+    }, [fetchNotificationCount, pathname]);
+
+    useEffect(() => {
+        window.addEventListener("vendor-notifications:changed", fetchNotificationCount);
+        return () => window.removeEventListener("vendor-notifications:changed", fetchNotificationCount);
+    }, [fetchNotificationCount]);
+
     return (
         <div className="vendor-shell flex min-h-screen bg-[#FAF7F4]">
-            <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} shop={shop} />
+            <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} shop={shop} notificationCount={notificationCount} />
             <div className="flex-1 flex flex-col min-h-screen lg:ml-[236px]">
                 <Topbar crumbs={crumbs} onOpenSidebar={() => setSidebarOpen(true)} user={auth?.user} shop={shop} />
                 <main className="flex-1 p-[22px_16px] sm:p-[22px_24px]">

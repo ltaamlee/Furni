@@ -26,6 +26,84 @@ const ORDER_TRANSITIONS = {
     [ORDER_STATUS.CANCELLED]: []
 };
 
+const VALID_SHIPPING_PROVIDERS = ['jt', 'ghtk', 'viettel'];
+
+const normalizeProviderCode = (provider) => {
+    if (!provider) return '';
+    if (typeof provider === 'string') return provider.toLowerCase();
+    return String(provider.code || provider._id || '').toLowerCase();
+};
+
+const pickShopShippingProvider = (provider, shopId) => {
+    if (!provider || typeof provider === 'string') return provider || null;
+    if (provider.code || provider.name || provider._id) return provider;
+
+    const shopProvider = provider[shopId.toString()];
+    if (shopProvider) return shopProvider;
+
+    return Object.values(provider).find(Boolean) || null;
+};
+
+const BASE_SHOP_REVENUE_RATE = 10;
+
+const orderProductValue = (order) => {
+    if (typeof order.subtotal === 'number') return order.subtotal;
+    return (order.products || []).reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 0), 0);
+};
+
+const attachVendorOrderRevenue = (order, shop) => {
+    const plain = typeof order.toObject === 'function' ? order.toObject() : order;
+    const shopSubtotal = orderProductValue(plain);
+    const commissionRate = Number(shop.commissionRate || 0);
+    const shopRevenueRate = Math.max(0, BASE_SHOP_REVENUE_RATE - commissionRate);
+    const shopRevenue = Math.round(shopSubtotal * shopRevenueRate / 100);
+
+    return {
+        ...plain,
+        shopSubtotal,
+        shopRevenue,
+        commissionRate,
+        shopRevenueRate,
+    };
+};
+
+const ONLINE_PAYMENT_METHODS = ['PAYOS', 'VNPAY', 'MOMO', 'ZALOPAY', 'WALLET'];
+const WALLET_HISTORY_TX_CATEGORIES = ['withdraw', 'refund', 'adjustment'];
+
+const onlinePaidOrderQuery = (shopId) => ({
+    shop: shopId,
+    paymentStatus: 'paid',
+    paymentMethod: { $in: ONLINE_PAYMENT_METHODS },
+    status: { $nin: [ORDER_STATUS.CANCELLED, ORDER_STATUS.CANCEL_REQUESTED] },
+});
+
+const dateOfPaidOrder = (order) => order.updatedAt || order.orderedAt || order.createdAt;
+
+const onlineOrderToWalletTx = (order, shop) => {
+    const withRevenue = attachVendorOrderRevenue(order, shop);
+    return {
+        _id: `order:${withRevenue._id}`,
+        type: 'credit',
+        category: 'order_income',
+        amount: withRevenue.shopRevenue,
+        status: 'success',
+        description: `Đơn thanh toán online #${withRevenue.orderNumber}`,
+        order: withRevenue._id,
+        orderNumber: withRevenue.orderNumber,
+        paymentMethod: withRevenue.paymentMethod,
+        createdAt: dateOfPaidOrder(withRevenue),
+    };
+};
+
+const sumOnlineOrderRevenue = (orders, shop) =>
+    orders.reduce((sum, order) => sum + attachVendorOrderRevenue(order, shop).shopRevenue, 0);
+
+const sumOnlineOrderCommission = (orders, shop) =>
+    orders.reduce((sum, order) => {
+        const withRevenue = attachVendorOrderRevenue(order, shop);
+        return sum + Math.round(withRevenue.shopSubtotal * withRevenue.commissionRate / 100);
+    }, 0);
+
 // Tính phần thuộc về shop trong 1 đơn (Hướng B: 1 đơn có sản phẩm của nhiều shop)
 const shopSliceOfOrder = (order, shopId) => {
     const sid = shopId.toString();
@@ -240,7 +318,7 @@ const getDashboardSummary = async (req, res) => {
             Order.countDocuments({ ...orderBase, status: ORDER_STATUS.DELIVERED }),
             Order.countDocuments({ ...orderBase, status: ORDER_STATUS.CANCELLED }),
             Product.aggregate([{ $match: base }, { $group: { _id: null, views: { $sum: '$views' } } }]),
-            Wallet.findOne({ shop: shop._id }),
+            Wallet.findOne({ user: shop.owner }),
             Review.aggregate([{ $match: { shop: shop._id } }, { $group: { _id: null, avg: { $avg: '$rating' }, total: { $sum: 1 } } }])
         ]);
 
@@ -593,10 +671,11 @@ const getMyOrders = async (req, res) => {
         }
 
         const skip = (Number(page) - 1) * Number(limit);
-        const [orders, total] = await Promise.all([
+        const [ordersRaw, total] = await Promise.all([
             Order.find(query).populate('user', 'fullName email phone').sort('-createdAt').skip(skip).limit(Number(limit)),
             Order.countDocuments(query)
         ]);
+        const orders = ordersRaw.map((order) => attachVendorOrderRevenue(order, shop));
 
         // Số đếm theo trạng thái (đơn của shop)
         const sb = { shop: shop._id };
@@ -634,7 +713,7 @@ const getMyOrderDetail = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
         }
 
-        res.status(200).json({ success: true, data: { order } });
+        res.status(200).json({ success: true, data: { order: attachVendorOrderRevenue(order, shop) } });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi khi lấy chi tiết đơn hàng', error: error.message });
     }
@@ -664,10 +743,9 @@ const updateMyOrderStatus = async (req, res) => {
         // Khi chuyển sang 'shipping', phải chọn đơn vị vận chuyển
         // Nếu khách đã chọn khi checkout thì dùng luôn, không bắt chọn lại
         if (status === 'shipping') {
-            const effectiveProvider = shippingProvider || order.shippingProvider;
-            const VALID_PROVIDERS = ['jt', 'ghtk', 'viettel'];
+            const effectiveProvider = pickShopShippingProvider(shippingProvider || order.shippingProvider, shop._id);
             if (effectiveProvider) {
-                if (!VALID_PROVIDERS.includes(effectiveProvider)) {
+                if (!VALID_SHIPPING_PROVIDERS.includes(normalizeProviderCode(effectiveProvider))) {
                     return res.status(400).json({ success: false, message: 'Đơn vị vận chuyển không hợp lệ!' });
                 }
             }
@@ -684,7 +762,7 @@ const updateMyOrderStatus = async (req, res) => {
         order.status = status;
         if (note) order.statusHistory.push({ status, timestamp: new Date(), note });
         if (status === 'shipping') {
-            const effectiveProvider = shippingProvider || order.shippingProvider;
+            const effectiveProvider = pickShopShippingProvider(shippingProvider || order.shippingProvider, shop._id);
             if (effectiveProvider) order.shippingProvider = effectiveProvider;
             if (trackingNumber) order.trackingNumber = trackingNumber;
         }
@@ -759,8 +837,8 @@ const getReports = async (req, res) => {
 
 // ── Ví điện tử ───────────────────────────────────────────────
 const ensureWallet = async (shop) => {
-    let wallet = await Wallet.findOne({ shop: shop._id });
-    if (!wallet) wallet = await Wallet.create({ shop: shop._id, owner: shop.owner });
+    let wallet = await Wallet.findOne({ user: shop.owner });
+    if (!wallet) wallet = await Wallet.create({ user: shop.owner, accounts: [], transactions: [] });
     return wallet;
 };
 
@@ -774,23 +852,42 @@ const getWallet = async (req, res) => {
         const wallet = await ensureWallet(shop);
 
         const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-        const agg = await Transaction.aggregate([
-            { $match: { wallet: wallet._id, status: 'success', createdAt: { $gte: monthStart } } },
-            { $group: { _id: '$category', total: { $sum: '$amount' } } }
+        const [onlinePaidOrders, walletDebits, monthWithdrawAgg] = await Promise.all([
+            Order.find(onlinePaidOrderQuery(shop._id)).select('products subtotal orderNumber paymentMethod updatedAt orderedAt createdAt'),
+            Transaction.find({
+                wallet: wallet._id,
+                type: 'debit',
+                category: { $in: WALLET_HISTORY_TX_CATEGORIES },
+                status: { $in: ['success', 'pending'] },
+            }).select('amount'),
+            Transaction.aggregate([
+                {
+                    $match: {
+                        wallet: wallet._id,
+                        category: 'withdraw',
+                        status: 'success',
+                        createdAt: { $gte: monthStart },
+                    },
+                },
+                { $group: { _id: null, total: { $sum: '$amount' } } },
+            ]),
         ]);
-        const byCat = {};
-        agg.forEach((a) => { byCat[a._id] = a.total; });
+
+        const monthOrders = onlinePaidOrders.filter((order) => new Date(dateOfPaidOrder(order)) >= monthStart);
+        const onlineIncome = sumOnlineOrderRevenue(onlinePaidOrders, shop);
+        const debitsTotal = walletDebits.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        const balance = Math.max(0, onlineIncome - debitsTotal);
 
         res.status(200).json({
             success: true,
             data: {
-                balance: wallet.balance,
-                pendingBalance: wallet.pendingBalance,
-                bankAccounts: wallet.bankAccounts,
+                balance,
+                pendingBalance: wallet.pendingBalance || 0,
+                bankAccounts: wallet.accounts || [],
                 monthly: {
-                    income: byCat.order_income || 0,
-                    withdrawn: byCat.withdraw || 0,
-                    platformFee: byCat.platform_fee || 0
+                    income: sumOnlineOrderRevenue(monthOrders, shop),
+                    withdrawn: monthWithdrawAgg[0]?.total || 0,
+                    platformFee: sumOnlineOrderCommission(monthOrders, shop)
                 }
             }
         });
@@ -809,20 +906,53 @@ const getTransactions = async (req, res) => {
         const wallet = await ensureWallet(shop);
 
         const { type, page = 1, limit = 15 } = req.query;
-        const query = { wallet: wallet._id };
-        if (type === 'in') query.type = 'credit';
-        else if (type === 'out') query.type = 'debit';
-        else if (type === 'withdraw') query.category = 'withdraw';
-
         const skip = (Number(page) - 1) * Number(limit);
-        const [transactions, total] = await Promise.all([
-            Transaction.find(query).sort('-createdAt').skip(skip).limit(Number(limit)),
-            Transaction.countDocuments(query)
+        const numericLimit = Number(limit);
+
+        if (type === 'withdraw') {
+            const query = { wallet: wallet._id, category: 'withdraw' };
+            const [transactions, total] = await Promise.all([
+                Transaction.find(query).sort('-createdAt').skip(skip).limit(numericLimit),
+                Transaction.countDocuments(query)
+            ]);
+
+            return res.status(200).json({
+                success: true,
+                data: { transactions, pagination: { total, page: Number(page), pages: Math.ceil(total / numericLimit), limit: numericLimit } }
+            });
+        }
+
+        const orderQuery = onlinePaidOrderQuery(shop._id);
+        const realTxQuery = {
+            wallet: wallet._id,
+            category: { $in: WALLET_HISTORY_TX_CATEGORIES },
+        };
+        if (type === 'in') {
+            realTxQuery._id = null;
+        } else if (type === 'out') {
+            Object.assign(realTxQuery, { type: 'debit' });
+            orderQuery._id = null;
+        }
+
+        const fetchLimit = skip + numericLimit;
+        const [onlineOrders, realTransactions, onlineTotal, realTotal] = await Promise.all([
+            Order.find(orderQuery).sort('-updatedAt').limit(fetchLimit),
+            Transaction.find(realTxQuery).sort('-createdAt').limit(fetchLimit),
+            Order.countDocuments(orderQuery),
+            Transaction.countDocuments(realTxQuery),
         ]);
+
+        const transactions = [
+            ...onlineOrders.map((order) => onlineOrderToWalletTx(order, shop)),
+            ...realTransactions,
+        ]
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .slice(skip, skip + numericLimit);
+        const total = onlineTotal + realTotal;
 
         res.status(200).json({
             success: true,
-            data: { transactions, pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)), limit: Number(limit) } }
+            data: { transactions, pagination: { total, page: Number(page), pages: Math.ceil(total / numericLimit), limit: numericLimit } }
         });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi khi lấy giao dịch', error: error.message });
@@ -841,12 +971,27 @@ const requestWithdraw = async (req, res) => {
         const amount = Number(req.body.amount) || 0;
         const { note, bankIndex } = req.body;
         if (amount < 100000) return res.status(400).json({ success: false, message: 'Số tiền rút tối thiểu 100.000₫' });
-        if (amount > wallet.balance) return res.status(400).json({ success: false, message: 'Số dư khả dụng không đủ' });
 
-        wallet.balance -= amount; // giữ tiền lại khi chờ xử lý
+        const [onlinePaidOrders, walletDebits] = await Promise.all([
+            Order.find(onlinePaidOrderQuery(shop._id)).select('products subtotal'),
+            Transaction.find({
+                wallet: wallet._id,
+                type: 'debit',
+                category: { $in: WALLET_HISTORY_TX_CATEGORIES },
+                status: { $in: ['success', 'pending'] },
+            }).select('amount'),
+        ]);
+        const availableBalance = Math.max(
+            0,
+            sumOnlineOrderRevenue(onlinePaidOrders, shop) - walletDebits.reduce((sum, tx) => sum + (tx.amount || 0), 0)
+        );
+        if (amount > availableBalance) return res.status(400).json({ success: false, message: 'Số dư khả dụng không đủ' });
+
+        wallet.balance = Math.max(0, availableBalance - amount); // snapshot, số dư hiển thị vẫn tính từ đơn online
         await wallet.save();
 
-        const acc = wallet.bankAccounts[bankIndex] || wallet.bankAccounts[0];
+        const accounts = wallet.accounts || [];
+        const acc = accounts[bankIndex] || accounts[0];
         const tx = await Transaction.create({
             wallet: wallet._id, shop: shop._id, type: 'debit', category: 'withdraw',
             amount, status: 'pending',
@@ -873,11 +1018,11 @@ const addBankAccount = async (req, res) => {
         if (!bankName || !accountNumber || !accountHolder) {
             return res.status(400).json({ success: false, message: 'Vui lòng nhập đủ thông tin tài khoản' });
         }
-        if (wallet.bankAccounts.length === 0) req.body.isDefault = true;
-        wallet.bankAccounts.push({ bankName, accountNumber, accountHolder, branch: branch || '', isDefault: wallet.bankAccounts.length === 0 });
+        const accounts = wallet.accounts || [];
+        wallet.accounts.push({ type: 'bank', bankName, accountNumber, accountHolder, branch: branch || '', isDefault: accounts.length === 0 });
         await wallet.save();
 
-        res.status(201).json({ success: true, message: 'Đã thêm tài khoản ngân hàng', data: { bankAccounts: wallet.bankAccounts } });
+        res.status(201).json({ success: true, message: 'Đã thêm tài khoản ngân hàng', data: { bankAccounts: wallet.accounts } });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi khi thêm tài khoản', error: error.message });
     }

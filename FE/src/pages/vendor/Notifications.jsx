@@ -44,6 +44,7 @@ const groupOf = (d) => {
     return "Cũ hơn";
 };
 const timeOf = (d) => new Date(d).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+const notifyBadgeChanged = () => window.dispatchEvent(new CustomEvent("vendor-notifications:changed"));
 
 const NotifItem = ({ n, onOpen, onRead, onDelete }) => {
     const { bg, color, Icon } = NOTIF_STYLE[n.type] || NOTIF_STYLE.system;
@@ -120,6 +121,7 @@ const Notifications = () => {
     const markRead = async (id) => {
         setList((l) => l.map((n) => (n._id === id ? { ...n, isRead: true } : n)));
         await markNotificationReadApi(id).catch(() => {});
+        notifyBadgeChanged();
     };
     // Click vào thông báo: đánh dấu đã đọc rồi điều hướng tới đúng vị trí
     const openNotif = (n) => {
@@ -129,10 +131,12 @@ const Notifications = () => {
     const deleteNotif = async (id) => {
         setList((l) => l.filter((n) => n._id !== id));
         await deleteNotificationApi(id).catch(() => {});
+        notifyBadgeChanged();
     };
     const markAllRead = async () => {
         setList((l) => l.map((n) => ({ ...n, isRead: true })));
         await markAllNotificationsReadApi().catch(() => {});
+        notifyBadgeChanged();
     };
     const toggleSetting = (key) => setSettings((s) => s.map((x) => (x.key === key ? { ...x, on: !x.on } : x)));
 

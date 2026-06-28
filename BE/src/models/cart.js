@@ -61,6 +61,36 @@ const cartSchema = new mongoose.Schema({
             type: String,
             default: null
         },
+        variant: {
+            type: String,
+            default: null
+        },
+        variantId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
+        },
+        variantIndex: {
+            type: Number,
+            default: null
+        },
+        variantSku: {
+            type: String,
+            default: null
+        },
+        variantSize: {
+            type: String,
+            default: null
+        },
+        variantPrice: {
+            type: Number,
+            default: null,
+            min: 0
+        },
+        variantStock: {
+            type: Number,
+            default: null,
+            min: 0
+        },
         addedAt: {
             type: Date,
             default: Date.now

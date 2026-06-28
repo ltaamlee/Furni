@@ -51,7 +51,7 @@ const CartPage = () => {
         const availableProducts = cart?.products?.filter(item => item.shopIsActive !== false) || [];
         if (availableProducts.length > 0) {
             const allSelected = availableProducts.every(item => 
-                selectedItems.has(item.product._id || item.product)
+                selectedItems.has(getCartItemId(item))
             );
             setSelectAll(allSelected);
         }
@@ -67,7 +67,7 @@ const CartPage = () => {
                 // Preserve selection: remove IDs that no longer exist in cart
                 const currentIds = new Set((newCart.products || [])
                     .filter(item => item.shopIsActive !== false)
-                    .map(item => item.product._id || item.product));
+                    .map(item => getCartItemId(item)));
                 setSelectedItems((prev) => {
                     const kept = [...prev].filter(id => currentIds.has(id));
                     // If all cart items are in the kept selection, keep selectAll = true
@@ -131,7 +131,7 @@ const CartPage = () => {
             // Get the first selected item's shop to filter providers
             let enabledProviders = null;
             const firstSelectedItem = cart?.products?.find(item =>
-                selectedItems.has(item.product._id || item.product) && item.shopIsActive !== false
+                selectedItems.has(getCartItemId(item)) && item.shopIsActive !== false
             );
             if (firstSelectedItem) {
                 const shopId = firstSelectedItem.shop?._id || firstSelectedItem.shop;
@@ -162,17 +162,17 @@ const CartPage = () => {
 
     const selectedAddress = addresses.find(a => a._id === selectedAddressId);
 
-    const handleUpdateQuantity = async (productId, newQuantity) => {
+    const handleUpdateQuantity = async (cartItemId, newQuantity) => {
         if (newQuantity < 1) return;
         try {
-            setUpdating(productId);
-            await updateCartItemApi(productId, newQuantity);
+            setUpdating(cartItemId);
+            await updateCartItemApi(cartItemId, newQuantity);
             window.dispatchEvent(new Event("cart-updated"));
             await fetchCart();
             // Restore selection for the updated item
             setSelectedItems((prev) => {
                 const next = new Set(prev);
-                next.add(productId);
+                next.add(cartItemId);
                 return next;
             });
         } catch (error) {
@@ -182,14 +182,14 @@ const CartPage = () => {
         }
     };
 
-    const handleRemoveItem = async (productId) => {
+    const handleRemoveItem = async (cartItemId) => {
         if (!confirm("Bạn có chắc muốn xóa sản phẩm này?")) return;
         try {
-            setUpdating(productId);
-            await removeFromCartApi(productId);
+            setUpdating(cartItemId);
+            await removeFromCartApi(cartItemId);
             setSelectedItems(prev => {
                 const newSet = new Set(prev);
-                newSet.delete(productId);
+                newSet.delete(cartItemId);
                 return newSet;
             });
             await fetchCart();
@@ -201,13 +201,13 @@ const CartPage = () => {
         }
     };
 
-    const handleToggleItem = (productId) => {
+    const handleToggleItem = (cartItemId) => {
         setSelectedItems(prev => {
             const newSet = new Set(prev);
-            if (newSet.has(productId)) {
-                newSet.delete(productId);
+            if (newSet.has(cartItemId)) {
+                newSet.delete(cartItemId);
             } else {
-                newSet.add(productId);
+                newSet.add(cartItemId);
             }
             return newSet;
         });
@@ -219,7 +219,7 @@ const CartPage = () => {
         } else {
             const allIds = cart.products
                 .filter(item => item.shopIsActive !== false)
-                .map(item => item.product._id || item.product);
+                .map(item => getCartItemId(item));
             setSelectedItems(new Set(allIds));
         }
         setSelectAll(!selectAll);
@@ -229,7 +229,7 @@ const CartPage = () => {
         const shopItems = cart.products.filter(item => 
             (item.shop?._id || item.shop) === shopId && item.shopIsActive !== false
         );
-        const shopItemIds = shopItems.map(item => item.product._id || item.product);
+        const shopItemIds = shopItems.map(item => getCartItemId(item));
         const allSelected = shopItemIds.every(id => selectedItems.has(id));
         
         setSelectedItems(prev => {
@@ -253,7 +253,7 @@ const CartPage = () => {
             setApplyingCoupon(true);
             // Compute subtotal using sale prices for coupon validation
             const selectedCartProducts = cart?.products?.filter(item =>
-                selectedItems.has(item.product._id || item.product)
+                selectedItems.has(getCartItemId(item))
             ) || [];
             const orderTotal = selectedCartProducts.reduce((sum, item) => {
                 return sum + (item.price * item.quantity);
@@ -262,7 +262,7 @@ const CartPage = () => {
                 code: couponCode,
                 orderTotal,
                 cartItems: selectedCartProducts.map((item) => ({
-                    productId: item.product._id || item.product,
+                    productId: getProductId(item),
                     price: item.price,
                     quantity: item.quantity,
                 })),
@@ -285,7 +285,7 @@ const CartPage = () => {
         try {
             setApplyingCoupon(true);
             const selectedCartProducts = cart?.products?.filter(item =>
-                selectedItems.has(item.product._id || item.product)
+                selectedItems.has(getCartItemId(item))
             ) || [];
             const orderTotal = selectedCartProducts.reduce((sum, item) => {
                 return sum + (item.price * item.quantity);
@@ -294,7 +294,7 @@ const CartPage = () => {
                 code: voucher.code,
                 orderTotal,
                 cartItems: selectedCartProducts.map((item) => ({
-                    productId: item.product._id || item.product,
+                    productId: getProductId(item),
                     price: item.price,
                     quantity: item.quantity,
                 })),
@@ -325,6 +325,12 @@ const CartPage = () => {
     const formatDiscount = (discount) => {
         return `-${discount}%`;
     };
+
+    const getProductId = (item) => item.productId || item.product?._id || item.product;
+    const getCartItemId = (item) => item.cartItemId || item._id || getProductId(item);
+    const getVariantLabel = (item) => [item.variant, item.variantSize, item.variantSku]
+        .filter(Boolean)
+        .join(" · ");
 
     // Group products by shop and sort by added time
     const groupedCart = useMemo(() => {
@@ -359,7 +365,7 @@ const CartPage = () => {
     // Calculate selected items total
     const selectedItemsData = useMemo(() => {
         const items = cart?.products?.filter(item =>
-            selectedItems.has(item.product._id || item.product) && item.shopIsActive !== false
+            selectedItems.has(getCartItemId(item)) && item.shopIsActive !== false
         ) || [];
 
         const subtotal = items.reduce((sum, item) => {
@@ -478,7 +484,7 @@ const CartPage = () => {
 
                             {/* Products grouped by shop */}
                             {groupedCart.map((shop) => {
-                                const shopItemIds = shop.items.map(item => item.product._id || item.product);
+                                const shopItemIds = shop.items.map(item => getCartItemId(item));
                                 const shopAllSelected = shopItemIds.every(id => selectedItems.has(id));
                                 const shopPartialSelected = shopItemIds.some(id => selectedItems.has(id)) && !shopAllSelected;
                                 const shopTotal = shop.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -586,8 +592,9 @@ const CartPage = () => {
                                         {/* Shop Items */}
                                         <div className="divide-y divide-[#EDE8E0]">
                                             {shop.items.map((item) => {
-                                                const productId = item.product._id || item.product;
-                                                const isSelected = selectedItems.has(productId);
+                                                const productId = getProductId(item);
+                                                const cartItemId = getCartItemId(item);
+                                                const isSelected = selectedItems.has(cartItemId);
                                                 // item.price đã là giá sale hiện tại (re-evaluated từ backend getCart)
                                                 const originalPrice = item.originalPrice || item.price;
                                                 const hasDiscount = item.discount > 0;
@@ -596,14 +603,14 @@ const CartPage = () => {
                                                 const isUnavailable = item.shopIsActive === false;
                                                 
                                                 return (
-                                                    <div key={productId} className={`p-4 flex gap-4 transition-colors ${isSelected ? 'bg-white' : 'bg-white/50'} ${isUnavailable ? 'opacity-60' : ''}`}>
+                                                    <div key={cartItemId} className={`p-4 flex gap-4 transition-colors ${isSelected ? 'bg-white' : 'bg-white/50'} ${isUnavailable ? 'opacity-60' : ''}`}>
                                                         {/* Checkbox - disabled if unavailable */}
                                                         <label className={`flex items-center cursor-pointer shrink-0 ${isUnavailable ? 'cursor-not-allowed' : ''}`}>
                                                             <div className="relative">
                                                                 <input
                                                                     type="checkbox"
                                                                     checked={isSelected}
-                                                                    onChange={() => !isUnavailable && handleToggleItem(productId)}
+                                                                    onChange={() => !isUnavailable && handleToggleItem(cartItemId)}
                                                                     disabled={isUnavailable}
                                                                     className="sr-only"
                                                                 />
@@ -652,9 +659,9 @@ const CartPage = () => {
                                                             </h3>
 
                                                             {/* Variant Name */}
-                                                            {item.variant && (
+                                                            {getVariantLabel(item) && (
                                                                 <p className="text-xs text-[#A8896A] mt-1">
-                                                                    Phân loại: <span className="font-medium text-[#6B5344]">{item.variant}</span>
+                                                                    Phân loại: <span className="font-medium text-[#6B5344]">{getVariantLabel(item)}</span>
                                                                 </p>
                                                             )}
                                                             
@@ -694,24 +701,24 @@ const CartPage = () => {
                                                             <div className="flex items-center gap-3 mt-3">
                                                                 <div className="flex items-center border border-[#D5C9BC] rounded-full overflow-hidden bg-white">
                                                                     <button
-                                                                        onClick={() => !isUnavailable && handleUpdateQuantity(productId, item.quantity - 1)}
-                                                                        disabled={updating === productId || item.quantity <= 1 || isUnavailable}
+                                                                        onClick={() => !isUnavailable && handleUpdateQuantity(cartItemId, item.quantity - 1)}
+                                                                        disabled={updating === cartItemId || item.quantity <= 1 || isUnavailable}
                                                                         className="w-9 h-9 flex items-center justify-center hover:bg-[#FAF7F4] disabled:opacity-50 transition-colors"
                                                                     >
                                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M5 12h14" /></svg>
                                                                     </button>
                                                                     <span className="w-10 text-center font-bold text-sm">{item.quantity}</span>
                                                                     <button
-                                                                        onClick={() => !isUnavailable && handleUpdateQuantity(productId, item.quantity + 1)}
-                                                                        disabled={updating === productId || isUnavailable}
+                                                                        onClick={() => !isUnavailable && handleUpdateQuantity(cartItemId, item.quantity + 1)}
+                                                                        disabled={updating === cartItemId || isUnavailable}
                                                                         className="w-9 h-9 flex items-center justify-center hover:bg-[#FAF7F4] disabled:opacity-50 transition-colors"
                                                                     >
                                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M12 5v14M5 12h14" /></svg>
                                                                     </button>
                                                                 </div>
                                                                 <button
-                                                                    onClick={() => handleRemoveItem(productId)}
-                                                                    disabled={updating === productId}
+                                                                    onClick={() => handleRemoveItem(cartItemId)}
+                                                                    disabled={updating === cartItemId}
                                                                     className="text-[#BF4343] hover:bg-red-50 p-2 rounded-lg transition-colors"
                                                                     title="Xóa sản phẩm"
                                                                 >

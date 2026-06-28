@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useContext, useRef } from "react";
 import { AuthContext } from "../../components/context/authContext";
-import { updateUserApi, uploadAvatarApi } from "../../utils/api";
+import { getUserWalletApi, updateUserApi, uploadAvatarApi } from "../../utils/api";
 import { useToast } from "../../components/context/ToastContext";
 
 const UserProfile = () => {
@@ -22,6 +22,8 @@ const UserProfile = () => {
     const [selectedFile, setSelectedFile] = useState(null);
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [showAvatarModal, setShowAvatarModal] = useState(false);
+    const [wallet, setWallet] = useState(null);
+    const [loadingWallet, setLoadingWallet] = useState(false);
 
     // Avatar upload handlers
     const handleAvatarFileChange = (e) => {
@@ -99,6 +101,24 @@ const UserProfile = () => {
         }
     }, [user]);
 
+    useEffect(() => {
+        if (!user) return;
+
+        const fetchWallet = async () => {
+            try {
+                setLoadingWallet(true);
+                const res = await getUserWalletApi();
+                if (res.success) setWallet(res.data?.wallet || null);
+            } catch (error) {
+                setWallet(null);
+            } finally {
+                setLoadingWallet(false);
+            }
+        };
+
+        fetchWallet();
+    }, [user]);
+
     const handleProfileSubmit = async (e) => {
         e.preventDefault();
         try {
@@ -115,7 +135,7 @@ const UserProfile = () => {
     };
 
     const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('vi-VN').format(amount) + 'đ';
+        return new Intl.NumberFormat('vi-VN').format(Number(amount) || 0) + 'đ';
     };
 
     return (
@@ -315,33 +335,17 @@ const UserProfile = () => {
                         <div className="flex items-center justify-between mb-4">
                             <div>
                                 <p className="text-sm text-[#A8896A] mb-1">Số dư khả dụng</p>
-                                <p className="text-3xl font-bold text-[#B86B05]">{formatCurrency(0)}</p>
+                                <p className="text-3xl font-bold text-[#B86B05]">
+                                    {loadingWallet ? "..." : formatCurrency(wallet?.balance || 0)}
+                                </p>
                             </div>
                         </div>
 
                         
                     </div>
 
-                    {/* Quick Actions */}
-                    <div className="grid grid-cols-2 gap-4 mt-4">
-                        <button
-                            onClick={() => showToast("Tính năng đang phát triển!", "info")}
-                            className="flex items-center justify-center gap-2 px-4 py-3 bg-[#FAF7F4] border border-[#EDE8E0] rounded-xl hover:bg-[#F5EFE7] transition-colors"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-[#B86B05]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                            <span className="text-sm font-medium text-[#1C1108]">Nạp tiền</span>
-                        </button>
-                        <button
-                            onClick={() => showToast("Tính năng đang phát triển!", "info")}
-                            className="flex items-center justify-center gap-2 px-4 py-3 bg-[#FAF7F4] border border-[#EDE8E0] rounded-xl hover:bg-[#F5EFE7] transition-colors"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-[#B86B05]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                            </svg>
-                            <span className="text-sm font-medium text-[#1C1108]">Rút tiền</span>
-                        </button>
+                    <div className="mt-4 rounded-xl border border-[#EDE8E0] bg-[#FAF7F4] px-4 py-3 text-sm text-[#6B5C4C]">
+                        Số dư ví được dùng để thanh toán hoặc giảm tiền cho đơn hàng tiếp theo.
                     </div>
                 </div>
             </div>

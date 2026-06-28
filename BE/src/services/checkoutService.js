@@ -68,12 +68,21 @@ const normalizeToCheckoutItems = async (mode, body, userId) => {
     console.log('[Checkout] cart found:', cart ? `products=${cart.products.length}` : 'null');
 
     const selected = new Set(cartItemIds.map(id => id.toString()));
-    const items = (cartItemIds.length === 0 ? cart.products : cart.products.filter(p => selected.has(p.product.toString())));
+    const items = (cartItemIds.length === 0
+        ? cart.products
+        : cart.products.filter(p =>
+            selected.has(p._id.toString()) || selected.has(p.product.toString())
+        ));
 
     return items.map(item => ({
+        cartItemId: item._id.toString(),
         productId: item.product.toString(),
         variantId: item.variantId ? item.variantId.toString() : null,
-        cartPrice: item.price, // price at the time of adding to cart
+        variantName: item.variant || null,
+        variantSize: item.variantSize || null,
+        variantSku: item.variantSku || null,
+        variantPrice: item.variantPrice ?? null,
+        variantStock: item.variantStock ?? null,
         quantity: item.quantity,
         cartPromotion: item.promotion || null, // promotion at the time of adding to cart
     }));
@@ -115,41 +124,29 @@ const validateAndEnrichItems = async (checkoutItems, products, address) => {
             continue;
         }
 
-        // Resolve variant pricing if a variant is selected
-        const hasVariant = item.variantId && product.variants && Array.isArray(product.variants);
-        let variantData = null;
-        let originalPrice;
-        let salePrice;
-        let discountPercent;
+        const variant = item.variantId
+            ? product.variants?.find(v => v._id?.toString() === item.variantId)
+            : (item.variantName ? product.variants?.find(v => v.name === item.variantName) : null);
+        const stock = variant ? Number(variant.stock ?? 0) : Number(item.variantStock ?? product.quantity);
 
-        if (hasVariant) {
-            const variant = product.variants.find(v => v._id?.toString() === item.variantId.toString());
-            if (variant) {
-                // Pricing for this variant already computed by attachPricing (uses variant.price as base)
-                variantData = {
-                    _id: variant._id?.toString(),
-                    name: variant.name || '',
-                    price: variant.price,
-                };
-                originalPrice = variant.originalPrice ?? variant.price;
-                salePrice = variant.salePrice ?? variant.price;
-                discountPercent = variant.discountPercent ?? 0;
-            } else {
-                hasVariant = false; // variant not found, fallback to product price
-            }
+        if (stock < item.quantity) {
+            errors.push({ productId: item.productId, error: `Sản phẩm "${product.name}" chỉ còn ${product.quantity} trong kho!` });
+            continue;
         }
 
-        if (!hasVariant) {
-            // No variant selected: use product-level pricing (already set by attachPricing)
-            discountPercent = product.discountPercent || 0;
-            originalPrice = product.originalPrice || product.price;
-            salePrice = product.salePrice || originalPrice;
-        }
+        const discountPercent = variant?.discountPercent ?? product.discountPercent ?? 0;
+        const originalPrice = item.variantPrice ?? variant?.originalPrice ?? variant?.price ?? product.originalPrice ?? product.price;
+        const salePrice = variant?.salePrice || (discountPercent > 0
+            ? Math.round(originalPrice * (1 - discountPercent / 100))
+            : (item.variantPrice ?? product.salePrice ?? originalPrice));
 
         enriched.push({
+            cartItemId: item.cartItemId || item.productId,
             productId: item.productId,
             variantId: item.variantId,
-            variant: variantData,
+            variantName: item.variantName || variant?.name || null,
+            variantSize: item.variantSize || variant?.size || null,
+            variantSku: item.variantSku || variant?.sku || null,
             quantity: item.quantity,
             // Product data
             name: product.name,
@@ -163,7 +160,7 @@ const validateAndEnrichItems = async (checkoutItems, products, address) => {
             shopName: shop.name || 'Cửa hàng',
             shopAvatar: shop.avatar || null,
             // Stock
-            stock: hasVariant ? (variantData ? (product.variants.find(v => v._id?.toString() === item.variantId.toString())?.stock || 0) : 0) : product.quantity,
+            stock,
             // Promotion
             promotion: hasVariant
                 ? (product.variants.find(v => v._id?.toString() === item.variantId.toString())?.promotion || null)

@@ -4,7 +4,7 @@ const Product = require('../models/product');
 const User = require('../models/user');
 const Category = require('../models/category');
 const Notification = require('../models/notification');
-const Coupon = require('../models/Coupon');
+const Coupon = require('../models/coupon');
 const { attachPricing } = require('../utils/pricing');
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
