@@ -536,6 +536,26 @@ const OrderDetailPage = () => {
                     </div>
                 </div>
 
+                {/* ─── Lời nhắn cho shop ─── */}
+                {(() => {
+                    const notes = order.orderNotes;
+                    const notesObj = (notes instanceof Map ? Object.fromEntries(notes) : (notes || {})) || order.orderNotesObject || {};
+                    const noteValue = notesObj[order.shop?._id?.toString() || ''] || notesObj[order.shop] || '';
+                    if (!noteValue) return null;
+                    return (
+                        <div className="bg-white rounded-2xl shadow-sm shadow-black/5 border border-[#EDE8E0] overflow-hidden">
+                            <div className="px-5 py-4 bg-[#FAF7F4] border-b border-[#EDE8E0]">
+                                <h3 className="text-sm font-bold text-[#1C1108] flex items-center gap-2">
+                                    <span className="text-base">💬</span> Lời nhắn cho cửa hàng
+                                </h3>
+                            </div>
+                            <div className="px-5 py-4">
+                                <p className="text-sm text-[#6B5C4C] italic leading-relaxed">"{noteValue}"</p>
+                            </div>
+                        </div>
+                    );
+                })()}
+
                 {/* ─── Payment Method Card ─── */}
                 <div className="bg-white rounded-2xl shadow-sm shadow-black/5 border border-[#EDE8E0] overflow-hidden">
                     <div className="px-5 py-4 bg-[#FAF7F4] border-b border-[#EDE8E0]">

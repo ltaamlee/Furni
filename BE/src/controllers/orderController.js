@@ -96,12 +96,92 @@ const notifyVendorsNewOrder = async (order) => {
 // @access  Private
 const createOrder = async (req, res) => {
     try {
+<<<<<<< HEAD
         const { shippingAddress, paymentMethod = 'COD', note, selectedProductIds = [], selectedProducts = [], buyNowProduct = null, shippingTier = 'express', shippingProvider = null, couponCode = null } = req.body;
         const isBuyNow = Boolean(buyNowProduct?.productId && Number(buyNowProduct.quantity) > 0);
         // Ước tính ngày giao dựa trên tier
         const estimatedDays = shippingTier === 'express' ? 3 : 7;
 
         // Lấy cart của user
+=======
+        const {
+            mode,                // 'BUY_NOW' | 'CART'  (STEP 11)
+            items,               // BUY_NOW: [{ productId, quantity }]
+            cartItemIds,         // CART: string[]
+            shippingAddress,
+            paymentMethod = 'COD',
+            note,
+            orderNotes = {},     // { [shopId]: string } — lời nhắn cho từng shop
+            shippingProvider = null,   // { [shopId]: { _id, name, code } } (STEP 11)
+            shippingFeesByShop = {},    // { [shopId]: fee } (STEP 11)
+            couponCode = null,
+            selectedShippingCoupon = null,
+        } = req.body;
+
+        // Backward compat: legacy fields (buyNowProduct, selectedProductIds, etc.)
+        const legacyBuyNow = req.body.buyNowProduct
+            || (req.body.buyNowProductId ? { productId: req.body.buyNowProductId, quantity: req.body.buyNowQuantity } : null);
+        const legacyBuyNowActive = Boolean(legacyBuyNow?.productId && Number(legacyBuyNow.quantity) > 0);
+
+        // Normalize mode: new payload has explicit mode; fall back to legacy detection
+        const effectiveMode = mode || (legacyBuyNowActive ? 'BUY_NOW' : 'CART');
+        const isBuyNow = effectiveMode === 'BUY_NOW';
+
+        // Normalize items
+        let checkoutItems = [];
+        if (isBuyNow && Array.isArray(items) && items.length > 0) {
+            // STEP 11 format: items = [{ productId, quantity, variantId? }]
+            checkoutItems = items
+                .filter(i => i.productId && Number(i.quantity) > 0)
+                .map(i => ({ product: i.productId, quantity: Math.max(1, Number(i.quantity)), variantId: i.variantId || null }));
+        } else if (isBuyNow && legacyBuyNowActive) {
+            // Legacy format
+            checkoutItems = [{ product: legacyBuyNow.productId, quantity: Math.max(1, Number(legacyBuyNow.quantity)) }];
+        } else if (!isBuyNow && Array.isArray(cartItemIds) && cartItemIds.length > 0) {
+            // STEP 11 CART format
+            const cart = await Cart.findOne({ user: req.user._id }).lean();
+            if (!cart || cart.products.length === 0) {
+                return res.status(400).json({ success: false, message: 'Giỏ hàng trống!' });
+            }
+            const selected = new Set(cartItemIds.map(id => id.toString()));
+            checkoutItems = cart.products
+                .filter(p => selected.has(p.product.toString()))
+                .map(p => ({ product: p.product, quantity: p.quantity }));
+        } else {
+            // Legacy CART format
+            const { selectedProductIds = [], selectedProducts = [] } = req.body;
+            const cart = await Cart.findOne({ user: req.user._id });
+            if (!cart || cart.products.length === 0) {
+                return res.status(400).json({ success: false, message: 'Giỏ hàng trống!' });
+            }
+            const quantityByProduct = new Map(
+                selectedProducts
+                    .filter(i => i?.productId && Number(i.quantity) > 0)
+                    .map(i => [i.productId.toString(), Number(i.quantity)])
+            );
+            checkoutItems = cart.products
+                .filter(item => {
+                    if (quantityByProduct.has(item.product.toString())) {
+                        item.quantity = Math.min(quantityByProduct.get(item.product.toString()), item.quantity);
+                        return true;
+                    }
+                    const selected = new Set(selectedProductIds.map(id => id.toString()));
+                    return selected.has(item.product.toString());
+                })
+                .map(item => ({ product: item.product, quantity: item.quantity }));
+        }
+
+        if (checkoutItems.length === 0) {
+            return res.status(400).json({ success: false, message: 'Không có sản phẩm hợp lệ để thanh toán!' });
+        }
+
+        // shippingTier for estimatedDays
+        const firstShopShipping = Object.values(shippingProvider || {})[0];
+        const effectiveTier = firstShopShipping?.serviceType || req.body.shippingTier || 'express';
+        const estimatedDays = effectiveTier === 'express' ? 3 : 7;
+
+        // Lấy cart nếu cần
+>>>>>>> a4d6721 (feat(order): modify price in cart)
         const cart = isBuyNow ? null : await Cart.findOne({ user: req.user._id });
         if (!isBuyNow && (!cart || cart.products.length === 0)) {
             return res.status(400).json({
@@ -174,13 +254,26 @@ const createOrder = async (req, res) => {
                 };
             }
 
-            // Dùng discountPercent từ attachPricing (từ promotion), fallback về discount field thủ công
-            const productDiscount = pricedProduct.discountPercent || pricedProduct.discount || 0;
-            // originalPrice = giá gốc (chưa sale), salePrice = giá sau giảm
-            const originalPrice = pricedProduct.originalPrice || product.price;
-            const salePrice = pricedProduct.salePrice || (productDiscount > 0
-                ? Math.round(originalPrice * (1 - productDiscount / 100))
-                : originalPrice);
+            // Resolve variant pricing if a variant is selected (Buy Now flow)
+            const hasVariant = item.variantId && product.variants && Array.isArray(product.variants);
+            let productDiscount, originalPrice, salePrice;
+            if (hasVariant) {
+                const variant = product.variants.find(v => v._id?.toString() === item.variantId.toString());
+                if (variant) {
+                    // Attach pricing đã tính salePrice cho variant dựa trên variant.price
+                    productDiscount = variant.discountPercent ?? pricedProduct.discountPercent ?? 0;
+                    originalPrice = variant.originalPrice ?? variant.price;
+                    salePrice = variant.salePrice ?? variant.price;
+                } else {
+                    hasVariant = false;
+                }
+            }
+            if (!hasVariant) {
+                // Không có variant: dùng product-level pricing đã attach bởi attachPricing
+                productDiscount = pricedProduct.discountPercent || pricedProduct.discount || 0;
+                originalPrice = pricedProduct.originalPrice || product.price;
+                salePrice = pricedProduct.salePrice || originalPrice;
+            }
 
             shopGroups[shopId].items.push({
                 product: item.product,
@@ -192,7 +285,8 @@ const createOrder = async (req, res) => {
                 originalPrice: originalPrice,
                 discount: productDiscount,
                 name: product.name,
-                image: getProductImage(product)
+                image: getProductImage(product),
+                ...(item.variantId ? { variantId: item.variantId } : {}),
             });
             shopGroups[shopId].subtotal += salePrice * item.quantity;
             shopGroups[shopId].totalQuantity += item.quantity;
@@ -241,10 +335,116 @@ const createOrder = async (req, res) => {
 
         // Tạo 1 đơn hàng độc lập cho mỗi shop (không còn parent/child)
         const createdOrders = [];
+<<<<<<< HEAD
         
         // Lấy shippingFee từ frontend (đã tính từ bảng phí cố định theo khu vực)
         const frontendShippingFee = req.body.shippingFee || 0;
         
+=======
+        const checkoutGroupId = new mongoose.Types.ObjectId().toString();
+
+        // Lấy shippingFee per-shop từ frontend (FE đã tính riêng cho mỗi shop)
+        // shippingFeesByShop đã được destructured ở đầu hàm
+        // Kiểm tra xem có dùng shipping coupon (freeship) không
+        const isShippingFree = Boolean(selectedShippingCoupon);
+
+        // ── Xử lý thanh toán bằng ví điện tử ──────────────────────────────────────
+        if (paymentMethod === 'WALLET') {
+            // Kiểm tra số dư ví trước khi tạo đơn
+            const wallet = await getOrCreateWallet(req.user._id);
+            const totalPayable = shopKeys.reduce((sum, key) => {
+                const group = shopGroups[key];
+                const shippingFee = (shippingFeesByShop[key] !== undefined && shippingFeesByShop[key] !== null)
+                    ? Number(shippingFeesByShop[key])
+                    : (req.body.shippingFee || 0);
+                const shopCouponDiscount = usedCouponShopId
+                    ? (key === usedCouponShopId ? couponDiscount : 0)
+                    : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
+                return sum + Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
+            }, 0);
+
+            if (wallet.balance < totalPayable) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Số dư ví không đủ! Bạn cần ${totalPayable.toLocaleString('vi-VN')}₫ nhưng chỉ có ${wallet.balance.toLocaleString('vi-VN')}₫.`
+                });
+            }
+
+            // Trừ tiền từ ví cho từng đơn
+            for (const shopId of shopKeys) {
+                const group = shopGroups[shopId];
+                let shippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
+                    ? Number(shippingFeesByShop[shopId])
+                    : (req.body.shippingFee || 0);
+                if (isShippingFree) shippingFee = 0;
+
+                const shopCouponDiscount = usedCouponShopId
+                    ? (shopId === usedCouponShopId ? couponDiscount : 0)
+                    : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
+                const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
+
+                const order = new Order({
+                    user: req.user._id,
+                    checkoutGroupId,
+                    shop: group.shop,
+                    shopName: group.shopName,
+                    shopCode: group.shopCode,
+                    products: group.items,
+                    shippingAddress: { ...shippingAddress, note: note || '' },
+                    paymentMethod: 'WALLET',
+                    paymentStatus: 'paid',
+                    subtotal: group.subtotal,
+                    couponDiscount: shopCouponDiscount,
+                    couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
+                    shippingFee,
+                    shippingTier: effectiveTier,
+                    shippingProvider,
+                    totalPrice: groupTotal,
+                    totalQuantity: group.totalQuantity,
+                    orderedAt: new Date(),
+                    estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000),
+                    orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v))
+                });
+
+                // Trừ tồn kho
+                for (const item of group.items) {
+                    await Product.findByIdAndUpdate(item.product, { $inc: { quantity: -item.quantity, sold: item.quantity } });
+                }
+
+                // Trừ tiền từ ví
+                await wallet.deductForPayment(groupTotal, {
+                    orderId: order._id,
+                    orderNumber: order.orderNumber,
+                    description: `Thanh toán đơn hàng #${order.orderNumber} bằng ví SORA`,
+                });
+
+                await order.save();
+                createdOrders.push(order);
+            }
+
+            // Đánh dấu voucher đã sử dụng
+            if (usedCouponId) {
+                await VoucherWallet.findByIdAndUpdate(usedCouponId, { status: VOUCHER_STATUS.USED, usedAt: new Date() });
+            }
+
+            // Xóa khỏi giỏ
+            if (!isBuyNow && cart) {
+                await removeCheckoutItemsFromCart(cart, checkoutItems, cartItemIds);
+            }
+
+            // Thông báo vendors
+            for (const order of createdOrders) {
+                await notifyVendorsNewOrder(order);
+            }
+
+            return res.status(201).json({
+                success: true,
+                message: 'Đặt hàng thành công qua ví SORA!',
+                data: { orders: createdOrders, walletBalance: wallet.balance }
+            });
+        }
+        // ── Kết thúc xử lý thanh toán ví ─────────────────────────────────────────
+>>>>>>> a4d6721 (feat(order): modify price in cart)
         for (const shopId of shopKeys) {
             const group = shopGroups[shopId];
 
@@ -280,7 +480,8 @@ const createOrder = async (req, res) => {
                 totalPrice: groupTotal,
                 totalQuantity: group.totalQuantity,
                 orderedAt: new Date(),
-                estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000)
+                estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000),
+                orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v))
             });
 
             // Trừ tồn kho cho sản phẩm của shop này

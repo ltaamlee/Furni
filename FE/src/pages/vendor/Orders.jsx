@@ -230,6 +230,26 @@ const OrderDetail = ({ open, onClose, order, onAction, onActionShipping, busy, s
                 </div>
             </DetailCard>
 
+            {/* Lời nhắn cho shop */}
+            {(() => {
+                const notes = order.orderNotes;
+                const notesObj = (notes instanceof Map ? Object.fromEntries(notes) : (notes || {})) || order.orderNotesObject || {};
+                const shopId = order.shop?._id?.toString() || order.shop || '';
+                const note = notesObj[shopId] || '';
+                if (!note) return null;
+                return (
+                    <>
+                        <SectionHdr>Lời nhắn của khách</SectionHdr>
+                        <DetailCard>
+                            <div className="flex items-start gap-2.5">
+                                <span className="text-[#B86B05] text-base mt-0.5">💬</span>
+                                <p className="text-[13px] text-[#6B5C4C] italic leading-relaxed">"{note}"</p>
+                            </div>
+                        </DetailCard>
+                    </>
+                );
+            })()}
+
             <SectionHdr>Sản phẩm của cửa hàng bạn trong đơn</SectionHdr>
             <div className="border border-[#EDE8E0] rounded-[10px] overflow-hidden mb-4">
                 {(order.products || []).map((it, i) => (

@@ -107,6 +107,160 @@ const CheckoutPage = () => {
   });
 
   const [paymentMethod, setPaymentMethod] = useState("COD");
+<<<<<<< HEAD
+=======
+  const [walletBalance, setWalletBalance] = useState(null); // null = chưa load, number = balance
+  const [loadingWallet, setLoadingWallet] = useState(false);
+
+  // ── STEP 7: Unified checkout data from backend ──
+  const [checkout, setCheckout] = useState(null);   // full preview from /checkout/preview
+  const [loadingCheckout, setLoadingCheckout] = useState(false);
+  const [checkoutError, setCheckoutError] = useState(null);
+
+  // Fetch unified checkout preview (STEP 7 — replaces all individual fetches)
+  const fetchCheckoutPreview = async () => {
+    if (!user?.id) return;
+    setLoadingCheckout(true);
+    setCheckoutError(null);
+    try {
+      // Use pendingAddressIdRef to capture the latest addressId immediately (bypasses React batch delay)
+      const currentAddressId = pendingAddressIdRef.current || selectedAddressId;
+      const selectedAddr = addresses.find(a => a._id === currentAddressId);
+      const body = {
+        ...(isBuyNow
+          ? {
+              mode: 'BUY_NOW',
+              items: [{ productId: buyNowItem?.productId, quantity: buyNowItem?.quantity || 1, variantId: buyNowItem?.variant?.variantId || null }],
+            }
+          : {
+              mode: 'CART',
+              cartItemIds: [...selectedItemIds],
+            }),
+        address: selectedAddr ? { provinceCode: selectedAddr.provinceCode ? Number(selectedAddr.provinceCode) : null } : {},
+      };
+
+      console.log("[Checkout] fetchCheckoutPreview called", { mode: isBuyNow ? 'BUY_NOW' : 'CART', body, userId: user?.id });
+      const res = await getCheckoutPreviewApi(body);
+      console.log("[Checkout] preview response:", res);
+      if (res.success) {
+        console.log("[Checkout] checkout data:", res.data);
+        setCheckout(res.data);
+        // Sync selected address — use ref to bypass batch delay; prefer local selected address over backend's default
+        const currentAddrId = pendingAddressIdRef.current || selectedAddressId;
+        if (!currentAddrId && res.data.address) {
+          setSelectedAddressId(res.data.address._id);
+        }
+        // Sync selected shipping methods with preview
+        const newSelected = { ...shippingInfo.selectedShippingByShop };
+        for (const shop of (res.data.shops || [])) {
+          if (shop.selectedShippingMethod && !newSelected[shop.shopId]) {
+            newSelected[shop.shopId] = shop.selectedShippingMethod;
+          }
+        }
+        setShippingInfo(prev => ({ ...prev, selectedShippingByShop: newSelected }));
+      } else {
+        console.log("[Checkout] preview failed:", res.message);
+        setCheckoutError(res.message);
+        showToast(res.message || 'Không thể tải checkout!', 'error');
+      }
+    } catch (err) {
+      console.error("[Checkout] preview error:", err);
+      const msg = err?.response?.data?.message || 'Lỗi khi tải checkout!';
+      setCheckoutError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setLoadingCheckout(false);
+    }
+  };
+
+  // ── Computed shipping fees per shop (uses FE-selected method, not backend default) ──
+  const computedShippingFeesByShop = useMemo(() => {
+    const result = {};
+    for (const shop of (checkout?.shops || [])) {
+      const sel = shippingInfo.selectedShippingByShop?.[shop.shopId];
+      if (!sel) { result[shop.shopId] = shop.shippingFee || 0; continue; }
+      const matched = shop.shippingMethods?.find(f =>
+        f.provider.code?.toLowerCase() === sel.code?.toLowerCase() &&
+        f.serviceType === sel.serviceType
+      );
+      result[shop.shopId] = matched ? matched.fee : (shop.shippingFee || 0);
+    }
+    return result;
+  }, [checkout?.shops, shippingInfo.selectedShippingByShop]);
+
+  // selectedCheckoutAddress: always derive from local addresses state (authoritative)
+  const selectedCheckoutAddress = addresses.find(a => a._id === selectedAddressId) || null;
+
+  // Fetch wallet balance
+  const fetchWalletBalance = async () => {
+    try {
+      setLoadingWallet(true);
+      const res = await getUserWalletApi();
+      if (res.success) {
+        setWalletBalance(res.data.wallet?.balance || 0);
+      }
+    } catch (e) {
+      setWalletBalance(0);
+    } finally {
+      setLoadingWallet(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.id) fetchWalletBalance();
+  }, [user?.id]);
+
+  // ── Shop-level modals (must be before any return / JSX) ──
+  const [shippingModal, setShippingModal] = useState({ open: false, shopId: null });
+  const [shopVoucherModal, setShopVoucherModal] = useState({ open: false, shopId: null });
+  const [shopProductCoupons, setShopProductCoupons] = useState({});
+  const [shopNotes, setShopNotes] = useState({});
+
+  const openShippingModal = (shopId) => setShippingModal({ open: true, shopId });
+  const closeShippingModal = () => setShippingModal({ open: false, shopId: null });
+  const openShopVoucherModal = (shopId) => setShopVoucherModal({ open: true, shopId });
+  const closeShopVoucherModal = () => setShopVoucherModal({ open: false, shopId: null });
+
+  const handleSelectShopProductVoucher = async (voucher, shopId) => {
+    try {
+      // 1. Validate voucher
+      const shopData = checkout?.shops?.find(s => s.shopId === shopId);
+      const shopItems = shopData?.items || [];
+      const shopSubtotal = shopItems.reduce((sum, item) => sum + (item.salePrice || 0) * (item.quantity || 1), 0);
+      const res = await validateVoucherApi({
+        code: voucher.code,
+        orderTotal: shopSubtotal,
+        cartItems: shopItems.map(item => ({
+          productId: item.productId,
+          price: item.salePrice,
+          quantity: item.quantity,
+        })),
+      });
+
+      if (res.success) {
+        // Chỉ lưu trạng thái FE — KHÔNG gọi applyVoucherApi ở đây!
+        // applyVoucherApi sẽ được gọi bên trong createOrder khi đơn thực sự được tạo thành công.
+        setShopProductCoupons(prev => ({ ...prev, [shopId]: { coupon: res.data.voucher, discount: res.data.discount } }));
+
+        // 3. Remove from available vouchers list (so can't be used again)
+        setAvailableVouchers(prev => prev.filter(v => v._id !== voucher._id));
+
+        showToast(`Áp dụng mã ${voucher.code} thành công! Giảm ${formatPrice(res.data.discount)}`, "success");
+        closeShopVoucherModal();
+      }
+    } catch (error) {
+      showToast(error.response?.data?.message || "Không thể áp dụng mã này!", "error");
+    }
+  };
+
+  const handleRemoveShopProductCoupon = (shopId) => {
+    setShopProductCoupons(prev => {
+      const next = { ...prev };
+      delete next[shopId];
+      return next;
+    });
+  };
+>>>>>>> a4d6721 (feat(order): modify price in cart)
 
   const formatPrice = (price) => {
     return new Intl.NumberFormat("vi-VN").format(price) + " đ";
@@ -213,8 +367,13 @@ const CheckoutPage = () => {
           setIsBuyNow(true);
           isBuyNowRef.current = true;
           const qty = Math.max(1, Number(buyNow.quantity) || 1);
+<<<<<<< HEAD
           setBuyNowItem({ productId: buyNow.productId, quantity: qty });
           fetchBuyNowProduct(buyNow.productId, qty);
+=======
+          const variant = buyNow.variant || null;
+          setBuyNowItem({ productId: buyNow.productId, quantity: qty, variant });
+>>>>>>> a4d6721 (feat(order): modify price in cart)
           setSelectedItemIds(new Set([buyNow.productId]));
           localStorage.setItem("checkout_selected_items", JSON.stringify([buyNow.productId]));
         }
@@ -470,6 +629,11 @@ const CheckoutPage = () => {
             .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
       const res = await validateVoucherApi({ code: voucher.code, orderTotal });
       if (res.success) {
+<<<<<<< HEAD
+=======
+        // Chỉ lưu trạng thái FE — KHÔNG gọi applyVoucherApi ở đây!
+        // applyVoucherApi sẽ được gọi bên trong createOrder khi đơn thực sự được tạo thành công.
+>>>>>>> a4d6721 (feat(order): modify price in cart)
         setSelectedProductCoupon(res.data.voucher);
         setProductCouponDiscount(res.data.discount);
         showToast(`Áp dụng mã ${voucher.code} thành công! Giảm ${formatPrice(res.data.discount)}`, "success");
@@ -714,11 +878,62 @@ const CheckoutPage = () => {
     try {
       setSubmitting(true);
 
+<<<<<<< HEAD
       const selectedProviderData = shippingFees.find(
         (f) =>
           f.provider.code === shippingInfo.selectedProvider?.code &&
           f.serviceType === shippingInfo.selectedProvider?.serviceType
       );
+=======
+      // ── STEP 11: Chuẩn bị items theo mode ──
+      const orderItems = isBuyNow
+        ? [{ productId: buyNowItem?.productId, quantity: Math.max(1, Number(buyNowItem?.quantity) || 1), variantId: buyNowItem?.variant?.variantId || null }]
+        : selectedCheckoutProducts.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          }));
+
+      // ── STEP 11: Chuẩn bị shippingProvider (provider info) ──
+      const shippingProviderMap = {};
+      for (const shop of (checkout.shops || [])) {
+        const sel = shippingInfo.selectedShippingByShop?.[shop.shopId];
+        if (sel) {
+          const method = shop.shippingMethods?.find(f =>
+            f.provider.code?.toLowerCase() === sel.code?.toLowerCase() &&
+            f.serviceType === sel.serviceType
+          );
+          if (method) {
+            shippingProviderMap[shop.shopId] = method.provider;
+          }
+        }
+      }
+
+      const shippingAddress = {
+        fullName: customerInfo.fullName,
+        phone: customerInfo.phone,
+        address: shippingInfo.address,
+        provinceCode: shippingInfo.provinceCode ? Number(shippingInfo.provinceCode) : null,
+        provinceName: shippingInfo.provinceName || '',
+        wardName: shippingInfo.wardName || '',
+        note: shippingInfo.note || '',
+      };
+
+      const orderPayload = {
+        mode: isBuyNow ? 'BUY_NOW' : 'CART',
+        shippingAddress,
+        paymentMethod,
+        note: shippingInfo.note || '',
+        orderNotes: shopNotes,
+        shippingProvider: shippingProviderMap,
+        shippingFeesByShop,
+        couponCode: selectedProductCoupon?.code || null,
+        selectedShippingCoupon: selectedShippingCoupon ? true : null,
+        // Dùng checkout preview items
+        ...(isBuyNow
+          ? { items: orderItems }
+          : { cartItemIds: [...selectedItemIds] }),
+      };
+>>>>>>> a4d6721 (feat(order): modify price in cart)
 
       if (paymentMethod === "PAYOS") {
         const payosData = {

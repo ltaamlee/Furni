@@ -60,6 +60,8 @@ const createAdminPromotion = async (req, res) => {
     try {
         const data = normalize(pick(req.body));
         let promotion = await Promotion.create(data);
+        // Sync lifecycle status để đảm bảo promotion chạy đúng (chuyển DRAFT → RUNNING nếu thời gian phù hợp)
+        await Promotion.syncLifecycleStatuses({ _id: promotion._id });
         promotion = await populate(Promotion.findById(promotion._id));
         res.status(201).json({ success: true, message: 'Tạo khuyến mãi thành công', data: { promotion } });
     } catch (error) {
