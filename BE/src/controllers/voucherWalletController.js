@@ -3,6 +3,7 @@ const Coupon = require('../models/Coupon');
 const Shop = require('../models/Shop');
 const Order = require('../models/Order');
 const Product = require('../models/product');
+const Promotion = require('../models/promotion');
 
 // @desc    Claim a voucher (coupon) into user's wallet
 // @route   POST /api/vouchers/claim
@@ -72,7 +73,7 @@ const claimVoucher = async (req, res) => {
 const getMyVouchers = async (req, res) => {
     try {
         const userId = req.user._id;
-        const { status } = req.query; // active | used | expired
+        const { status } = req.query; // active | used | expired | revoked
 
         const now = new Date();
         let query = { user: userId };
@@ -81,8 +82,10 @@ const getMyVouchers = async (req, res) => {
             query.status = VOUCHER_STATUS.USED;
         } else if (status === 'expired') {
             query.status = VOUCHER_STATUS.EXPIRED;
+        } else if (status === 'revoked') {
+            query.status = VOUCHER_STATUS.REVOKED;
         } else {
-            // Default: show active vouchers (status=active AND not expired)
+            // Default: show active vouchers (status=active AND not expired AND not revoked)
             query = {
                 user: userId,
                 status: VOUCHER_STATUS.ACTIVE,
@@ -142,11 +145,13 @@ const getVoucherCount = async (req, res) => {
         const userId = req.user._id;
         const now = new Date();
 
-        const [activeWallets, used, expired] = await Promise.all([
+        const [activeWallets, used, expired, revoked] = await Promise.all([
             VoucherWallet.find({ user: userId, status: VOUCHER_STATUS.ACTIVE, endDate: { $gte: now } })
                 .populate('coupon', 'usageLimit usedCount'),
             VoucherWallet.countDocuments({ user: userId, status: VOUCHER_STATUS.USED }),
+            // expired: voucher còn ACTIVE nhưng đã hết hạn (chưa bị revoke/used)
             VoucherWallet.countDocuments({ user: userId, status: VOUCHER_STATUS.ACTIVE, endDate: { $lt: now } }),
+            VoucherWallet.countDocuments({ user: userId, status: VOUCHER_STATUS.REVOKED }),
         ]);
 
         // Loại bỏ voucher đã hết lượt khỏi active
@@ -159,7 +164,7 @@ const getVoucherCount = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            data: { active, used, expired, total: active + used + expired }
+            data: { active, used, expired, revoked, total: active + used + expired + revoked }
         });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi khi đếm voucher', error: error.message });
@@ -205,7 +210,12 @@ const applyVoucher = async (req, res) => {
         await voucher.save();
 
         // Increment coupon usedCount
-        await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: 1 } });
+        const updatedCoupon = await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: 1 } }, { new: true });
+
+        // Đồng bộ Promotion.usedCount để progress bar vendor hiển thị đúng
+        if (updatedCoupon?.promotion) {
+            await Promotion.findByIdAndUpdate(updatedCoupon.promotion, { $inc: { usedCount: 1 } });
+        }
 
         res.status(200).json({ success: true, message: 'Đã áp dụng voucher', data: voucher });
     } catch (error) {
@@ -289,13 +299,16 @@ const validateVoucher = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Voucher đã được sử dụng hoặc hết hạn' });
         }
 
-        // Lấy dữ liệu mới nhất từ Coupon (nếu có)
+        // Lấy dữ liệu mới nhất từ Coupon + Promotion (để kiểm tra phạm vi áp dụng)
         const coupon = voucher.coupon;
+        const promotion = coupon?.promotion
+            ? await Promotion.findById(coupon.promotion).select('type appliesTo products categories').lean()
+            : null;
         const isCouponDeleted = !coupon;
         const isCouponExpired = coupon?.endDate && new Date(coupon.endDate) < new Date();
-        
-        if (isCouponDeleted || isCouponExpired) {
-            // Coupon bị xóa hoặc hết hạn
+        const isCouponExhausted = coupon?.usageLimit > 0 && (coupon?.usedCount || 0) >= coupon.usageLimit;
+
+        if (isCouponDeleted || isCouponExpired || isCouponExhausted) {
             return res.status(400).json({ success: false, message: 'Voucher không còn khả dụng' });
         }
 
@@ -305,29 +318,44 @@ const validateVoucher = async (req, res) => {
         const voucherMaxDiscount = coupon.maxDiscount ?? voucher.maxDiscount;
         const voucherMinOrderValue = coupon.minOrderValue ?? voucher.minOrderValue;
         const voucherEndDate = coupon.endDate || voucher.endDate;
+        const couponShopId = coupon.shop ? coupon.shop.toString() : null;
 
         if (voucherEndDate && new Date(voucherEndDate) < new Date()) {
             return res.status(400).json({ success: false, message: 'Voucher đã hết hạn' });
         }
 
-        // Kiểm tra coupon có giới hạn lượt và đã hết chưa
-        if (coupon.usageLimit > 0 && (coupon.usedCount || 0) >= coupon.usageLimit) {
-            return res.status(400).json({ success: false, message: 'Voucher đã hết lượt sử dụng' });
-        }
+        // Chỉ voucher loại COUPON (nhập mã) mới áp dụng theo phạm vi sản phẩm.
+        // Bundle/freeship có xử lý riêng.
+        const isScopedVoucher = promotion && promotion.type === 'coupon';
 
         let applicableTotal = Number(orderTotal) || 0;
-        if (coupon.shop) {
+        if (couponShopId) {
             if (!Array.isArray(cartItems) || cartItems.length === 0) {
                 return res.status(400).json({ success: false, message: 'Voucher này chỉ áp dụng cho sản phẩm của shop phát hành' });
             }
 
             const productIds = cartItems.map((item) => item.productId).filter(Boolean);
-            const products = await Product.find({ _id: { $in: productIds } }).select('shop').lean();
-            const eligibleProductIds = new Set(
-                products
-                    .filter((product) => product.shop?.toString() === coupon.shop.toString())
-                    .map((product) => product._id.toString())
-            );
+            const products = await Product.find({ _id: { $in: productIds } }).select('shop category').lean();
+            const eligibleProductIds = new Set();
+
+            for (const product of products) {
+                // Phải cùng shop trước
+                if (product.shop?.toString() !== couponShopId) continue;
+
+                // Nếu là voucher có phạm vi áp dụng, kiểm tra thêm category/product
+                if (isScopedVoucher && promotion.appliesTo) {
+                    if (promotion.appliesTo === 'category') {
+                        const catIds = (promotion.categories || []).map((c) => c.toString());
+                        if (!catIds.includes(product.category?.toString())) continue;
+                    } else if (promotion.appliesTo === 'product') {
+                        const prodIds = (promotion.products || []).map((p) => p.toString());
+                        if (!prodIds.includes(product._id.toString())) continue;
+                    }
+                    // appliesTo === 'all' → không cần lọc thêm
+                }
+
+                eligibleProductIds.add(product._id.toString());
+            }
 
             applicableTotal = cartItems.reduce((sum, item) => {
                 if (!eligibleProductIds.has(item.productId?.toString())) return sum;
@@ -336,6 +364,29 @@ const validateVoucher = async (req, res) => {
 
             if (applicableTotal <= 0) {
                 return res.status(400).json({ success: false, message: 'Voucher này chỉ áp dụng cho sản phẩm của shop phát hành' });
+            }
+        } else if (isScopedVoucher && promotion?.appliesTo) {
+            // Platform coupon (shop null) nhưng có phạm vi cụ thể → lọc theo category/product
+            if (promotion.appliesTo !== 'all' && Array.isArray(cartItems) && cartItems.length > 0) {
+                const productIds = cartItems.map((item) => item.productId).filter(Boolean);
+                const products = await Product.find({ _id: { $in: productIds } }).select('category').lean();
+                const eligibleProductIds = new Set();
+
+                for (const product of products) {
+                    if (promotion.appliesTo === 'category') {
+                        const catIds = (promotion.categories || []).map((c) => c.toString());
+                        if (!catIds.includes(product.category?.toString())) continue;
+                    } else if (promotion.appliesTo === 'product') {
+                        const prodIds = (promotion.products || []).map((p) => p.toString());
+                        if (!prodIds.includes(product._id.toString())) continue;
+                    }
+                    eligibleProductIds.add(product._id.toString());
+                }
+
+                applicableTotal = cartItems.reduce((sum, item) => {
+                    if (!eligibleProductIds.has(item.productId?.toString())) return sum;
+                    return sum + ((Number(item.price) || 0) * (Number(item.quantity) || 1));
+                }, 0);
             }
         }
 

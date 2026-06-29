@@ -79,17 +79,6 @@ const isOrderPaidOut = async (orderId) => {
  * @param {number} couponDiscount     - Số tiền voucher đã giảm thêm
  * @returns {Promise<{platformFee, netRevenue, feePercent}>}
  * ─────────────────────────────────────────────────────────────────── */
-const calculatePlatformFee = async (subtotal, couponDiscount = 0) => {
-    const feePercent = await PlatformConfig.getValue(
-        CONFIG_KEYS.PLATFORM_FEE_PERCENT,
-        5,
-    );
-    // Doanh thu chịu phí = subtotal - couponDiscount (trừ voucher)
-    const taxableRevenue = Math.max(0, Number(subtotal) - Number(couponDiscount));
-    const platformFee = Math.round(taxableRevenue * feePercent / 100);
-    const netRevenue = taxableRevenue - platformFee;
-    return { platformFee, netRevenue, feePercent, taxableRevenue };
-};
 
 /** ─────────────────────────────────────────────────────────────────────
  * Ghi ledger entry cho một giao dịch Admin
@@ -110,6 +99,7 @@ const createLedgerEntry = async (data, session) => {
  *
  * ─────────────────────────────────────────────────────────────────── */
 const payoutOrderToVendors = async (orderId) => {
+    console.log(`[Payout] Bat dau chi tra cho orderId=${orderId}`);
     const session = await mongoose.startSession();
     session.startTransaction();
 
@@ -137,15 +127,10 @@ const payoutOrderToVendors = async (orderId) => {
         const shop = await getShopFromOrder(order);
         const shopId = shop?._id || null;
 
-        // ── Tính phí sàn trên (subtotal - couponDiscount) ──────────
-        const { platformFee, netRevenue, feePercent } = await calculatePlatformFee(
-            order.subtotal,
-            order.couponDiscount || 0,
-        );
-
-        // ── Số tiền thực trả vendor ────────────────────────────────
-        // netRevenue = subtotal - couponDiscount - platformFee
-        // Nếu có voucher sàn: thêm voucherPlatformAmount (quyết toán)
+        // ── Dùng pre-calculated values từ Order ───────────────────────
+        const platformFee = order.commissionAmount || 0;
+        const netRevenue = order.vendorTakeHome || 0;
+        const feePercent = order.commissionRate || 2;
         const voucherPlatformAmt = order.voucherPlatformAmount || 0;
         const totalToVendor = netRevenue + voucherPlatformAmt;
 
@@ -163,6 +148,42 @@ const payoutOrderToVendors = async (orderId) => {
                 customer: order.user,
                 status: LEDGER_STATUS.COMPLETED,
                 description: `Thu phí sàn ${feePercent}% từ đơn #${order.orderNumber}`,
+            }, session);
+        }
+
+        // ── Ghi ledger: Ghi nhận chi phí voucher sàn (tạo nợ VOUCHER_LIAB) ──
+        // Phải tạo TRƯỚC VOUCHER_SPONSOR_SETTLE để VOUCHER_LIAB không bị âm
+        if (voucherPlatformAmt > 0) {
+            await createLedgerEntry({
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.VOUCHER_SPONSOR_IN,
+                amount: voucherPlatformAmt,
+                accountDebit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                accountCredit: ACCOUNT_TYPE.VOUCHER_LIAB,
+                shop: shopId,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `Ghi nhận chi phí voucher sàn tài trợ đơn #${order.orderNumber}`,
+            }, session);
+        }
+
+        // ── Ghi ledger: Ghi nhận chi phí freeship sàn (tạo nợ VOUCHER_LIAB) ──
+        const shippingPlatformAmt = order.shippingPlatformAmount || 0;
+        if (shippingPlatformAmt > 0) {
+            await createLedgerEntry({
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.FREESHIP_SPONSOR_IN,
+                amount: shippingPlatformAmt,
+                accountDebit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                accountCredit: ACCOUNT_TYPE.VOUCHER_LIAB,
+                shop: shopId,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `Ghi nhận chi phí freeship sàn tài trợ đơn #${order.orderNumber}`,
             }, session);
         }
 
@@ -238,7 +259,7 @@ const payoutOrderToVendors = async (orderId) => {
 
         await session.commitTransaction();
 
-        console.log(`[Payout] ${order.orderNumber}: subtotal=${order.subtotal} | coupon=${order.couponDiscount || 0} | taxable=${netRevenue + platformFee} | fee=${platformFee} | net=${netRevenue} | voucherPlatform=${voucherPlatformAmt} | toVendor=${totalToVendor}`);
+        console.log(`[Payout] ${order.orderNumber}: subtotal=${order.subtotal} | coupon=${order.couponDiscount || 0} | taxable=${order.taxableRevenue} | commission=${platformFee}(${feePercent}%) | net=${netRevenue} | voucherPlatform=${voucherPlatformAmt} | toVendor=${totalToVendor}`);
 
         return {
             success: true,
@@ -315,11 +336,11 @@ const reversePayoutForCancelledOrder = async (orderId) => {
             return { success: true, reversed: false };
         }
 
-        const { platformFee, netRevenue } = await calculatePlatformFee(
-            order.subtotal,
-            order.couponDiscount || 0,
-        );
+        // ── Dùng pre-calculated values từ Order ───────────────────────
+        const platformFee = order.commissionAmount || 0;
+        const netRevenue = order.vendorTakeHome || 0;
         const voucherPlatformAmt = order.voucherPlatformAmount || 0;
+        const shippingPlatformAmt = order.shippingPlatformAmount || 0;
 
         const reverseResults = [];
 
@@ -351,7 +372,7 @@ const reversePayoutForCancelledOrder = async (orderId) => {
             });
         }
 
-        // ── Ghi ledger: Thu hồi tiền vendor → PAYOUT_POOL ────────
+        // ── Ghi ledger: Thu hồi payout → PAYOUT_POOL (khôi phục pool)
         if (netRevenue > 0) {
             await createLedgerEntry({
                 order: order._id,
@@ -359,7 +380,7 @@ const reversePayoutForCancelledOrder = async (orderId) => {
                 checkoutGroupId: order.checkoutGroupId,
                 type: LEDGER_TYPE.VENDOR_REFUND_IN,
                 amount: netRevenue,
-                accountDebit: null,
+                accountDebit: ACCOUNT_TYPE.PAYOUT_POOL,
                 accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
                 shop: order.shop || null,
                 customer: order.user,
@@ -399,6 +420,23 @@ const reversePayoutForCancelledOrder = async (orderId) => {
                 customer: order.user,
                 status: LEDGER_STATUS.COMPLETED,
                 description: `Hoàn voucher sàn tài trợ từ hủy đơn #${order.orderNumber}`,
+            }, session);
+        }
+
+        // ── Ghi ledger: Hoàn freeship sàn (nếu có) ─────────────────
+        if (shippingPlatformAmt > 0) {
+            await createLedgerEntry({
+                order: order._id,
+                orderNumber: order.orderNumber,
+                checkoutGroupId: order.checkoutGroupId,
+                type: LEDGER_TYPE.FREESHIP_SPONSOR_REFUND,
+                amount: shippingPlatformAmt,
+                accountDebit: ACCOUNT_TYPE.VOUCHER_LIAB,
+                accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                shop: order.shop || null,
+                customer: order.user,
+                status: LEDGER_STATUS.COMPLETED,
+                description: `Hoàn freeship sàn tài trợ từ hủy đơn #${order.orderNumber}`,
             }, session);
         }
 
@@ -515,7 +553,6 @@ const getAdminLedgerBalances = async () => {
 module.exports = {
     getOrCreateVendorWallet,
     isOrderPaidOut,
-    calculatePlatformFee,
     payoutOrderToVendors,
     reversePayoutForCancelledOrder,
     batchPayout,

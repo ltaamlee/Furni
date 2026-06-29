@@ -55,7 +55,7 @@ const ReviewModal = ({ isOpen, onClose, product, onReviewCreated }) => {
             });
 
             if (res.success) {
-                alert(`Cảm ơn bạn đã đánh giá!${res.data.reward?.type === 'coupon' ? `\nBạn nhận được mã giảm giá: ${res.data.reward.code}` : `\nBạn nhận được ${res.data.reward?.value} điểm tích lũy!`}`);
+                alert(`Cảm ơn bạn đã đánh giá!${res.data.reward?.type === 'cashback' ? `\nBạn nhận được ${res.data.reward.value.toLocaleString('vi-VN')}đ vào ví điện tử!` : ''}`);
                 onReviewCreated?.(res.data.review);
                 onClose();
                 setRating(5);
@@ -194,8 +194,8 @@ const ReviewModal = ({ isOpen, onClose, product, onReviewCreated }) => {
                                 <p className="text-sm text-green-700">
                                     <span className="font-semibold">🎁 Phần thưởng:</span>{" "}
                                     {rating >= 4
-                                        ? "Bạn sẽ nhận được mã giảm giá 10.000đ!"
-                                        : "Bạn sẽ nhận được 50 điểm tích lũy!"}
+                                        ? "Bạn nhận được 10.000đ hoàn trả vào ví điện tử sau khi đánh giá!"
+                                        : "Đánh giá từ 4 sao trở lên để nhận thưởng!"}
                                 </p>
                             </div>
 

@@ -10,7 +10,7 @@ const Cart = require('../models/cart');
 const Product = require('../models/product');
 const mongoose = require('mongoose');
 const { ORDER_STATUS } = require('../models/order');
-const { payosConfig, PAYOS_CLIENT_URL } = require('../config/payos');
+const { payosConfig, PAYOS_CLIENT_URL, PAYOS_WEBHOOK_URL } = require('../config/payos');
 const payoutService = require('../services/payoutService');
 const {
     allocateWalletAmount,
@@ -282,6 +282,7 @@ const createPayOSPayment = async (req, res) => {
             buyerPhone: order.shippingAddress?.phone || '',
             returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${order._id}`,
             cancelUrl: `${PAYOS_CLIENT_URL}/orders/${order._id}`,
+            webhookUrl: PAYOS_WEBHOOK_URL || undefined,
         };
 
         const response = await payos.paymentRequests.create(paymentData);
@@ -353,7 +354,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
         const normalizedBuyNowProduct = buyNowProduct?.productId
             ? buyNowProduct
             : (req.body.buyNowProductId
-                ? { productId: req.body.buyNowProductId, quantity: req.body.buyNowQuantity }
+                ? { productId: req.body.buyNowProductId, quantity: req.body.buyNowQuantity, variantId: req.body.buyNowVariantId || null }
                 : null);
         const legacyBuyNowActive = Boolean(normalizedBuyNowProduct?.productId && Number(normalizedBuyNowProduct.quantity) > 0);
         const effectiveMode = mode || (legacyBuyNowActive ? 'BUY_NOW' : 'CART');
@@ -383,12 +384,14 @@ const createPayOSPaymentWithCart = async (req, res) => {
                 .filter((item) => item.productId && Number(item.quantity) > 0)
                 .map((item) => ({
                     product: item.productId,
-                    quantity: Math.max(1, Number(item.quantity) || 1)
+                    quantity: Math.max(1, Number(item.quantity) || 1),
+                    variantId: item.variantId || null,
                 }));
         } else if (isBuyNow && legacyBuyNowActive) {
             checkoutItems = [{
                 product: normalizedBuyNowProduct.productId,
-                quantity: Math.max(1, Number(normalizedBuyNowProduct.quantity) || 1)
+                quantity: Math.max(1, Number(normalizedBuyNowProduct.quantity) || 1),
+                variantId: normalizedBuyNowProduct.variantId || null,
             }];
         } else if (!isBuyNow && Array.isArray(cartItemIds) && cartItemIds.length > 0) {
             const selected = new Set(cartItemIds.map((id) => id.toString()));
@@ -735,6 +738,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                 buyerPhone: shippingAddress?.phone || '',
                 returnUrl: `${PAYOS_CLIENT_URL}/payment/payos/return?orderId=${firstOrder._id}`,
                 cancelUrl: `${PAYOS_CLIENT_URL}/orders/${firstOrder._id}`,
+                webhookUrl: PAYOS_WEBHOOK_URL || undefined,
             };
 
             const response = await payos.paymentRequests.create(paymentData);
@@ -815,36 +819,66 @@ const createPayOSPaymentWithCart = async (req, res) => {
  */
 const payOSWebhook = async (req, res) => {
     try {
-        // PayOS v2: body chứa { success, code, data: { orderCode, amount, ... } }
-        const { success, code, data } = req.body;
-        const { orderCode, amount } = data || {};
+        const rawBody = req.body;
+        console.log('=== PayOS Webhook received ===');
+        console.log('Raw body:', JSON.stringify(rawBody));
 
-        console.log('PayOS Webhook received:', req.body);
+        // ── 1. Verify signature bằng PayOS SDK ──────────────────────────
+        const payos = getPayOSInstance();
+        if (!payos) {
+            console.error('PayOS instance not available — cannot verify webhook');
+            return res.status(500).json({ success: false, message: 'Server config error' });
+        }
 
-        // Tìm đơn hàng theo mã PayOS (orderCode từ webhook là number)
+        let verifiedData;
+        try {
+            // SDK verify() sẽ hash data.body với checksumKey và so với signature
+            verifiedData = await payos.webhooks.verify(rawBody);
+            console.log('✅ Signature verified. Data:', JSON.stringify(verifiedData));
+        } catch (verifyErr) {
+            console.error('❌ Webhook signature verification failed:', verifyErr.message);
+            return res.status(401).json({ success: false, message: 'Invalid signature' });
+        }
+
+        // verifiedData có cấu trúc PayOS v3:
+        // { orderCode, amount, description, accountNumber, reference, transactionDateTime,
+        //   currency, paymentLinkId, code, desc, ... }
+        const { orderCode, amount, code, desc } = verifiedData;
+
+        console.log('Parsed - orderCode:', orderCode, '| amount:', amount, '| code:', code, '| desc:', desc);
+
+        // ── 2. Tìm đơn hàng theo mã PayOS ────────────────────────────
         const orders = await Order.find({ payosOrderCode: Number(orderCode) });
         const order = orders[0];
 
-        if (!order) {
-            console.log('Order not found for PayOS orderCode:', orderCode);
-            return res.status(404).json({
-                success: false,
-                message: 'Không tìm thấy đơn hàng'
-            });
+        console.log('Orders found by payosOrderCode:', orderCode, '-> count:', orders.length);
+        if (order) {
+            console.log('First order:', order.orderNumber, '| status:', order.status, '| paymentStatus:', order.paymentStatus);
         }
 
-        // Xử lý theo trạng thái thanh toán (PayOS v2: success=true, code='00')
-        if (success === true && code === '00') {
-            // ── 1. Guard: đã paid rồi → bỏ qua ───────────────────────
+        if (!order) {
+            console.log('Order not found for PayOS orderCode:', orderCode);
+            return res.status(200).json({ success: true, message: 'Order not found, skip' });
+        }
+
+        // ── 3. Xử lý: thành công (code='00') ─────────────────────────
+        if (code === '00') {
+            // Guard: đã paid rồi → bỏ qua
             if (order.paymentStatus === 'paid') {
+                console.log('Order already paid, skip');
                 return res.status(200).json({ success: true, message: 'Already processed' });
             }
 
-            // ── 2. Tính tổng số tiền đã nhận từ PayOS ───────────
-            // Với multi-shop orders, tất cả orders cùng checkoutGroupId chia sẻ 1 payosOrderCode
+            // Tổng số PayOS nhận = sum payableAmount của tất cả orders cùng checkoutGroupId
             const totalPayosReceived = orders.reduce((sum, o) => sum + normalizeMoney(o.payableAmount), 0);
 
-            // ── 3. Ghi ledger: PayOS settlement vào PAYOS_HOLDING ──
+            // Ghi ledger: PayOS settlement vào PAYOS_HOLDING
+            console.log('→ Creating AdminLedger PAYOS_SETTLEMENT_IN:', {
+                type: LEDGER_TYPE.PAYOS_SETTLEMENT_IN,
+                amount: totalPayosReceived,
+                accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                orderNumber: order.orderNumber,
+            });
             await AdminLedger.create([{
                 order: order._id,
                 orderNumber: order.orderNumber,
@@ -855,10 +889,11 @@ const payOSWebhook = async (req, res) => {
                 accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
                 customer: order.user,
                 status: LEDGER_STATUS.COMPLETED,
-                description: `PayOS thanh toán đơn #${order.orderNumber} (+${orders.length} đơn con)`,
+                description: `PayOS thanh toán đơn #${order.orderNumber} (+${orders.length - 1} đơn con)`,
             }]);
+            console.log('✅ AdminLedger PAYOS_SETTLEMENT_IN created');
 
-            // ── 4. Xử lý từng order con ────────────────────────────
+            // Xử lý từng order con
             for (const payosOrder of orders) {
                 if (payosOrder.paymentStatus === 'paid') continue;
 
@@ -895,38 +930,33 @@ const payOSWebhook = async (req, res) => {
                 await notifyCustomerOrderStatus(payosOrder, ORDER_STATUS.PENDING, {
                     message: 'Thanh toán PayOS thành công. Đơn hàng đang chờ shop xác nhận.',
                 });
-                console.log('Order paid successfully:', payosOrder.orderNumber);
+                console.log('Order paid:', payosOrder.orderNumber);
             }
 
-        } else if (success === false || (code && code !== '00')) {
-            // ── THẤT BẠI / HỦY / TIMEOUT ─────────────────────────────
-            // Guard: nếu đã paid hoặc đã cancelled → bỏ qua
+        // ── 4. Xử lý: thất bại / hủy / timeout (code != '00') ─────────
+        } else {
+            // Guard: đã paid hoặc đã cancelled → bỏ qua
             if (order.paymentStatus === 'paid' || order.status === ORDER_STATUS.CANCELLED) {
+                console.log('Order already paid/cancelled, skip');
                 return res.status(200).json({ success: true, message: 'Already processed' });
             }
 
-            // Tính tổng số đã refund (tránh double-refund)
-            const totalPaid = orders.reduce((sum, o) => sum + normalizeMoney(o.walletUsedAmount), 0);
-
-            // Hoàn tồn kho cho TẤT CẢ orders (chỉ khi chưa paid)
+            // Hoàn tồn kho
             for (const payosOrder of orders) {
                 for (const item of payosOrder.products) {
-                    await Product.findByIdAndUpdate(item.product, {
-                        $inc: { quantity: item.quantity }
-                    });
+                    await Product.findByIdAndUpdate(item.product, { $inc: { quantity: item.quantity } });
                 }
             }
 
-            // Hoàn tiền ví 1 LẦN cho CẢ NHÓM
+            // Hoàn ví (nếu có dùng ví điện tử)
+            const totalPaid = orders.reduce((sum, o) => sum + normalizeMoney(o.walletUsedAmount), 0);
             if (totalPaid > 0) {
-                // Refund bằng walletService trực tiếp để kiểm soát amount (không dùng refundOrderToWallet vì nó tính theo single order)
                 await refundWallet(order.user, totalPaid, {
                     orderId: order._id,
                     orderNumber: order.orderNumber,
                     paymentMethod: 'PAYOS',
                     description: `Hoan tien tu huy PayOS ${orders.length} don (#${order.orderNumber}...)`,
                 });
-                // Cập nhật mỗi order → refunded
                 for (const o of orders) {
                     if (normalizeMoney(o.walletUsedAmount) > 0) {
                         o.paymentStatus = 'refunded';
@@ -936,7 +966,7 @@ const payOSWebhook = async (req, res) => {
                 }
             }
 
-            // Rollback voucher → ACTIVE (vì chưa paid)
+            // Rollback voucher → ACTIVE
             for (const payosOrder of orders) {
                 if (payosOrder.usedCouponId && !payosOrder.voucherRolledBack) {
                     await VoucherWallet.findByIdAndUpdate(payosOrder.usedCouponId, {
@@ -956,16 +986,16 @@ const payOSWebhook = async (req, res) => {
                 payosOrder.statusHistory.push({
                     status: ORDER_STATUS.CANCELLED,
                     timestamp: new Date(),
-                    note: `Thanh toán PayOS ${(code || 'CANCELLED').toLowerCase()}`
+                    note: `Thanh toan PayOS that bai: ${desc || code}`
                 });
                 await payosOrder.save();
                 await notifyCustomerOrderStatus(payosOrder, ORDER_STATUS.CANCELLED, {
-                    message: 'Thanh toán PayOS đã bị hủy hoặc thất bại.',
+                    message: 'Thanh toan PayOS that bai.',
                     refundedAmount: normalizeMoney(payosOrder.walletUsedAmount),
                 });
             }
 
-            // Ghi ledger: REFUND_TO_CUSTOMER (chỉ 1 lần cho cả nhóm)
+            // Ghi ledger refund
             if (totalPaid > 0) {
                 await AdminLedger.create([{
                     order: order._id,
@@ -977,24 +1007,19 @@ const payOSWebhook = async (req, res) => {
                     accountCredit: null,
                     customer: order.user,
                     status: LEDGER_STATUS.COMPLETED,
-                    description: `Hoàn tiền PayOS cho khách đơn #${order.orderNumber}`,
+                    description: `Hoan tien PayOS cho khach don #${order.orderNumber}`,
                 }]);
             }
 
-            console.log('Order payment failed/cancelled + refund to wallet:', order.orderNumber);
+            console.log('PayOS payment failed/cancelled:', order.orderNumber, '| code:', code, '| desc:', desc);
         }
 
-        return res.status(200).json({ 
-            success: true,
-            message: 'Webhook processed'
-        });
+        console.log('✅ Webhook fully processed');
+        return res.status(200).json({ success: true, message: 'Webhook processed' });
 
     } catch (error) {
         console.error('PayOS Webhook error:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'Lỗi xử lý webhook'
-        });
+        return res.status(500).json({ success: false, message: 'Loi xu ly webhook' });
     }
 };
 
@@ -1140,6 +1165,22 @@ const cancelPayOSPayment = async (req, res) => {
                     description: `Hoan tien ${totalWalletUsed.toLocaleString('vi-VN')}đ phan vi da dung cho ${relatedOrders.length} don (${relatedOrders.map(o => o.orderNumber).join(', ')})`,
                 });
                 refunded = result.amount > 0;
+            }
+
+            // Ghi ledger refund (trừ PAYOS_HOLDING)
+            if (totalWalletUsed > 0) {
+                await AdminLedger.create([{
+                    order: order._id,
+                    orderNumber: order.orderNumber,
+                    checkoutGroupId: order.checkoutGroupId,
+                    type: LEDGER_TYPE.REFUND_TO_CUSTOMER,
+                    amount: totalWalletUsed,
+                    accountDebit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                    accountCredit: null,
+                    customer: order.user,
+                    status: LEDGER_STATUS.COMPLETED,
+                    description: `Hoan tien tu huy PayOS ${relatedOrders.length} don (#${order.orderNumber})`,
+                }]);
             }
 
             for (const payosOrder of relatedOrders) {

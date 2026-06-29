@@ -1,7 +1,11 @@
 const Order = require('../models/order');
-const Transaction = require('../models/transaction'); 
+const AdminLedger = require('../models/adminLedger');
+const {
+    LEDGER_TYPE,
+    STATUS: LEDGER_STATUS,
+} = AdminLedger;
 
-// @desc    Lấy thống kê GMV (từ Order) và Doanh thu (từ Transaction) cho Admin
+// @desc    Lấy thống kê GMV (từ Order) và Phí sàn (từ AdminLedger) cho Admin
 // @route   GET /api/admin/revenue?timeFilter=this_month
 // @access  Private/Admin
 const getRevenueStats = async (req, res) => {
@@ -9,7 +13,7 @@ const getRevenueStats = async (req, res) => {
         const { timeFilter = 'this_month' } = req.query;
         let startDate, endDate;
         let isYearFilter = false;
-        
+
         const now = new Date();
 
         if (timeFilter === 'this_month') {
@@ -25,28 +29,41 @@ const getRevenueStats = async (req, res) => {
             endDate = new Date(year, 11, 31, 23, 59, 59, 999);
         }
 
+        // GMV: tổng totalPrice của các đơn đã giao (DELIVERED)
+        // Dùng payoutAt thay vì deliveredAt vì payout chỉ xảy ra khi phí sàn đã được ghi
+        // Hoặc dùng deliveredAt nhưng cần đảm bảo payout đã chạy
         const [gmvRaw, commissionRaw] = await Promise.all([
             Order.aggregate([
-                { $match: { 
-                    status: 'delivered', 
-                    deliveredAt: { $gte: startDate, $lte: endDate } 
-                }},
-                { $group: {
-                    _id: { $dateToString: { format: isYearFilter ? "%Y-%m" : "%Y-%m-%d", date: "$deliveredAt", timezone: "+07:00" } },
-                    totalGmv: { $sum: '$totalPrice' } 
-                }}
+                {
+                    $match: {
+                        status: 'delivered',
+                        payoutStatus: 'paid',           // chỉ đơn đã payout mới tính vào doanh thu thực
+                        payoutAt: { $gte: startDate, $lte: endDate }
+                    }
+                },
+                {
+                    $group: {
+                        _id: { $dateToString: { format: isYearFilter ? "%Y-%m" : "%Y-%m-%d", date: "$payoutAt", timezone: "+07:00" } },
+                        totalGmv: { $sum: '$totalPrice' }
+                    }
+                }
             ]),
 
-            Transaction.aggregate([
-                { $match: { 
-                    category: 'platform_fee',
-                    status: 'success',        
-                    createdAt: { $gte: startDate, $lte: endDate } 
-                }},
-                { $group: {
-                    _id: { $dateToString: { format: isYearFilter ? "%Y-%m" : "%Y-%m-%d", date: "$createdAt", timezone: "+07:00" } },
-                    totalCommission: { $sum: '$amount' } 
-                }}
+            // Phí sàn: từ AdminLedger với loại PLATFORM_FEE_IN
+            AdminLedger.aggregate([
+                {
+                    $match: {
+                        type: LEDGER_TYPE.PLATFORM_FEE_IN,
+                        status: LEDGER_STATUS.COMPLETED,
+                        createdAt: { $gte: startDate, $lte: endDate }
+                    }
+                },
+                {
+                    $group: {
+                        _id: { $dateToString: { format: isYearFilter ? "%Y-%m" : "%Y-%m-%d", date: "$createdAt", timezone: "+07:00" } },
+                        totalCommission: { $sum: '$amount' }
+                    }
+                }
             ])
         ]);
 
@@ -57,14 +74,13 @@ const getRevenueStats = async (req, res) => {
         let summaryCommission = 0;
 
         if (isYearFilter) {
-            // Chuẩn bị 12 tháng
             for (let i = 1; i <= 12; i++) {
                 const monthStr = `${timeFilter}-${i.toString().padStart(2, '0')}`;
                 labels.push(`Thg ${i}`);
-                
+
                 const foundGmv = gmvRaw.find(d => d._id === monthStr);
                 const foundComm = commissionRaw.find(d => d._id === monthStr);
-                
+
                 const gmv = foundGmv ? foundGmv.totalGmv : 0;
                 const comm = foundComm ? foundComm.totalCommission : 0;
 
@@ -74,16 +90,15 @@ const getRevenueStats = async (req, res) => {
                 summaryCommission += comm;
             }
         } else {
-            // Chuẩn bị các ngày trong tháng 
             const daysInMonth = endDate.getDate();
             const monthFormat = (startDate.getMonth() + 1).toString().padStart(2, '0');
             const yearFormat = startDate.getFullYear();
-            
+
             for (let i = 1; i <= daysInMonth; i++) {
                 const dayStr = i.toString().padStart(2, '0');
                 const dateQueryStr = `${yearFormat}-${monthFormat}-${dayStr}`;
-                labels.push(`${dayStr}/${monthFormat}`); 
-                
+                labels.push(`${dayStr}/${monthFormat}`);
+
                 const foundGmv = gmvRaw.find(d => d._id === dateQueryStr);
                 const foundComm = commissionRaw.find(d => d._id === dateQueryStr);
 

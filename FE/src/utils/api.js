@@ -111,6 +111,16 @@ const confirmReceivedApi = (orderId) => {
     return axios.put(URL_API);
 }
 
+const requestReturnApi = (orderId, data) => {
+    const URL_API = `/orders/${orderId}/return-request`;
+    return axios.post(URL_API, data);
+}
+
+const processReturnApi = (orderId, data) => {
+    const URL_API = `/vendor/orders/${orderId}/return`;
+    return axios.put(URL_API, data);
+}
+
 // Product APIs
 const getProductsApi = (params = {}) => {
     const URL_API = "/products";
@@ -546,6 +556,8 @@ export {
     getOrderByNumberApi,
     cancelOrderApi,
     confirmReceivedApi,
+    requestReturnApi,
+    processReturnApi,
     getProductsApi,
     getProductByIdApi,
     incrementProductViewApi,

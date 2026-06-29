@@ -8,6 +8,7 @@
 const PAYOS_CLIENT_ID = process.env.PAYOS_CLIENT_ID || '';
 const PAYOS_API_KEY = process.env.PAYOS_API_KEY || '';
 const PAYOS_CHECKSUM_KEY = process.env.PAYOS_CHECKSUM_KEY || '';
+const PAYOS_WEBHOOK_URL = process.env.PAYOS_WEBHOOK_URL || '';
 
 // PayOS API URLs
 const PAYOS_API_URL = 'https://api.payos.vn';
@@ -39,4 +40,5 @@ const payosConfig = new PayOSConfig();
 module.exports = {
     payosConfig,
     PAYOS_CLIENT_URL,
+    PAYOS_WEBHOOK_URL,
 };

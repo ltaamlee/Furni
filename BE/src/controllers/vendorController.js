@@ -11,6 +11,7 @@ const Wallet = require('../models/wallet');
 const Transaction = require('../models/transaction');
 const Review = require('../models/review');
 const Notification = require('../models/notification');
+const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 const { refundOrderToWallet } = require('../services/walletService');
 const { notifyCustomerOrderStatus } = require('../services/notificationService');
 
@@ -46,8 +47,6 @@ const pickShopShippingProvider = (provider, shopId) => {
     return Object.values(provider).find(Boolean) || null;
 };
 
-const BASE_SHOP_REVENUE_RATE = 10;
-
 const orderProductValue = (order) => {
     if (typeof order.subtotal === 'number') return order.subtotal;
     return (order.products || []).reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 0), 0);
@@ -56,16 +55,18 @@ const orderProductValue = (order) => {
 const attachVendorOrderRevenue = (order, shop) => {
     const plain = typeof order.toObject === 'function' ? order.toObject() : order;
     const shopSubtotal = orderProductValue(plain);
-    const commissionRate = Number(shop.commissionRate || 0);
-    const shopRevenueRate = Math.max(0, BASE_SHOP_REVENUE_RATE - commissionRate);
-    const shopRevenue = Math.round(shopSubtotal * shopRevenueRate / 100);
+    // Dùng vendorTakeHome đã tính từ orderController (chính xác theo từng shop)
+    // Fallback: subtotal - commission (nếu vendorTakeHome chưa có)
+    const shopRevenue = typeof plain.vendorTakeHome === 'number'
+        ? plain.vendorTakeHome
+        : Math.max(0, shopSubtotal - (plain.commissionAmount || 0));
+    const commissionRate = Number(plain.commissionRate || shop.commissionRate || 0);
 
     return {
         ...plain,
         shopSubtotal,
         shopRevenue,
         commissionRate,
-        shopRevenueRate,
     };
 };
 
@@ -119,23 +120,35 @@ const shopSliceOfOrder = (order, shopId) => {
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 
 // Doanh thu shop theo từng ngày trong `days` ngày gần nhất (đơn chưa huỷ)
+// revenue = subtotal của shop - commission = vendorTakeHome (không tính coupon để đơn giản)
 const revenueSeries = async (shopId, days) => {
     const start = startOfDay(new Date(Date.now() - (days - 1) * 86400000));
     const rows = await Order.aggregate([
         { $match: { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED }, createdAt: { $gte: start } } },
         { $unwind: '$products' },
         { $match: { 'products.shop': shopId } },
-        { $group: { _id: { $dateToString: { format: '%d/%m', date: '$createdAt' } }, revenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } }
+        { $group: {
+            _id: { date: { $dateToString: { format: '%d/%m', date: '$createdAt' } }, commissionRate: '$commissionRate' },
+            subtotal: { $sum: { $multiply: ['$products.price', '$products.quantity'] } }
+        }},
+        { $project: {
+            _id: 1,
+            revenue: { $subtract: ['$subtotal', { $multiply: ['$subtotal', { $divide: ['$_id.commissionRate', 100] }] }] }
+        }}
     ]);
-    const map = {};
-    rows.forEach((r) => { map[r._id] = r.revenue; });
+    // sum by date
+    const dateMap = {};
+    rows.forEach((r) => {
+        const d = r._id.date;
+        dateMap[d] = (dateMap[d] || 0) + (r.revenue || 0);
+    });
     const labels = [];
     const data = [];
     for (let i = 0; i < days; i++) {
         const d = new Date(start.getTime() + i * 86400000);
         const key = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
         labels.push(key);
-        data.push(map[key] || 0);
+        data.push(Math.round(dateMap[key] || 0));
     }
     return { labels, data };
 };
@@ -160,7 +173,7 @@ const topProductsOfShop = async (shopId, since = null, limit = 5) => {
     return rows.map((r, i) => ({ rank: i + 1, productId: r._id, name: r.name, cat: catOf[r._id?.toString()] || '—', sold: r.sold, revenue: r.revenue }));
 };
 
-// Tổng doanh thu + số đơn của shop kể từ `since`
+// Tổng doanh thu + số đơn của shop kể từ `since` (đã trừ phí sàn)
 const shopRevenueTotals = async (shopId, since = null) => {
     const match = { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED } };
     if (since) match.createdAt = { $gte: since };
@@ -168,10 +181,22 @@ const shopRevenueTotals = async (shopId, since = null) => {
         { $match: match },
         { $unwind: '$products' },
         { $match: { 'products.shop': shopId } },
-        { $group: { _id: '$_id', orderRevenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } },
-        { $group: { _id: null, revenue: { $sum: '$orderRevenue' }, orders: { $sum: 1 } } }
+        { $group: {
+            _id: '$_id',
+            orderRevenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } },
+            commissionRate: { $first: '$commissionRate' }
+        }},
+        { $project: {
+            orderRevenue: 1,
+            commission: { $multiply: ['$orderRevenue', { $divide: ['$commissionRate', 100] }] }
+        }},
+        { $group: {
+            _id: null,
+            revenue: { $sum: { $subtract: ['$orderRevenue', '$commission'] } },
+            orders: { $sum: 1 }
+        }}
     ]);
-    return { revenue: rows[0]?.revenue || 0, orders: rows[0]?.orders || 0 };
+    return { revenue: Math.round(rows[0]?.revenue || 0), orders: rows[0]?.orders || 0 };
 };
 
 // Nhãn trạng thái sản phẩm (cho file Excel)
@@ -256,10 +281,18 @@ const couponPayloadFromPromotion = (promotion, shopId) => ({
 const syncCouponForPromotion = async (promotion, shopId, requestedCode) => {
     const coupon = await Coupon.findOne({ promotion: promotion._id });
 
-    if (!VOUCHER_PROMOTION_TYPES.includes(promotion.type)) {
+    const shouldBeActive = VOUCHER_PROMOTION_TYPES.includes(promotion.type)
+        && couponActiveFromPromotion(promotion);
+
+    if (!shouldBeActive) {
         if (coupon) {
             coupon.isActive = false;
             await coupon.save();
+            // Thu hồi voucher khỏi ví khách hàng khi coupon bị deactivate
+            await VoucherWallet.updateMany(
+                { coupon: coupon._id, status: VOUCHER_STATUS.ACTIVE },
+                { status: VOUCHER_STATUS.REVOKED }
+            );
         }
         return null;
     }
@@ -274,6 +307,10 @@ const syncCouponForPromotion = async (promotion, shopId, requestedCode) => {
         }
         Object.assign(coupon, payload);
         await coupon.save();
+        // Đồng bộ usedCount về Promotion để progress bar vendor đúng
+        if (coupon.usedCount !== promotion.usedCount) {
+            await Promotion.findByIdAndUpdate(promotion._id, { usedCount: coupon.usedCount });
+        }
         return coupon;
     }
 
@@ -285,6 +322,16 @@ const syncCouponForPromotion = async (promotion, shopId, requestedCode) => {
         code,
         ...payload,
     });
+};
+
+// Đồng bộ usedCount của Promotion từ tổng usedCount của tất cả Coupon gắn với promotion đó
+const syncPromotionUsedCount = async (promotionId) => {
+    const result = await Coupon.aggregate([
+        { $match: { promotion: promotionId } },
+        { $group: { _id: null, totalUsed: { $sum: '$usedCount' } } }
+    ]);
+    const totalUsed = result[0]?.totalUsed || 0;
+    await Promotion.findByIdAndUpdate(promotionId, { usedCount: totalUsed });
 };
 
 // @desc    Lấy thông tin shop của vendor
@@ -727,7 +774,7 @@ const getMyOrders = async (req, res) => {
         const orders = ordersRaw.map((order) => attachVendorOrderRevenue(order, shop));
 
         // Số đếm theo trạng thái (đơn của shop)
-        const statuses = ['pending', 'confirmed', 'preparing', 'shipping', 'delivered', 'cancelled'];
+        const statuses = ['pending', 'confirmed', 'preparing', 'shipping', 'delivered', 'cancelled', 'cancel_requested', 'return_requested'];
         const counts = { all: await Order.countDocuments(baseQuery) };
         await Promise.all(statuses.map(async (s) => { counts[s] = await Order.countDocuments({ ...baseQuery, status: s }); }));
 

@@ -92,6 +92,7 @@ const BillTimeline = ({ order }) => {
                             <span className="w-2 h-2 rounded-full bg-[#B86B05]" />
                         )}
                     </div>
+                    
                     {/* Text */}
                     <div>
                         <div className={`text-[13px] font-semibold ${

@@ -4,7 +4,7 @@ import SlideOver from "../../components/vendor/SlideOver";
 import { formatVND } from "../../components/vendor/data";
 import { IconAlertCircle, IconCheck } from "../../components/vendor/icons";
 import { useToast } from "../../components/context/ToastContext";
-import { getVendorOrdersApi, updateVendorOrderStatusApi } from "../../utils/api";
+import { getVendorOrdersApi, updateVendorOrderStatusApi, processReturnApi } from "../../utils/api";
 
 const STATUS_META = {
     pending: { label: "Chờ xác nhận", tone: "yellow" },
@@ -14,6 +14,7 @@ const STATUS_META = {
     delivered: { label: "Hoàn thành", tone: "green" },
     cancelled: { label: "Đã huỷ", tone: "red" },
     cancel_requested: { label: "Yêu cầu huỷ", tone: "yellow" },
+    return_requested: { label: "Yêu cầu hoàn", tone: "orange" },
 };
 const PAYMENT_META = {
     COD: { label: "COD", tone: "gray" },
@@ -36,6 +37,8 @@ const TAB_DEFS = [
     { key: "shipping", label: "Đang giao" },
     { key: "delivered", label: "Hoàn thành" },
     { key: "cancelled", label: "Đã huỷ" },
+    { key: "cancel_requested", label: "Yêu cầu huỷ" },
+    { key: "return_requested", label: "Yêu cầu hoàn" },
 ];
 // Hành động chuyển trạng thái kế tiếp theo luồng đơn
 const NEXT_ACTION = {
@@ -84,9 +87,12 @@ const getShopSubtotal = (order) => {
     return (order?.products || []).reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 0), 0);
 };
 const getShopRevenue = (order) => {
-    if (typeof order?.shopRevenue === "number") return order.shopRevenue;
-    const rate = Math.max(0, 10 - Number(order?.commissionRate || 0));
-    return Math.round(getShopSubtotal(order) * rate / 100);
+    if (typeof order?.vendorTakeHome === 'number') return Math.max(0, order.vendorTakeHome);
+    if (typeof order?.shopRevenue === 'number') return Math.max(0, order.shopRevenue);
+    const subtotal = getShopSubtotal(order);
+    const commissionRate = Number(order?.commissionRate || 0);
+    const commissionAmount = Math.round(subtotal * commissionRate / 100);
+    return Math.max(0, subtotal - commissionAmount);
 };
 
 const SectionHdr = ({ children }) => (
@@ -216,7 +222,14 @@ const OrderDetail = ({ open, onClose, order, onAction, busy }) => {
                 <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Tạm tính (sản phẩm shop)</span><span>{formatVND(getShopSubtotal(order))}</span></div>
                 <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Phương thức TT</span><Badge tone={pay.tone}>{pay.label}</Badge></div>
                 <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Tổng cả đơn (mọi shop)</span><span className="text-[#9E8E7E]">{formatVND(order.totalPrice || 0)}</span></div>
-                <div className="flex justify-between border-t border-[#EDE8E0] mt-1 pt-2.5 font-bold text-sm"><span>Doanh thu shop</span><span className="text-[#B86B05] text-[15px]">{formatVND(getShopRevenue(order))}</span></div>
+                <div className="flex justify-between border-t border-[#EDE8E0] mt-1 pt-2.5 font-bold text-sm">
+                    <span>Doanh thu shop</span>
+                    {order.status === 'cancelled' ? (
+                        <span className="text-[#9E8E7E] text-[13px]">—</span>
+                    ) : (
+                        <span className="text-[#B86B05] text-[15px]">{formatVND(getShopRevenue(order))}</span>
+                    )}
+                </div>
             </DetailCard>
 
             {/* Shipping info if already shipped */}
@@ -318,6 +331,27 @@ const Orders = () => {
         }
     };
 
+    const doActionReturn = async (order, action, rejectionReason = "") => {
+        try {
+            setBusy(true);
+            const res = await processReturnApi(order._id, { action, rejectionReason });
+            if (res.success) {
+                showToast(action === "approve"
+                    ? `Đã đồng ý hoàn hàng! ${res.data?.refundAmount ? `Hoàn ${res.data.refundAmount.toLocaleString('vi-VN')}₫ vào ví SORA.` : ''}`
+                    : "Đã từ chối yêu cầu hoàn hàng!",
+                    "success"
+                );
+                await fetchOrders();
+            } else {
+                showToast(msgOf(res) || "Xử lý thất bại", "error");
+            }
+        } catch {
+            showToast("Có lỗi xảy ra", "error");
+        } finally {
+            setBusy(false);
+        }
+    };
+
     return (
         <div className="vendor-fade-in">
             <PageHeader title="Quản lý đơn hàng" sub={`${counts.all ?? 0} đơn có sản phẩm của cửa hàng`} />
@@ -325,6 +359,12 @@ const Orders = () => {
             {(counts.pending ?? 0) > 0 && (
                 <AlertStrip tone="danger" icon={<IconAlertCircle size={15} className="shrink-0" />} className="mb-4">
                     <strong>{counts.pending} đơn hàng</strong> đang chờ xác nhận. Vui lòng xử lý sớm để tránh ảnh hưởng đánh giá.
+                </AlertStrip>
+            )}
+
+            {(counts.return_requested ?? 0) > 0 && (
+                <AlertStrip tone="warning" icon={<IconAlertCircle size={15} className="shrink-0" />} className="mb-4">
+                    <strong>{counts.return_requested} đơn hàng</strong> có yêu cầu hoàn. Vui lòng xử lý để hoàn tiền cho khách.
                 </AlertStrip>
             )}
 
@@ -401,7 +441,13 @@ const Orders = () => {
                                         <div className="text-[13px] truncate max-w-[220px]">{first?.name || "—"} {first && <span className="text-[11.5px] text-[#9E8E7E]">×{first.quantity}</span>}</div>
                                         {more > 0 && <div className="text-[11.5px] text-[#9E8E7E]">+{more} sản phẩm khác</div>}
                                     </td>
-                                    <td className="px-3.5 py-3 font-bold whitespace-nowrap">{formatVND(getShopRevenue(o))}</td>
+                                    <td className="px-3.5 py-3 font-bold whitespace-nowrap">
+                                        {o.status === 'cancelled' ? (
+                                            <span className="text-[#9E8E7E] text-[13px]">—</span>
+                                        ) : (
+                                            formatVND(getShopRevenue(o))
+                                        )}
+                                    </td>
                                     <td className="px-3.5 py-3">
                                         <div className="text-[13px]">{fmtDate(o.orderedAt || o.createdAt)}</div>
                                     </td>
@@ -409,7 +455,33 @@ const Orders = () => {
                                     <td className="px-3.5 py-3"><Badge tone={st.tone}>{st.label}</Badge></td>
                                     <td className="px-3.5 py-3">
                                         <div className="flex gap-1">
-                                            {next ? (
+                                            {o.status === "return_requested" ? (
+                                                <>
+                                                    <Btn
+                                                        variant="primary"
+                                                        size="xs"
+                                                        disabled={busy}
+                                                        onClick={() => {
+                                                            if (window.confirm("Đồng ý cho khách hoàn hàng? Tiền sẽ được hoàn vào ví SORA.")) {
+                                                                doActionReturn(o, "approve");
+                                                            }
+                                                        }}
+                                                    >
+                                                        ✓ Đồng ý hoàn
+                                                    </Btn>
+                                                    <Btn
+                                                        variant="danger"
+                                                        size="xs"
+                                                        disabled={busy}
+                                                        onClick={() => {
+                                                            const reason = window.prompt("Lý do từ chối (không bắt buộc):");
+                                                            doActionReturn(o, "reject", reason);
+                                                        }}
+                                                    >
+                                                        Từ chối
+                                                    </Btn>
+                                                </>
+                                            ) : next ? (
                                                 <Btn variant="primary" size="xs" disabled={busy} onClick={() => doAction(o, next.to)}>
                                                     {next.label}{shippingProvider && next.to === 'shipping' ? ` (${providerShortOf(shippingProvider)})` : ''}
                                                 </Btn>

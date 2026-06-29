@@ -389,7 +389,7 @@ adminLedgerSchema.statics.getCurrentBalances = async function () {
 adminLedgerSchema.statics.getGroupBalances = async function (checkoutGroupId) {
     const entries = await this.find({
         checkoutGroupId,
-        status: LEDGER_STATUS.COMPLETED,
+        status: { $in: [LEDGER_STATUS.COMPLETED, LEDGER_STATUS.REVERSED] },
     }).lean();
 
     const balances = new Map();
@@ -399,8 +399,13 @@ adminLedgerSchema.statics.getGroupBalances = async function (checkoutGroupId) {
     balances.set(ACCOUNT_TYPE.PAYOUT_POOL, 0);
 
     entries.forEach(e => {
-        if (e.accountDebit)  balances.set(e.accountDebit,  (balances.get(e.accountDebit)  || 0) + e.amount);
-        if (e.accountCredit) balances.set(e.accountCredit, (balances.get(e.accountCredit) || 0) + e.amount);
+        const multiplier = e.status === LEDGER_STATUS.REVERSED ? -1 : 1;
+        if (e.accountDebit) {
+            balances.set(e.accountDebit, (balances.get(e.accountDebit) || 0) - e.amount * multiplier);
+        }
+        if (e.accountCredit) {
+            balances.set(e.accountCredit, (balances.get(e.accountCredit) || 0) + e.amount * multiplier);
+        }
     });
     return balances;
 };

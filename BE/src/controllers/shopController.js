@@ -60,30 +60,46 @@ const syncShopVoucherCoupons = async (shopId) => {
 
     await Promise.all(promotions.map(async (promotion) => {
         const coupon = await Coupon.findOne({ promotion: promotion._id });
-        const payload = {
-            promotion: promotion._id,
-            shop: shopId,
-            description: promotion.description || promotion.name,
-            discountType: promotion.discountType || 'percent',
-            value: promotion.value || 0,
-            maxDiscount: promotion.discountType === 'percent' ? (promotion.maxDiscount || 0) : 0,
-            minOrderValue: promotion.minOrderValue || 0,
-            startDate: promotion.startDate,
-            endDate: promotion.endDate,
-            usageLimit: promotion.maxUsage || 0,
-            isActive: [Promotion.STATUS.SCHEDULED, Promotion.STATUS.RUNNING].includes(promotion.status),
-        };
+        const shouldBeActive = [Promotion.STATUS.SCHEDULED, Promotion.STATUS.RUNNING].includes(promotion.status);
 
-        if (coupon) {
-            Object.assign(coupon, payload);
-            await coupon.save();
+        if (!coupon) {
+            if (!shouldBeActive) return; // Draft — chưa cần tạo coupon
+            await Coupon.create({
+                code: await generateShopVoucherCode(),
+                promotion: promotion._id,
+                shop: shopId,
+                description: promotion.description || promotion.name,
+                discountType: promotion.discountType || 'percent',
+                value: promotion.value || 0,
+                maxDiscount: promotion.discountType === 'percent' ? (promotion.maxDiscount || 0) : 0,
+                minOrderValue: promotion.minOrderValue || 0,
+                startDate: promotion.startDate,
+                endDate: promotion.endDate,
+                usageLimit: promotion.maxUsage || 0,
+                isActive: shouldBeActive,
+            });
             return;
         }
 
-        await Coupon.create({
-            code: await generateShopVoucherCode(),
-            ...payload,
-        });
+        const wasActive = coupon.isActive;
+        coupon.description = promotion.description || promotion.name;
+        coupon.discountType = promotion.discountType || 'percent';
+        coupon.value = promotion.value || 0;
+        coupon.maxDiscount = promotion.discountType === 'percent' ? (promotion.maxDiscount || 0) : 0;
+        coupon.minOrderValue = promotion.minOrderValue || 0;
+        coupon.startDate = promotion.startDate;
+        coupon.endDate = promotion.endDate;
+        coupon.usageLimit = promotion.maxUsage || 0;
+        coupon.isActive = shouldBeActive;
+        await coupon.save();
+
+        // Nếu coupon bị deactivate (draft/paused/end), thu hồi voucher khỏi ví khách
+        if (wasActive && !shouldBeActive) {
+            await VoucherWallet.updateMany(
+                { coupon: coupon._id, status: 'active' },
+                { status: 'revoked' }
+            );
+        }
     }));
 };
 
@@ -106,30 +122,46 @@ const syncPlatformVoucherCoupons = async () => {
 
     await Promise.all(promotions.map(async (promotion) => {
         const coupon = await Coupon.findOne({ promotion: promotion._id });
-        const payload = {
-            promotion: promotion._id,
-            shop: null,
-            description: promotion.description || promotion.name,
-            discountType: promotion.discountType || 'percent',
-            value: promotion.value || 0,
-            maxDiscount: promotion.discountType === 'percent' ? (promotion.maxDiscount || 0) : 0,
-            minOrderValue: promotion.minOrderValue || 0,
-            startDate: promotion.startDate,
-            endDate: promotion.endDate,
-            usageLimit: promotion.maxUsage || 0,
-            isActive: [Promotion.STATUS.SCHEDULED, Promotion.STATUS.RUNNING].includes(promotion.status),
-        };
+        const shouldBeActive = [Promotion.STATUS.SCHEDULED, Promotion.STATUS.RUNNING].includes(promotion.status);
 
-        if (coupon) {
-            Object.assign(coupon, payload);
-            await coupon.save();
+        if (!coupon) {
+            if (!shouldBeActive) return; // Draft — chưa cần tạo coupon
+            await Coupon.create({
+                code: await generatePlatformVoucherCode(),
+                promotion: promotion._id,
+                shop: null,
+                description: promotion.description || promotion.name,
+                discountType: promotion.discountType || 'percent',
+                value: promotion.value || 0,
+                maxDiscount: promotion.discountType === 'percent' ? (promotion.maxDiscount || 0) : 0,
+                minOrderValue: promotion.minOrderValue || 0,
+                startDate: promotion.startDate,
+                endDate: promotion.endDate,
+                usageLimit: promotion.maxUsage || 0,
+                isActive: shouldBeActive,
+            });
             return;
         }
 
-        await Coupon.create({
-            code: await generatePlatformVoucherCode(),
-            ...payload,
-        });
+        const wasActive = coupon.isActive;
+        coupon.description = promotion.description || promotion.name;
+        coupon.discountType = promotion.discountType || 'percent';
+        coupon.value = promotion.value || 0;
+        coupon.maxDiscount = promotion.discountType === 'percent' ? (promotion.maxDiscount || 0) : 0;
+        coupon.minOrderValue = promotion.minOrderValue || 0;
+        coupon.startDate = promotion.startDate;
+        coupon.endDate = promotion.endDate;
+        coupon.usageLimit = promotion.maxUsage || 0;
+        coupon.isActive = shouldBeActive;
+        await coupon.save();
+
+        // Nếu coupon bị deactivate (draft/paused/end), thu hồi voucher khỏi ví khách
+        if (wasActive && !shouldBeActive) {
+            await VoucherWallet.updateMany(
+                { coupon: coupon._id, status: 'active' },
+                { status: 'revoked' }
+            );
+        }
     }));
 };
 

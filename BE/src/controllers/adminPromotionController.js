@@ -1,6 +1,6 @@
 const Promotion = require('../models/promotion');
-const Coupon = require('../models/Coupon');
-const { VoucherWallet } = require('../models/voucherWallet');
+const Coupon = require('../models/coupon');
+const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 
 const updateStatusByDate = (promo) => {
     const now = new Date();
@@ -26,7 +26,7 @@ const getAdminPromotions = async (req, res) => {
 
         let filteredPromotions = promotions.map(promo => {
             const dynamicStatus = updateStatusByDate(promo);
-            if (promo.status !== dynamicStatus && promo.status !== 'paused') {
+            if (promo.status !== dynamicStatus && promo.status !== 'paused' && promo.status !== 'draft') {
                 promo.status = dynamicStatus;
             }
             return promo;
@@ -94,9 +94,12 @@ const createAdminPromotion = async (req, res) => {
             status: status || updateStatusByDate({ startDate, endDate })
         });
 
-        // Sync lifecycle để đảm bảo status chạy đúng (chuyển DRAFT → RUNNING nếu thời gian phù hợp)
-        await Promotion.syncLifecycleStatuses({ _id: newPromo._id });
+        const shouldBeActive = status !== 'draft';
 
+        // Chỉ sync lifecycle khi KHÔNG phải draft, vì sync sẽ ghi đè draft → running/scheduled
+        if (status !== 'draft') {
+            await Promotion.syncLifecycleStatuses({ _id: newPromo._id });
+        }
         const newCoupon = await Coupon.create({
             code: promoCode,
             promotion: newPromo._id,
@@ -106,7 +109,8 @@ const createAdminPromotion = async (req, res) => {
             maxDiscount: discountType === 'percent' ? maxDiscount : 0,
             minOrderValue,
             startDate,
-            endDate
+            endDate,
+            isActive: shouldBeActive,
         });
 
         res.status(201).json({ success: true, message: 'Tạo khuyến mãi thành công!', data: { promotion: newPromo, coupon: newCoupon } });
@@ -122,7 +126,15 @@ const deleteAdminPromotion = async (req, res) => {
         const promo = await Promotion.findById(req.params.id);
         if (!promo) return res.status(404).json({ success: false, message: 'Không tìm thấy khuyến mãi' });
 
-        await Coupon.findOneAndDelete({ promotion: promo._id });
+        const coupon = await Coupon.findOne({ promotion: promo._id });
+        if (coupon) {
+            // Thu hồi voucher khỏi ví khách trước khi xóa coupon
+            await VoucherWallet.updateMany(
+                { coupon: coupon._id, status: VOUCHER_STATUS.ACTIVE },
+                { status: VOUCHER_STATUS.REVOKED }
+            );
+            await Coupon.findByIdAndDelete(coupon._id);
+        }
         await Promotion.findByIdAndDelete(promo._id);
 
         res.status(200).json({ success: true, message: 'Đã xóa khuyến mãi thành công!' });
@@ -150,12 +162,41 @@ const updateAdminPromotion = async (req, res) => {
         if (status !== undefined) promo.status = status;
         await promo.save();
 
-        // Cập nhật tất cả VoucherWallet liên quan khi admin sửa coupon
-        // Đồng bộ: value, discountType, maxDiscount, minOrderValue, endDate từ Promo mới nhất
+        // Chỉ sync lifecycle khi KHÔNG phải draft, vì sync sẽ ghi đè draft → running/scheduled
+        if (status !== 'draft') {
+            await Promotion.syncLifecycleStatuses({ _id: promo._id });
+        }
+        const syncedPromo = await Promotion.findById(promo._id);
+
+        const coupon = await Coupon.findOne({ promotion: promo._id });
+        if (coupon) {
+            const shouldBeActive = syncedPromo.status === 'running' || syncedPromo.status === 'scheduled';
+            const wasActive = coupon.isActive;
+
+            coupon.discountType = promo.discountType;
+            coupon.value = promo.value;
+            coupon.maxDiscount = promo.discountType === 'percent' ? promo.maxDiscount : 0;
+            coupon.minOrderValue = promo.minOrderValue;
+            coupon.startDate = promo.startDate;
+            coupon.endDate = promo.endDate;
+            coupon.usageLimit = promo.maxUsage || 0;
+            coupon.isActive = shouldBeActive;
+            await coupon.save();
+
+            // Nếu coupon bị deactivate, thu hồi voucher khỏi ví khách
+            if (wasActive && !shouldBeActive) {
+                await VoucherWallet.updateMany(
+                    { coupon: coupon._id, status: VOUCHER_STATUS.ACTIVE },
+                    { status: VOUCHER_STATUS.REVOKED }
+                );
+            }
+        }
+
+        // Đồng bộ các field voucher đã thay đổi (không phải status) vào VoucherWallet
         const updatedFields = {};
         if (value !== undefined) updatedFields.value = value;
         if (discountType !== undefined) updatedFields.discountType = discountType;
-        if (maxDiscount !== undefined) updatedFields.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
+        if (maxDiscount !== undefined) updatedFields.maxDiscount = promo.discountType === 'percent' ? maxDiscount : 0;
         if (minOrderValue !== undefined) updatedFields.minOrderValue = minOrderValue;
         if (endDate !== undefined) updatedFields.endDate = endDate;
         if (Object.keys(updatedFields).length > 0) {
@@ -163,46 +204,6 @@ const updateAdminPromotion = async (req, res) => {
                 { coupon: promo._id },
                 { $set: updatedFields }
             );
-        }
-
-        if (code !== undefined) {
-            const promoCode = (code || '').trim().toUpperCase();
-            const coupon = await Coupon.findOne({ promotion: promo._id });
-            if (promoCode) {
-                if (coupon) {
-                    coupon.code = promoCode;
-                    coupon.discountType = discountType;
-                    coupon.value = value;
-                    coupon.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
-                    coupon.minOrderValue = minOrderValue;
-                    coupon.startDate = startDate;
-                    coupon.endDate = endDate;
-                    await coupon.save();
-                } else {
-                    await Coupon.create({
-                        code: promoCode,
-                        promotion: promo._id,
-                        shop: null,
-                        discountType,
-                        value,
-                        maxDiscount: discountType === 'percent' ? maxDiscount : 0,
-                        minOrderValue,
-                        startDate,
-                        endDate,
-                    });
-                }
-            }
-        } else {
-            const coupon = await Coupon.findOne({ promotion: promo._id });
-            if (coupon) {
-                coupon.discountType = discountType;
-                coupon.value = value;
-                coupon.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
-                coupon.minOrderValue = minOrderValue;
-                coupon.startDate = startDate;
-                coupon.endDate = endDate;
-                await coupon.save();
-            }
         }
 
         res.status(200).json({ success: true, message: 'Cập nhật khuyến mãi thành công!' });

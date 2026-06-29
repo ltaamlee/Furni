@@ -19,6 +19,12 @@ const {
     notifyCustomerOrderCreated,
     notifyCustomerOrderStatus,
 } = require('../services/notificationService');
+const AdminLedger = require('../models/adminLedger');
+const {
+    LEDGER_TYPE,
+    ACCOUNT_TYPE,
+    STATUS: LEDGER_STATUS,
+} = AdminLedger;
 const PUBLIC_PRODUCT_STATUSES = ['active', 'out_of_stock'];
 
 const getProductImage = (product) => {
@@ -220,6 +226,7 @@ const createOrder = async (req, res) => {
                     shop: product.shop?._id || null,
                     shopName: product.shop?.name || 'Cửa hàng',
                     shopCode: product.shop?.code || '',
+                    commissionRate: product.shop?.commissionRate ?? 2, // snapshot tại tạo đơn
                     items: [],
                     subtotal: 0,
                     totalQuantity: 0
@@ -370,6 +377,11 @@ const createOrder = async (req, res) => {
                 const shopCouponDiscount = shopTotal.couponDiscount;
                 const groupTotal = shopTotal.total;
 
+                const taxableRevenue = Math.max(0, group.subtotal - shopCouponDiscount);
+                const commissionRate = group.commissionRate ?? 2;
+                const commissionAmount = Math.round(taxableRevenue * commissionRate / 100);
+                const vendorTakeHome = taxableRevenue - commissionAmount;
+
                 const order = new Order({
                     user: req.user._id,
                     checkoutGroupId,
@@ -392,7 +404,11 @@ const createOrder = async (req, res) => {
                     totalQuantity: group.totalQuantity,
                     orderedAt: new Date(),
                     estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000),
-                    orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v))
+                    orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v)),
+                    taxableRevenue,
+                    commissionRate,
+                    commissionAmount,
+                    vendorTakeHome,
                 });
 
                 // Trừ tồn kho
@@ -455,6 +471,11 @@ const createOrder = async (req, res) => {
                 : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
             const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
 
+            const taxableRevenue = Math.max(0, group.subtotal - shopCouponDiscount);
+            const commissionRate = group.commissionRate ?? 2;
+            const commissionAmount = Math.round(taxableRevenue * commissionRate / 100);
+            const vendorTakeHome = taxableRevenue - commissionAmount;
+
             const order = new Order({
                 user: req.user._id,
                 checkoutGroupId,
@@ -480,7 +501,11 @@ const createOrder = async (req, res) => {
                 totalQuantity: group.totalQuantity,
                 orderedAt: new Date(),
                 estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000),
-                orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v))
+                orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v)),
+                taxableRevenue,
+                commissionRate,
+                commissionAmount,
+                vendorTakeHome,
             });
 
             // Trừ tồn kho cho sản phẩm của shop này
@@ -1007,6 +1032,143 @@ const getAllOrders = async (req, res) => {
     }
 };
 
+// @desc    Process return request (Vendor approves or rejects)
+// @route   PUT /api/vendor/orders/:id/return
+// @access  Private (Vendor/Admin)
+const processReturn = async (req, res) => {
+    try {
+        const { action, rejectionReason } = req.body; // action: 'approve' | 'reject'
+
+        const order = await Order.findById(req.params.id);
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
+        }
+
+        // Vendor chỉ xử lý được đơn thuộc shop của mình
+        if (req.user.role === 'vendor' && order.shop?.toString() !== req.user.shop?.toString()) {
+            return res.status(403).json({ success: false, message: 'Bạn không có quyền xử lý đơn hàng này!' });
+        }
+
+        if (order.status !== ORDER_STATUS.RETURN_REQUESTED) {
+            return res.status(400).json({ success: false, message: 'Đơn không ở trạng thái yêu cầu hoàn hàng!' });
+        }
+
+        if (order.returnRequest?.status !== 'pending') {
+            return res.status(400).json({ success: false, message: 'Yêu cầu hoàn đã được xử lý trước đó!' });
+        }
+
+        if (action === 'reject') {
+            // Từ chối: đơn quay lại delivered, gửi lý do
+            order.status = ORDER_STATUS.DELIVERED;
+            order.returnRequest.status = 'rejected';
+            order.returnRequest.rejectionReason = rejectionReason || '';
+            order.returnRequest.processedAt = new Date();
+            order.returnRequest.processedBy = req.user._id;
+            order.statusHistory.push({
+                status: ORDER_STATUS.DELIVERED,
+                timestamp: new Date(),
+                note: `Shop từ chối hoàn hàng: ${rejectionReason || 'Không có lý do'}`
+            });
+            await order.save();
+
+            await notifyCustomerOrderStatus(order, ORDER_STATUS.DELIVERED, {
+                message: `Shop đã từ chối yêu cầu hoàn hàng. Lý do: ${rejectionReason || 'Không có'}`
+            });
+
+            return res.status(200).json({ success: true, message: 'Đã từ chối yêu cầu hoàn hàng!' });
+        }
+
+        if (action === 'approve') {
+            // Chấp nhận: gọi PayOS refund (Shopee-style)
+            // Đơn chuyển sang cancelled (hoàn hàng = hủy đơn + refund)
+            order.status = ORDER_STATUS.CANCELLED;
+            order.returnRequest.status = 'approved';
+            order.returnRequest.processedAt = new Date();
+            order.returnRequest.processedBy = req.user._id;
+            order.cancelledAt = new Date();
+            order.statusHistory.push({
+                status: ORDER_STATUS.CANCELLED,
+                timestamp: new Date(),
+                note: 'Shop đồng ý hoàn hàng — đang xử lý hoàn tiền'
+            });
+
+            // PayOS refund: gọi cancelTransfer
+            let refundResult = null;
+            if (order.paymentMethod === 'PAYOS' && order.paymentStatus === 'paid' && order.payosOrderCode) {
+                try {
+                    const { PayOS } = require('@payos/node');
+                    const { payosConfig } = require('../config/payos');
+                    const cfg = payosConfig.getConfig();
+                    const payos = new PayOS(cfg.clientId, cfg.apiKey, cfg.checksumKey);
+
+                    const refundResp = await payos.cancelTransfer({
+                        orderCode: Number(order.payosOrderCode),
+                        cancellationReason: `Hoan hang don #${order.orderNumber}`
+                    });
+
+                    order.returnRequest.refundTransferCode = refundResp?.data?.cancellationCode || null;
+                    order.returnRequest.refundTransferReason = refundResp?.data?.cancellationReason || null;
+                    refundResult = { success: true, amount: order.totalPrice, transferCode: order.returnRequest.refundTransferCode };
+                    console.log(`[Return] PayOS refund success for order ${order.orderNumber}:`, refundResp?.data);
+                } catch (payosError) {
+                    console.error(`[Return] PayOS refund failed for order ${order.orderNumber}:`, payosError.message);
+                    // Vẫn tiếp tục xử lý refund wallet
+                }
+            }
+
+            // Hoàn tiền vào ví SORA
+            const refundWalletResult = await refundOrderToWallet(order, {
+                orderId: order._id,
+                orderNumber: order.orderNumber,
+                paymentMethod: order.paymentMethod,
+                description: `Hoan tien tu yeu cau hoan hang don #${order.orderNumber}`
+            });
+
+            order.paymentStatus = 'refunded';
+            order.walletRefundedAmount = normalizeMoney(refundWalletResult?.amount || order.totalPrice);
+            order.refundedToWalletAt = new Date();
+
+            await order.save();
+
+            // Ghi ledger: hoàn tiền cho khách
+            try {
+                await AdminLedger.create([{
+                    type: LEDGER_TYPE.REFUND_TO_CUSTOMER,
+                    amount: order.walletRefundedAmount,
+                    accountDebit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                    accountCredit: null,
+                    order: order._id,
+                    orderNumber: order.orderNumber,
+                    checkoutGroupId: order.checkoutGroupId,
+                    shop: order.shop || null,
+                    customer: order.user,
+                    description: `Hoàn tiền khách từ yêu cầu hoàn hàng #${order.orderNumber}`,
+                    status: LEDGER_STATUS.COMPLETED,
+                }]);
+            } catch (ledgerError) {
+                console.error('Ledger write error:', ledgerError.message);
+            }
+
+            const refundAmount = order.walletRefundedAmount || 0;
+            await notifyCustomerOrderStatus(order, ORDER_STATUS.CANCELLED, {
+                message: `Yêu cầu hoàn hàng đã được chấp nhận. Đã hoàn ${refundAmount.toLocaleString('vi-VN')}₫ vào ví SORA.`,
+                refundedAmount: refundAmount
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: `Đã chấp nhận hoàn hàng! Đã hoàn ${refundAmount.toLocaleString('vi-VN')}₫ vào ví SORA.`,
+                data: { refundAmount, refundTransferCode: order.returnRequest.refundTransferCode }
+            });
+        }
+
+        return res.status(400).json({ success: false, message: 'Action không hợp lệ!' });
+    } catch (error) {
+        console.error('processReturn error:', error);
+        res.status(500).json({ success: false, message: 'Lỗi khi xử lý yêu cầu hoàn hàng', error: error.message });
+    }
+};
+
 // @desc    Process cancel request (Admin)
 // @route   PUT /api/orders/:id/cancel-request
 // @access  Private (Admin)
@@ -1160,6 +1322,88 @@ const autoConfirmOrders = async (req, res) => {
     }
 };
 
+// @desc    Customer requests return/refund after delivery
+// @route   POST /api/orders/:id/return-request
+// @access  Private (Customer only)
+const requestReturn = async (req, res) => {
+    try {
+        const { reason, images } = req.body;
+
+        const order = await Order.findOne({
+            _id: req.params.id,
+            user: req.user._id
+        });
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Không tìm thấy đơn hàng'
+            });
+        }
+
+        if (!order.canRequestReturn()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Chỉ có thể yêu cầu hoàn hàng khi đơn đã được giao thành công!'
+            });
+        }
+
+        if (order.returnRequest?.status && order.returnRequest.status !== 'rejected') {
+            return res.status(400).json({
+                success: false,
+                message: 'Yêu cầu hoàn hàng đã được gửi trước đó!'
+            });
+        }
+
+        order.status = ORDER_STATUS.RETURN_REQUESTED;
+        order.returnRequest = {
+            reason: reason || '',
+            images: images || [],
+            requestedAt: new Date(),
+            status: 'pending'
+        };
+        order.statusHistory.push({
+            status: ORDER_STATUS.RETURN_REQUESTED,
+            timestamp: new Date(),
+            note: `Khách yêu cầu hoàn hàng: ${reason || 'Không có lý do'}`
+        });
+
+        await order.save();
+
+        // Thông báo cho vendor/shop
+        if (order.shop) {
+            const shop = await Shop.findById(order.shop).select('owner name');
+            if (shop?.owner) {
+                await Notification.create({
+                    user: shop.owner,
+                    type: 'order',
+                    title: 'Yêu cầu hoàn hàng mới',
+                    body: `Đơn #${order.orderNumber} có yêu cầu hoàn hàng. Vui lòng xử lý.`,
+                    relatedId: order._id,
+                    relatedModel: 'Order',
+                    link: '/vendor/orders'
+                });
+            }
+        }
+
+        await notifyCustomerOrderStatus(order, ORDER_STATUS.RETURN_REQUESTED, {
+            message: 'Yêu cầu hoàn hàng đã được gửi. Vui lòng chờ shop xử lý.',
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Yêu cầu hoàn hàng đã được gửi thành công!',
+            data: order
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Lỗi khi gửi yêu cầu hoàn hàng',
+            error: error.message
+        });
+    }
+};
+
 // @desc    Customer confirms receipt of order
 // @route   PUT /api/orders/:id/confirm-received
 // @access  Private (Customer only)
@@ -1196,6 +1440,21 @@ const confirmReceived = async (req, res) => {
         await notifyCustomerOrderStatus(order, ORDER_STATUS.DELIVERED, {
             message: 'Bạn đã xác nhận nhận hàng thành công.',
         });
+
+        // Trigger payout cho vendor (xử lý bất đồng bộ)
+        console.log(`[confirmReceived] Da nhan hang don ${order.orderNumber} — trigger payout...`);
+        payoutService.payoutOrderToVendors(order._id)
+            .then(result => {
+                console.log(`[confirmReceived] ✅ Payout xu ly xong don ${order.orderNumber}:`, JSON.stringify({
+                    success: result.success,
+                    platformFee: result.platformFee,
+                    netRevenue: result.netRevenue,
+                    toVendor: result.totalToVendor,
+                }));
+            })
+            .catch(err => {
+                console.error(`[confirmReceived] ❌ Payout loi don ${order.orderNumber}:`, err.message);
+            });
 
         res.status(200).json({
             success: true,
@@ -1359,8 +1618,10 @@ module.exports = {
     updateOrderStatus,
     getAllOrders,
     processCancelRequest,
+    processReturn,
     autoConfirmOrders,
     confirmReceived,
+    requestReturn,
     getOrderStats,
     adminForceCancelOrder
 };

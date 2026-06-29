@@ -42,6 +42,7 @@ const STATUS_META = {
 };
 const TAB_DEFS = [
     { key: "all", label: "Tất cả" },
+    { key: "draft", label: "Nháp" },
     { key: "running", label: "Đang chạy" },
     { key: "scheduled", label: "Sắp diễn ra" },
     { key: "ended", label: "Đã kết thúc" },
@@ -270,9 +271,9 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
             <div className="flex gap-2.5 mt-5 pt-4 border-t border-[#EDE8E0]">
                 <button onClick={onClose} className="px-5 py-2.5 border border-[#EDE8E0] rounded-lg text-[14px] font-medium hover:bg-[#FAF7F4] transition-colors">Hủy</button>
                 <button onClick={() => submit("draft")} disabled={saving} className="px-5 py-2.5 text-[14px] font-medium text-[#6B5C4C] hover:bg-[#FAF7F4] rounded-lg transition-colors disabled:opacity-50">Lưu nháp</button>
-                <button onClick={() => submit(editing ? (editing.status || "running") : "running")} disabled={saving}
+                <button onClick={() => submit("running")} disabled={saving}
                     className="ml-auto px-5 py-2.5 bg-[#B86B05] text-white rounded-lg text-[14px] font-semibold hover:bg-[#95520B] shadow-sm shadow-[#B86B05]/20 transition-colors disabled:opacity-50">
-                    {saving ? "Đang lưu..." : editing ? "Lưu thay đổi" : "Kích hoạt ngay"}
+                    {saving ? "Đang lưu..." : editing?.status === "draft" ? "Đăng công khai" : editing ? "Lưu thay đổi" : "Kích hoạt ngay"}
                 </button>
             </div>
         </SlideOver>
@@ -410,6 +411,12 @@ const AdminPromotions = () => {
                                         )}
                                     </div>
                                     <div className="flex gap-2 shrink-0">
+                                        {p.status === "draft" && (
+                                            <button onClick={() => openEdit(p)}
+                                                className="px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg text-[12px] font-medium text-green-600 hover:bg-green-100 transition-all">
+                                                Đăng
+                                            </button>
+                                        )}
                                         <button onClick={() => openEdit(p)}
                                             className="px-3 py-1.5 border border-[#EDE8E0] rounded-lg text-[12px] font-medium text-[#6B5C4C] hover:border-[#B86B05] hover:text-[#B86B05] hover:bg-[#fffbeb] transition-all">
                                             Sửa

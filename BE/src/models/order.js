@@ -8,7 +8,8 @@ const ORDER_STATUS = {
     SHIPPING: 'shipping',                  // 4. Đang giao hàng
     DELIVERED: 'delivered',                // 5. Đã giao thành công
     CANCELLED: 'cancelled',                // 6. Hủy đơn hàng
-    CANCEL_REQUESTED: 'cancel_requested'   // 6b. Gửi yêu cầu hủy (khi đang ở bước 3)
+    CANCEL_REQUESTED: 'cancel_requested',  // 6b. Gửi yêu cầu hủy (khi đang ở bước 3)
+    RETURN_REQUESTED: 'return_requested'   // 7. Yêu cầu hoàn hàng (sau khi đã giao)
 };
 
 const orderSchema = new mongoose.Schema({
@@ -352,6 +353,53 @@ const orderSchema = new mongoose.Schema({
             default: 'pending'
         }
     },
+    // Yêu cầu hoàn hàng (sau khi đã giao thành công)
+    returnRequest: {
+        reason: {
+            type: String,
+            default: ''
+        },
+        images: {
+            type: [String],
+            default: []
+        },
+        requestedAt: {
+            type: Date
+        },
+        processedAt: {
+            type: Date
+        },
+        processedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        // Shop trả lời: approved = đồng ý hoàn, rejected = từ chối
+        status: {
+            type: String,
+            enum: ['pending', 'approved', 'rejected'],
+            default: 'pending'
+        },
+        // Lý do từ chối của shop (nếu rejected)
+        rejectionReason: {
+            type: String,
+            default: ''
+        },
+        // Sau khi approved, mã hoàn tiền / vận đơn hoàn
+        refundTransferCode: {
+            type: String,
+            default: null
+        },
+        refundTransferReason: {
+            type: String,
+            default: null
+        }
+    },
+    // Tracking cho flow hoàn hàng: khi shop approved → đơn chuyển sang RETURN_PENDING
+    // (chờ khách gửi hàng về → shop nhận hàng → hoàn tiền)
+    returnedAt: {
+        type: Date,
+        default: null
+    },
     // Thời điểm đặt hàng (để kiểm tra 30 phút)
     orderedAt: {
         type: Date,
@@ -400,7 +448,33 @@ const orderSchema = new mongoose.Schema({
         default: 0,
         min: 0,
     },
-    // Phí sàn đã thu (snapshot tại payout)
+    // ── Pre-calculated payout fields (snapshot tại thời điểm tạo đơn) ─────
+    // Doanh thu chịu phí = subtotal - couponDiscount
+    taxableRevenue: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    // % phí sàn áp dụng cho shop này (snapshot commissionRate từ Shop)
+    commissionRate: {
+        type: Number,
+        default: 2,
+        min: 0,
+        max: 100,
+    },
+    // Phí sàn = taxableRevenue × commissionRate
+    commissionAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    // Tiền vendor nhận = taxableRevenue - commissionAmount
+    vendorTakeHome: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    // Phí sàn đã thu (snapshot tại payout) — giữ lại để audit
     platformFeeAmount: {
         type: Number,
         default: 0,
@@ -589,6 +663,11 @@ orderSchema.methods.canRetryPayment = function() {
     if (this.status === ORDER_STATUS.CANCELLED) return false;
     if (this.isPaymentExpired()) return false;
     return true;
+};
+
+// Kiểm tra có thể gửi yêu cầu hoàn không (đã giao thành công)
+orderSchema.methods.canRequestReturn = function() {
+    return this.status === ORDER_STATUS.DELIVERED;
 };
 
 // Kiểm tra có thể xác nhận tự động không

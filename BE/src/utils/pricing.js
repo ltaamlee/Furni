@@ -1,8 +1,9 @@
 const Promotion = require('../models/promotion');
 
 // Loại khuyến mãi tự động giảm giá hiển thị (không cần nhập mã).
-// coupon = nhập mã khi thanh toán; bundle/gift/freeship = không giảm giá đơn sản phẩm.
-const AUTO_TYPES = ['flash_sale', 'coupon'];
+// coupon = nhập mã khi thanh toán — KHÔNG được đưa vào đây vì voucher cần customer chủ động áp dụng.
+// bundle/gift/freeship = không giảm giá đơn sản phẩm.
+const AUTO_TYPES = ['flash_sale'];
 
 const idStr = (v) => (v && v._id ? String(v._id) : v ? String(v) : '');
 
@@ -87,7 +88,7 @@ const attachPricing = async (products) => {
         if (best) {
             p.salePrice = best.salePrice;
             p.originalPrice = p.price;
-            p.discountPercent = Math.round((1 - best.salePrice / p.price) * 100);
+            p.discountPercent = Math.max(0, Math.round((1 - best.salePrice / p.price) * 100));
             p.promotion = { id: best.promotionId, name: best.promotionName, type: best.promotionType };
         } else {
             p.salePrice = null;

@@ -29,6 +29,9 @@ const {
     updateShippingConfig
 } = require('../controllers/vendorController');
 
+// processReturn comes from orderController (handles return requests)
+const { processReturn } = require('../controllers/orderController');
+
 // Tái sử dụng logic sản phẩm (đã tự gán shop + kiểm tra quyền theo vendor)
 const {
     createProduct,
@@ -97,6 +100,7 @@ router.delete('/blogs/:id', deleteBlog);
 router.get('/orders', getMyOrders);
 router.get('/orders/:id', getMyOrderDetail);
 router.put('/orders/:id/status', updateMyOrderStatus);
+router.put('/orders/:id/return', processReturn);
 
 // Khuyến mãi
 router.get('/promotions', getMyPromotions);

@@ -4,6 +4,7 @@ const VOUCHER_STATUS = {
     ACTIVE: 'active',       // Đang sử dụng được
     USED: 'used',           // Đã dùng cho 1 đơn hàng
     EXPIRED: 'expired',     // Hết hạn
+    REVOKED: 'revoked',     // Bị thu hồi (vendor/admin lưu nháp / xóa / tạm dừng)
 };
 
 // Loại voucher

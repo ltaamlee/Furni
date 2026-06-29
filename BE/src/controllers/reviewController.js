@@ -1,8 +1,8 @@
 const Review = require('../models/Review');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
-const Coupon = require('../models/Coupon');
 const mongoose = require('mongoose');
+const { refundWallet } = require('../services/walletService');
 
 const REVIEW_TYPE = require('../models/Review').TYPE || { PRODUCT: 'product', ORDER: 'order', SHOP: 'shop' };
 
@@ -111,24 +111,17 @@ const createReview = async (req, res) => {
             averageRating: Math.round(averageRating * 10) / 10
         });
 
-        // ── Reward user ─────────────────────────────────────────────
+        // ── Reward user: cộng tiền trực tiếp vào ví điện tử (không dùng voucher) ─
+        const REVIEW_REWARD_AMOUNT = 10000; // 10,000đ mỗi đánh giá >= 4 sao
         let reward = null;
 
         if (rating >= 4) {
-            const coupon = await Coupon.create({
-                code: `RATED-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
-                name: `Cảm ơn bạn đã đánh giá ${rating} sao!`,
-                description: 'Mã giảm giá từ việc đánh giá sản phẩm',
-                discountType: 'fixed',
-                value: 10000,
-                maxUses: 1,
-                perUserLimit: 1,
-                startDate: new Date(),
-                endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                isPublic: false
+            await refundWallet(userId, REVIEW_REWARD_AMOUNT, {
+                orderId: review._id,
+                orderNumber: order.orderNumber,
+                description: `Thưởng đánh giá ${rating} sao sản phẩm`,
             });
-            await Coupon.findByIdAndUpdate(coupon._id, { applicableProducts: [productId] });
-            reward = { type: 'coupon', code: coupon.code, value: coupon.value };
+            reward = { type: 'cashback', value: REVIEW_REWARD_AMOUNT };
         }
 
         const populatedReview = await Review.findById(review._id)

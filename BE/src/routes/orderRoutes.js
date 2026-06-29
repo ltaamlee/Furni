@@ -10,8 +10,10 @@ const {
     updateOrderStatus,
     getAllOrders,
     processCancelRequest,
+    processReturn,
     autoConfirmOrders,
     confirmReceived,
+    requestReturn,
     getOrderStats,
     adminForceCancelOrder,
     getAdminOrderById
@@ -28,12 +30,14 @@ router.get('/', protect, getUserOrders);
 router.get('/:id', protect, getOrderById);
 router.put('/:id/cancel', protect, cancelOrder);
 router.put('/:id/confirm-received', protect, confirmReceived);
+router.post('/:id/return-request', protect, requestReturn);
 
 // Admin/Vendor routes
 router.get('/admin/all', protect, authorize('admin', 'vendor'), getAllOrders);
 router.put('/:id/confirm', protect, authorize('admin', 'vendor'), confirmOrder);
 router.put('/:id/status', protect, authorize('admin', 'vendor'), updateOrderStatus);
 router.put('/:id/cancel-request', protect, authorize('admin'), processCancelRequest);
+router.put('/:id/return', protect, authorize('admin', 'vendor'), processReturn);
 router.post('/auto-confirm', protect, authorize('admin'), autoConfirmOrders);
 router.get('/admin/stats', protect, authorize('admin'), getOrderStats);
 router.put('/admin/:id/force-cancel', protect, authorize('admin'), adminForceCancelOrder);

@@ -120,7 +120,7 @@ const ProductCard = ({ product, onAddToCart, wishlist = [] }) => {
                 <div className="absolute top-3 left-3 flex flex-col gap-2">
                     {(product.discountPercent > 0 || (product.discount > 0 && product.salePrice != null)) && (
                         <span className="bg-[#B86B05] text-white text-xs px-2 py-1 rounded-full font-semibold">
-                            -{product.discountPercent || product.discount}%
+                            -{Math.max(0, product.discountPercent || product.discount || 0)}%
                         </span>
                     )}
                     {product.sold > 10 && (

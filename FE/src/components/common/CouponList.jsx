@@ -5,9 +5,9 @@ import { useToast } from "../context/ToastContext";
 const CouponList = () => {
     const { showToast } = useToast();
     const [vouchers, setVouchers] = useState([]);
-    const [counts, setCounts] = useState({ active: 0, used: 0, expired: 0, total: 0 });
+    const [counts, setCounts] = useState({ active: 0, used: 0, expired: 0, revoked: 0, total: 0 });
     const [loading, setLoading] = useState(true);
-    const [tab, setTab] = useState("active"); // active | used | expired
+    const [tab, setTab] = useState("active"); // active | used | expired | revoked
 
     useEffect(() => {
         fetchVouchers();
@@ -73,6 +73,7 @@ const CouponList = () => {
             active: counts.active,
             used: counts.used,
             expired: counts.expired,
+            revoked: counts.revoked,
         };
         const count = countMap[tabKey] ?? 0;
         return (
@@ -104,23 +105,30 @@ const CouponList = () => {
                 {getTabBadge("active", "Có thể dùng", "🎟️")}
                 {getTabBadge("used", "Đã sử dụng", "✅")}
                 {getTabBadge("expired", "Hết hạn", "⏰")}
+                {counts.revoked > 0 && getTabBadge("revoked", "Đã thu hồi", "🚫")}
             </div>
 
             {/* Summary bar */}
             {counts.total > 0 && (
-                <div className="bg-[#FAF7F4] rounded-xl p-3 flex items-center gap-4 text-xs text-[#6B5C4C]">
-                    <span className="flex items-center gap-1">
+                <div className="bg-[#FAF7F4] rounded-xl p-3 flex items-center gap-4 text-xs text-[#6B5C4C] overflow-x-auto">
+                    <span className="flex items-center gap-1 shrink-0">
                         <span className="w-2 h-2 bg-green-500 rounded-full" />
                         Có thể dùng: <strong className="text-[#1C1108]">{counts.active}</strong>
                     </span>
-                    <span className="flex items-center gap-1">
+                    <span className="flex items-center gap-1 shrink-0">
                         <span className="w-2 h-2 bg-gray-400 rounded-full" />
                         Đã dùng: <strong className="text-[#1C1108]">{counts.used}</strong>
                     </span>
-                    <span className="flex items-center gap-1">
+                    <span className="flex items-center gap-1 shrink-0">
                         <span className="w-2 h-2 bg-red-400 rounded-full" />
                         Hết hạn: <strong className="text-[#1C1108]">{counts.expired}</strong>
                     </span>
+                    {counts.revoked > 0 && (
+                        <span className="flex items-center gap-1 shrink-0">
+                            <span className="w-2 h-2 bg-yellow-400 rounded-full" />
+                            Thu hồi: <strong className="text-[#1C1108]">{counts.revoked}</strong>
+                        </span>
+                    )}
                 </div>
             )}
 
@@ -132,11 +140,12 @@ const CouponList = () => {
             ) : vouchers.length === 0 ? (
                 <div className="bg-white rounded-2xl p-12 text-center border border-[#EDE8E0]">
                     <div className="text-5xl mb-4 select-none">
-                        {tab === "active" ? "🎟️" : tab === "used" ? "📦" : "⏰"}
+                        {tab === "active" ? "🎟️" : tab === "used" ? "📦" : tab === "revoked" ? "🚫" : "⏰"}
                     </div>
                     <h3 className="text-lg font-bold text-[#1C1108] mb-2">
                         {tab === "active" ? "Chưa có voucher nào" :
                          tab === "used" ? "Chưa có voucher nào được sử dụng" :
+                         tab === "revoked" ? "Không có voucher nào bị thu hồi" :
                          "Không có voucher hết hạn"}
                     </h3>
                     <p className="text-sm text-[#A8896A]">
@@ -155,12 +164,13 @@ const CouponList = () => {
                     {vouchers.map((v) => {
                         const expired = isExpired(v.endDate);
                         const used = v.status === 'used';
+                        const revoked = v.status === 'revoked';
                         const discountType = v.discountType || v.type;
                         return (
                             <div
                                 key={v._id}
                                 className={`bg-white rounded-2xl border-2 overflow-hidden flex ${getBorderColor(v)} ${
-                                    (expired || used) ? "opacity-60" : ""
+                                    (expired || used || revoked) ? "opacity-60" : ""
                                 }`}
                             >
                                 {/* Left: discount value */}
@@ -195,7 +205,9 @@ const CouponList = () => {
                                                 </p>
                                             </div>
                                             <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                expired
+                                                revoked
+                                                    ? "bg-yellow-50 text-yellow-600"
+                                                    : expired
                                                     ? "bg-red-50 text-red-500"
                                                     : v.isExhausted
                                                     ? "bg-orange-50 text-orange-500"
@@ -203,7 +215,7 @@ const CouponList = () => {
                                                     ? "bg-gray-100 text-gray-500"
                                                     : "bg-green-50 text-green-600"
                                             }`}>
-                                                {expired ? "Hết hạn" : v.isExhausted ? "Hết lượt" : used ? "Đã dùng" : "Còn hiệu lực"}
+                                                {revoked ? "Đã thu hồi" : expired ? "Hết hạn" : v.isExhausted ? "Hết lượt" : used ? "Đã dùng" : "Còn hiệu lực"}
                                             </span>
                                         </div>
 
@@ -220,10 +232,12 @@ const CouponList = () => {
                                         </div>
                                     </div>
 
-                                    {(expired || used) && (
+                                    {(expired || used || revoked) && (
                                         <p className="text-[10px] text-[#A8896A] mt-1 italic">
                                             {used
                                                 ? `Đã sử dụng ngày ${formatDate(v.usedAt)}`
+                                                : revoked
+                                                ? "Voucher đã bị thu hồi bởi shop"
                                                 : `Hết hạn ngày ${formatDate(v.endDate)}`
                                             }
                                         </p>
