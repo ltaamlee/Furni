@@ -268,14 +268,16 @@ const pickPromoFields = (body) => {
 
 const normalizeCouponCode = (code) => (code || '').trim().toUpperCase();
 
-const generateVendorCouponCode = async () => {
+const generateVendorCouponCode = async (shopCode) => {
+    // Tạo prefix từ mã viết tắt của shop (VD: "MOCAN" thay vì "SORA")
+    const prefix = (shopCode || 'SHOP').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 5);
     for (let i = 0; i < 8; i += 1) {
         const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
-        const couponCode = `SORA${randomCode}`;
+        const couponCode = `${prefix}${randomCode}`;
         const exists = await Coupon.exists({ code: couponCode });
         if (!exists) return couponCode;
     }
-    return `SORA${Date.now().toString(36).toUpperCase().slice(-6)}`;
+    return `${prefix}${Date.now().toString(36).toUpperCase().slice(-6)}`;
 };
 
 const couponActiveFromPromotion = (promotion) => (
@@ -302,7 +304,7 @@ const couponPayloadFromPromotion = (promotion, shopId) => ({
     isActive: couponActiveFromPromotion(promotion),
 });
 
-const syncCouponForPromotion = async (promotion, shopId, requestedCode) => {
+const syncCouponForPromotion = async (promotion, shopId, requestedCode, shopCode) => {
     const coupon = await Coupon.findOne({ promotion: promotion._id });
 
     const shouldBeActive = VOUCHER_PROMOTION_TYPES.includes(promotion.type)
@@ -331,6 +333,13 @@ const syncCouponForPromotion = async (promotion, shopId, requestedCode) => {
         }
         Object.assign(coupon, payload);
         await coupon.save();
+
+        // Nếu coupon được kích hoạt lại, xoá các VoucherWallet bị revoked/expired
+        // để khách hàng có thể claim lại (unique index sẽ cho phép tạo record mới)
+        if (coupon.isActive && payload.isActive) {
+            await VoucherWallet.deleteMany({ coupon: coupon._id });
+        }
+
         // Đồng bộ usedCount về Promotion để progress bar vendor đúng
         if (coupon.usedCount !== promotion.usedCount) {
             await Promotion.findByIdAndUpdate(promotion._id, { usedCount: coupon.usedCount });
@@ -338,7 +347,7 @@ const syncCouponForPromotion = async (promotion, shopId, requestedCode) => {
         return coupon;
     }
 
-    const code = promoCode || await generateVendorCouponCode();
+    const code = promoCode || await generateVendorCouponCode(shopCode);
     const existing = await Coupon.findOne({ code });
     if (existing) throw new Error('Mã voucher này đã tồn tại!');
 
@@ -590,7 +599,7 @@ const createPromotion = async (req, res) => {
         // Sync lifecycle status để chuyển DRAFT → RUNNING nếu thời gian phù hợp
         await Promotion.syncLifecycleStatuses({ _id: promotion._id });
         promotion = await Promotion.findById(promotion._id);
-        await syncCouponForPromotion(promotion, shop._id, requestedCouponCode);
+        await syncCouponForPromotion(promotion, shop._id, requestedCouponCode, shop.code);
         promotion = await populatePromotion(Promotion.findById(promotion._id));
 
         res.status(201).json({ success: true, message: 'Tạo khuyến mãi thành công', data: { promotion } });
@@ -630,7 +639,7 @@ const updatePromotion = async (req, res) => {
 
         Object.assign(promotion, data);
         await promotion.save();
-        await syncCouponForPromotion(promotion, shop._id, requestedCouponCode);
+        await syncCouponForPromotion(promotion, shop._id, requestedCouponCode, shop.code);
         const populated = await populatePromotion(Promotion.findById(promotion._id));
 
         res.status(200).json({ success: true, message: 'Cập nhật khuyến mãi thành công', data: { promotion: populated } });
@@ -916,16 +925,18 @@ const updateMyOrderStatus = async (req, res) => {
         }
         await order.save();
 
-        let payoutResult = null;
+        // Payout chạy nền, không block trạng thái đơn hàng
         if (status === ORDER_STATUS.DELIVERED) {
-            payoutResult = await payoutService.payoutOrderToVendors(order._id);
+            payoutService.payoutOrderToVendors(order._id).catch(err => {
+                console.error(`[Payout] Background payout failed for order ${order._id}:`, err.message);
+            });
         }
         await notifyCustomerOrderStatus(order, status, {
             message: status === ORDER_STATUS.CANCELLED ? 'Shop đã hủy đơn hàng.' : undefined,
             refundedAmount: refundResult?.amount || 0,
         });
 
-        res.status(200).json({ success: true, message: 'Cập nhật trạng thái thành công', data: { status: order.status, shippingProvider: order.shippingProvider, payout: payoutResult } });
+        res.status(200).json({ success: true, message: 'Cập nhật trạng thái thành công', data: { status: order.status, shippingProvider: order.shippingProvider } });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi khi cập nhật trạng thái', error: error.message });
     }

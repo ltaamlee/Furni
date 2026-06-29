@@ -266,14 +266,16 @@ const CheckoutPage = () => {
 
   // ── Shop-level modals (must be before any return / JSX) ──
   const [shippingModal, setShippingModal] = useState({ open: false, shopId: null });
-  const [shopVoucherModal, setShopVoucherModal] = useState({ open: false, shopId: null });
+  const [shopVoucherModal, setShopVoucherModal] = useState({ open: false, shopId: null, tab: "discount" });
   const [shopProductCoupons, setShopProductCoupons] = useState({});
+  const [shopShippingCoupons, setShopShippingCoupons] = useState({});
   const [shopNotes, setShopNotes] = useState({});
 
   const openShippingModal = (shopId) => setShippingModal({ open: true, shopId });
   const closeShippingModal = () => setShippingModal({ open: false, shopId: null });
-  const openShopVoucherModal = (shopId) => setShopVoucherModal({ open: true, shopId });
-  const closeShopVoucherModal = () => setShopVoucherModal({ open: false, shopId: null });
+  const openShopVoucherModal = (shopId) => setShopVoucherModal({ open: true, shopId, tab: "discount" });
+  const closeShopVoucherModal = () => setShopVoucherModal({ open: false, shopId: null, tab: "discount" });
+  const setShopVoucherTab = (tab) => setShopVoucherModal(prev => ({ ...prev, tab }));
 
   const handleSelectShopProductVoucher = async (voucher, shopId) => {
     const unavailableReason = getVoucherUnavailableReason(voucher, shopId);
@@ -283,7 +285,14 @@ const CheckoutPage = () => {
     }
 
     try {
-      // 1. Validate voucher
+      if (voucher.discountType === 'freeship') {
+        setShopShippingCoupons(prev => ({ ...prev, [shopId]: voucher }));
+        showToast(`Áp dụng voucher miễn phí vận chuyển thành công!`, "success");
+        closeShopVoucherModal();
+        return;
+      }
+
+      // Validate discount voucher
       const shopData = checkout?.shops?.find(s => s.shopId === shopId);
       const shopItems = shopData?.items || [];
       const shopSubtotal = shopItems.reduce((sum, item) => sum + (item.salePrice || 0) * (item.quantity || 1), 0);
@@ -310,6 +319,14 @@ const CheckoutPage = () => {
 
   const handleRemoveShopProductCoupon = (shopId) => {
     setShopProductCoupons(prev => {
+      const next = { ...prev };
+      delete next[shopId];
+      return next;
+    });
+  };
+
+  const handleRemoveShopShippingCoupon = (shopId) => {
+    setShopShippingCoupons(prev => {
       const next = { ...prev };
       delete next[shopId];
       return next;
@@ -576,42 +593,65 @@ const CheckoutPage = () => {
         const all = res.data || [];
         setAvailableVouchers(all);
 
-        const usable = all.filter(v =>
-          !v.isUsed && !v.isExpired && getVoucherApplicableTotal(v) > 0 && (!v.minOrderValue || getVoucherApplicableTotal(v) >= v.minOrderValue)
-        );
+        const now = Date.now();
+        const usable = all.filter(v => {
+          if (v.isUsed || v.isExpired) return false;
+          // Backend đã filter isActive, usageLimit, startDate → FE chỉ cần check các trường có trong response
+          if (v.isActive === false) return false;
+          if (v.usageLimit > 0 && (v.usedCount || 0) >= v.usageLimit) return false;
+          if (v.startDate && new Date(v.startDate).getTime() > now) return false;
+          const applicableTotal = getVoucherApplicableTotal(v);
+          if (applicableTotal <= 0) return false;
+          if (v.minOrderValue > 0 && applicableTotal < v.minOrderValue) return false;
+          return true;
+        });
 
-        const productVouchers = usable.filter(v => v.discountType !== 'freeship');
-        const shippingVouchers = usable.filter(v => v.discountType === 'freeship');
+        // Platform-only vouchers (không thuộc shop nào) cho phần "Mã giảm giá Sora"
+        const platformVouchers = usable.filter(v => !v.shopId);
+        // Shop vouchers cho phần per-shop
+        const shopVouchers = usable.filter(v => !!v.shopId);
 
-        const autoSelect = (list) => {
+        const platformProductVouchers = platformVouchers.filter(v => v.discountType !== 'freeship');
+        const platformShippingVouchers = platformVouchers.filter(v => v.discountType === 'freeship');
+
+        const autoSelect = (list, discountType) => {
           if (list.length === 0) return null;
           return list.reduce((best, v) => {
             const applicableTotal = getVoucherApplicableTotal(v);
             const bestApplicableTotal = getVoucherApplicableTotal(best);
-            const eff = v.discountType === 'percent'
-              ? Math.min(applicableTotal * v.value / 100, v.maxDiscount || Infinity)
-              : Math.min(v.value, applicableTotal);
-            const bestEff = best.discountType === 'percent'
-              ? Math.min(bestApplicableTotal * best.value / 100, best.maxDiscount || Infinity)
-              : Math.min(best.value, bestApplicableTotal);
+            let eff, bestEff;
+            if (discountType === 'freeship') {
+              // Freeship: so sánh theo shipping fee tiết kiệm được (dùng fee lớn nhất trong các shop)
+              eff = Infinity;
+              bestEff = Infinity;
+            } else if (v.discountType === 'percent') {
+              eff = Math.min(applicableTotal * v.value / 100, v.maxDiscount || Infinity);
+            } else {
+              eff = Math.min(v.value, applicableTotal);
+            }
+            if (best.discountType === 'percent') {
+              bestEff = Math.min(bestApplicableTotal * best.value / 100, best.maxDiscount || Infinity);
+            } else {
+              bestEff = Math.min(best.value, bestApplicableTotal);
+            }
             return eff > bestEff ? v : best;
           }, list[0]);
         };
 
-        const bestProduct = autoSelect(productVouchers);
-        const bestShipping = autoSelect(shippingVouchers);
+        const bestPlatformProduct = autoSelect(platformProductVouchers, 'product');
+        const bestPlatformShipping = autoSelect(platformShippingVouchers, 'freeship');
 
-        if (bestProduct) {
-          const applicableTotal = getVoucherApplicableTotal(bestProduct);
-          const eff = bestProduct.discountType === 'percent'
-            ? Math.min(applicableTotal * bestProduct.value / 100, bestProduct.maxDiscount || Infinity)
-            : Math.min(bestProduct.value, applicableTotal);
-          setSelectedProductCoupon(bestProduct);
+        if (bestPlatformProduct) {
+          const applicableTotal = getVoucherApplicableTotal(bestPlatformProduct);
+          const eff = bestPlatformProduct.discountType === 'percent'
+            ? Math.min(applicableTotal * bestPlatformProduct.value / 100, bestPlatformProduct.maxDiscount || Infinity)
+            : Math.min(bestPlatformProduct.value, applicableTotal);
+          setSelectedProductCoupon(bestPlatformProduct);
           setProductCouponDiscount(Math.round(eff >= Infinity ? 0 : eff));
         }
 
-        if (bestShipping) {
-          setSelectedShippingCoupon(bestShipping);
+        if (bestPlatformShipping) {
+          setSelectedShippingCoupon(bestPlatformShipping);
         }
       }
     } catch (error) {
@@ -670,6 +710,7 @@ const CheckoutPage = () => {
   const handleRemoveProductCoupon = () => {
     setSelectedProductCoupon(null);
     setProductCouponDiscount(0);
+    localStorage.removeItem('checkout_coupon');
   };
 
   const handleRemoveShippingCoupon = () => {
@@ -959,6 +1000,11 @@ const CheckoutPage = () => {
             .filter(([, code]) => Boolean(code))
         ),
         selectedShippingCoupon: selectedShippingCoupon ? true : null,
+        shopShippingCouponCodes: Object.fromEntries(
+          Object.entries(shopShippingCoupons)
+            .map(([shopId, voucher]) => [shopId, voucher?.code])
+            .filter(([, code]) => Boolean(code))
+        ),
         // Dùng checkout preview items
         ...(isBuyNow
           ? { items: orderItems }
@@ -1033,10 +1079,15 @@ const CheckoutPage = () => {
     ? checkout.shops.reduce((sum, shop) => sum + (computedShippingFeesByShop[shop.shopId] || 0), 0)
     : 0;
 
+  // Count how many shops have freeship coupon applied
+  const shopsWithShippingCoupon = Object.keys(shopShippingCoupons).length;
+  const allShopsHaveShippingCoupon = (checkout?.shops || []).every(s => shopShippingCoupons[s.shopId]);
+
   // ── Global computed values (must be after all useMemo / useRef) ──
   const totalProductCouponDiscount = Object.values(shopProductCoupons).reduce((sum, v) => sum + (v.discount || 0), 0) + productCouponDiscount;
   const totalBeforeShipping = selectedSubtotal - totalProductCouponDiscount;
-  const effectiveShippingFee = selectedShippingCoupon ? 0 : shippingFee;
+  // effectiveShippingFee: only 0 if platform freeship OR ALL shops have shop freeship coupon
+  const effectiveShippingFee = selectedShippingCoupon ? 0 : (allShopsHaveShippingCoupon ? 0 : shippingFee);
   const grandTotal = Math.max(0, totalBeforeShipping + effectiveShippingFee);
   const availableWalletBalance = Math.max(0, Number(walletBalance) || 0);
   const walletCoversOrder = availableWalletBalance >= grandTotal && grandTotal > 0;
@@ -1150,7 +1201,9 @@ const CheckoutPage = () => {
               const shopShippingFee = selectedFee?.fee || shop.shippingFee || 0;
               const shopCouponData = shopProductCoupons[shopId];
               const shopDiscount = shopCouponData?.discount || 0;
-              const shopTotal = Math.max(0, shopProductSubtotal + shopShippingFee - shopDiscount);
+              const shopHasShippingCoupon = !!shopShippingCoupons[shopId];
+              const shopEffectiveShippingFee = shopHasShippingCoupon ? 0 : shopShippingFee;
+              const shopTotal = Math.max(0, shopProductSubtotal + shopEffectiveShippingFee - shopDiscount);
 
               return (
                 <div key={shopId} className={cardClass}>
@@ -1205,27 +1258,48 @@ const CheckoutPage = () => {
                       {!shopSel ? (
                         <span className="text-red-500">Chọn phương thức giao hàng</span>
                       ) : (
-                        <><span>{selectedFee?.provider.name} – {selectedFee?.serviceName}</span><span className="font-bold">{formatPrice(selectedFee?.fee || 0)}</span></>
+                        <><span>{selectedFee?.provider.name} – {selectedFee?.serviceName}</span><span className="font-bold">{shopHasShippingCoupon ? <span className="text-[#16a34a]">Miễn phí</span> : formatPrice(selectedFee?.fee || 0)}</span></>
                       )}
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                     </button>
                   </div>
 
-                  <div className="px-4 py-3 border-t border-[#EDE8E0] flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-[12.5px] text-[#6B5C4C]">
-                      <svg className="w-4 h-4 text-[#9E8E7E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
-                      <span>Voucher của {shop.shopName}</span>
-                    </div>
-                    {shopCouponData ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[12px] font-bold text-[#16a34a]">{shopCouponData.coupon.code} · -{formatPrice(shopDiscount)}</span>
-                        <button onClick={() => handleRemoveShopProductCoupon(shopId)} className="text-[#9E8E7E] hover:text-red-500"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                  <div className="px-4 py-3 border-t border-[#EDE8E0]">
+                    {/* Voucher discount */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-[12.5px] text-[#6B5C4C]">
+                        <svg className="w-4 h-4 text-[#9E8E7E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+                        <span>Voucher giảm giá</span>
                       </div>
-                    ) : (
-                      <button onClick={() => openShopVoucherModal(shopId)} className="text-[12.5px] font-semibold text-[#95520B] hover:underline flex items-center gap-1">
-                        Chọn voucher<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                      </button>
-                    )}
+                      {shopCouponData ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[12px] font-bold text-[#16a34a]">{shopCouponData.coupon.code} · -{formatPrice(shopDiscount)}</span>
+                          <button onClick={() => handleRemoveShopProductCoupon(shopId)} className="text-[#9E8E7E] hover:text-red-500"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                        </div>
+                      ) : (
+                        <button onClick={() => openShopVoucherModal(shopId)} className="text-[12.5px] font-semibold text-[#95520B] hover:underline flex items-center gap-1">
+                          Chọn voucher<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Voucher freeship */}
+                    <div className="flex items-center justify-between mt-2.5">
+                      <div className="flex items-center gap-2 text-[12.5px] text-[#6B5C4C]">
+                        <svg className="w-4 h-4 text-[#9E8E7E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg>
+                        <span>Voucher freeship</span>
+                      </div>
+                      {shopShippingCoupons[shopId] ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[12px] font-bold text-blue-600">{shopShippingCoupons[shopId].code} · Freeship</span>
+                          <button onClick={() => handleRemoveShopShippingCoupon(shopId)} className="text-[#9E8E7E] hover:text-red-500"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                        </div>
+                      ) : (
+                        <button onClick={() => openShopVoucherModal(shopId)} className="text-[12.5px] font-semibold text-blue-600 hover:underline flex items-center gap-1">
+                          Chọn voucher<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="px-4 py-3 border-t border-[#EDE8E0] flex items-center justify-end gap-3 bg-[#FAF7F4]">
@@ -1253,7 +1327,11 @@ const CheckoutPage = () => {
                     <div className="w-7 h-7 bg-[#95520B] rounded-lg flex items-center justify-center"><svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg></div>
                     {selectedProductCoupon && <div><p className="font-bold text-[12px] text-[#95520B]">{selectedProductCoupon.code}</p><p className="text-[11px] text-[#6B5C4C]">Giảm {formatPrice(productCouponDiscount)}</p></div>}
                     {selectedShippingCoupon && <div><p className="font-bold text-[12px] text-blue-600">{selectedShippingCoupon.code}</p><p className="text-[11px] text-blue-500">Miễn phí vận chuyển</p></div>}
-                    <button onClick={() => { setSelectedProductCoupon(null); setSelectedShippingCoupon(null); }} className="ml-auto text-[#9E8E7E] hover:text-red-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                    <button onClick={() => {
+                      if (selectedShippingCoupon) handleRemoveShippingCoupon();
+                      else handleRemoveProductCoupon();
+                      localStorage.removeItem('checkout_coupon');
+                    }} className="ml-auto text-[#9E8E7E] hover:text-red-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                   </div>
                 )}
               </div>
@@ -1325,8 +1403,10 @@ const CheckoutPage = () => {
 
                 <div className="space-y-2.5 text-[13px] border-t border-[#EDE8E0] pt-4">
                   <div className="flex justify-between"><span className="text-[#6B5C4C]">Tạm tính</span><span className="font-semibold text-[#1C1108]">{formatPrice(selectedSubtotal)}</span></div>
-                  {productCouponDiscount > 0 && <div className="flex justify-between text-[#16a34a]"><span>Giảm giá</span><span className="font-semibold">-{formatPrice(productCouponDiscount)}</span></div>}
+                  {totalProductCouponDiscount > 0 && <div className="flex justify-between text-[#16a34a]"><span>Giảm giá</span><span className="font-semibold">-{formatPrice(totalProductCouponDiscount)}</span></div>}
+                  {totalProductCouponDiscount === 0 && shopProductCoupons && Object.keys(shopProductCoupons).length > 0 && Object.values(shopProductCoupons).some(v => v.discount > 0) && <div className="flex justify-between text-[#16a34a]"><span>Giảm giá Shop</span><span className="font-semibold">-{formatPrice(Object.values(shopProductCoupons).reduce((s, v) => s + (v.discount || 0), 0))}</span></div>}
                   {selectedShippingCoupon && <div className="flex justify-between text-blue-600"><span>Miễn phí ship</span><span className="font-semibold">-{formatPrice(shippingFee)}</span></div>}
+                  {!selectedShippingCoupon && shopsWithShippingCoupon > 0 && <div className="flex justify-between text-blue-600"><span>Miễn phí ship ({shopsWithShippingCoupon} shop)</span><span className="font-semibold">-{formatPrice(shippingFee)}</span></div>}
                   <div className="flex justify-between"><span className="text-[#6B5C4C]">Phí vận chuyển</span><span className="font-semibold text-[#1C1108]">{effectiveShippingFee === 0 ? <span className="text-[#16a34a]">Miễn phí</span> : formatPrice(effectiveShippingFee)}</span></div>
                   {walletDiscountAmount > 0 && <div className="flex justify-between text-[#16a34a]"><span>Ví SORA</span><span className="font-semibold">-{formatPrice(walletDiscountAmount)}</span></div>}
                   <div className="border-t border-[#EDE8E0] pt-3 flex justify-between items-center">
@@ -1382,47 +1462,17 @@ const CheckoutPage = () => {
         </div>
       )}
 
-      {/* ── Shop voucher modal ── */}
-      {shopVoucherModal.open && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={closeShopVoucherModal} />
-          <div className="relative bg-white w-full sm:max-w-md rounded-t-[16px] sm:rounded-[16px] max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#EDE8E0]">
-              <h3 className="text-[15px] font-bold text-[#1C1108]">Voucher của {checkout?.shops?.find(s => s.shopId === shopVoucherModal.shopId)?.shopName || 'shop'}</h3>
-              <button onClick={closeShopVoucherModal} className="text-[#9E8E7E] hover:text-[#1C1108]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              {availableVouchers.filter(v => v.discountType !== 'freeship' && String(v.shopId || '') === String(shopVoucherModal.shopId)).length === 0 ? (
-                <p className="text-center text-[13px] text-[#9E8E7E] py-6">Không có voucher nào của {checkout?.shops?.find(s => s.shopId === shopVoucherModal.shopId)?.shopName || 'shop'} này</p>
-              ) : (
-                availableVouchers.filter(v => v.discountType !== 'freeship' && String(v.shopId || '') === String(shopVoucherModal.shopId)).map(v => {
-                  const unavailableReason = getVoucherUnavailableReason(v, shopVoucherModal.shopId);
-                  const disabled = Boolean(unavailableReason);
-
-                  return (
-                    <div
-                      key={v._id || v.code}
-                      onClick={() => !disabled && handleSelectShopProductVoucher(v, shopVoucherModal.shopId)}
-                      className={`flex items-center gap-3 p-4 rounded-[10px] border-2 transition-all mb-2 ${
-                        disabled
-                          ? "border-[#EDE8E0] bg-[#F5F1EC] opacity-55 cursor-not-allowed"
-                          : "border-[#EDE8E0] bg-white hover:border-[#95520B] cursor-pointer"
-                      }`}
-                    >
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${disabled ? "bg-[#CBBEAF]" : "bg-[#95520B]"}`}><span className="text-white font-extrabold text-[13px]">%</span></div>
-                      <div className="flex-1">
-                        <p className={`font-bold text-[13px] ${disabled ? "text-[#7D7064]" : "text-[#1C1108]"}`}>{v.code}</p>
-                        <p className={`text-[11.5px] ${disabled ? "text-[#9E8E7E]" : "text-[#6B5C4C]"}`}>{v.discountType === 'percent' ? `Giảm ${v.value}%` : `Giảm ${formatPrice(v.value)}`}{v.minOrderValue ? ` • Đơn từ ${formatPrice(v.minOrderValue)}` : ''}</p>
-                        {disabled && <p className="text-[11px] font-semibold text-[#A16207] mt-1">{unavailableReason}</p>}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Shop voucher modal (reuse VoucherModal for beautiful design) ── */}
+      <VoucherModal
+        isOpen={shopVoucherModal.open}
+        onClose={closeShopVoucherModal}
+        availableVouchers={availableVouchers.filter(v => String(v.shopId || '') === String(shopVoucherModal.shopId))}
+        selectedVoucher={shopVoucherModal.tab === "freeship" ? shopShippingCoupons[shopVoucherModal.shopId] || null : (shopProductCoupons[shopVoucherModal.shopId]?.coupon || null)}
+        getUnavailableReason={(v) => getVoucherUnavailableReason(v, shopVoucherModal.shopId)}
+        onSelectVoucher={(voucher) => handleSelectShopProductVoucher(voucher, shopVoucherModal.shopId)}
+        shopTab={shopVoucherModal.tab}
+        onShopTabChange={setShopVoucherTab}
+      />
 
       {/* ── Address picker modal ── */}
       {showAddressPicker && (

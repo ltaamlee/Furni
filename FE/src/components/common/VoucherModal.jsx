@@ -7,15 +7,20 @@ const VoucherModal = ({
   onSelectVoucher,
   selectedVoucher,
   getUnavailableReason = () => "",
+  shopTab: externalShopTab,
+  onShopTabChange: externalOnShopTabChange,
 }) => {
   const [loading, setLoading] = useState(false);
-  const [platformTab, setPlatformTab] = useState("discount"); // "discount" | "freeship"
-  const [shopTab, setShopTab] = useState("discount");       // "discount" | "freeship"
+  const [platformTab, setPlatformTab] = useState("discount");
+  const [internalShopTab, setInternalShopTab] = useState("discount");
+
+  const shopTab = externalShopTab !== undefined ? externalShopTab : internalShopTab;
+  const setShopTab = externalOnShopTabChange || setInternalShopTab;
 
   useEffect(() => {
     if (isOpen) {
       setPlatformTab("discount");
-      setShopTab("discount");
+      setInternalShopTab("discount");
     }
   }, [isOpen]);
 
@@ -28,10 +33,16 @@ const VoucherModal = ({
   const platformVouchers = availableVouchers?.filter(v => !v.shopId) || [];
   const shopVouchers     = availableVouchers?.filter(v => !!v.shopId) || [];
 
+  // Nhóm shop vouchers theo shopName để hiển thị từng shop riêng
+  const shopGroups = shopVouchers.reduce((groups, v) => {
+    const key = v.shopName || 'Cửa hàng';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(v);
+    return groups;
+  }, {});
+
   const platformDiscount = platformVouchers.filter(v => v.discountType !== 'freeship');
   const platformFreeship  = platformVouchers.filter(v => v.discountType === 'freeship');
-  const shopDiscount     = shopVouchers.filter(v => v.discountType !== 'freeship');
-  const shopFreeship     = shopVouchers.filter(v => v.discountType === 'freeship');
 
   const handleSelect = async (voucher) => {
     if (getUnavailableReason(voucher)) return;
@@ -78,13 +89,19 @@ const VoucherModal = ({
         <div className="flex gap-3">
           <div className={`w-20 h-20 bg-gradient-to-br ${disabled ? "from-gray-300 to-gray-400" : gradient} rounded-xl flex flex-col items-center justify-center text-white shadow-lg shrink-0`}>
             {isFreeship ? (
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-              </svg>
+              <>
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                </svg>
+                <span className="text-[10px] font-bold mt-1">FREESHIP</span>
+              </>
+            ) : voucher.discountType === 'percent' ? (
+              <span className="text-lg font-bold">-{voucher.value}%</span>
             ) : (
-              <span className="text-lg font-bold">
-                {voucher.discountType === 'percent' ? `-${voucher.value}%` : formatPrice(voucher.value)}
-              </span>
+              <>
+                <span className="text-lg font-bold">{formatPrice(voucher.value)}</span>
+                <span className="text-[10px] font-medium opacity-80">GIẢM</span>
+              </>
             )}
           </div>
 
@@ -128,16 +145,21 @@ const VoucherModal = ({
 
     if (totalCount === 0) return null;
 
+    // title === null có nghĩa là header đã được render bởi parent (VD: shop group)
+    const showHeader = title !== null;
+
     return (
       <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-gray-700">{title}</span>
-          <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-            title.includes("Sàn") ? "bg-indigo-50 text-indigo-500" : "bg-orange-50 text-orange-500"
-          }`}>
-            {totalCount}
-          </span>
-        </div>
+        {showHeader && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-700">{title}</span>
+            <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+              (title || '').includes("Sora") ? "bg-indigo-50 text-indigo-500" : "bg-orange-50 text-orange-500"
+            }`}>
+              {totalCount}
+            </span>
+          </div>
+        )}
 
         {/* Tab: Giảm giá / Miễn phí vận chuyển */}
         <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm">
@@ -206,8 +228,18 @@ const VoucherModal = ({
             </div>
           )}
 
-          {renderSection("Mã giảm giá của Sàn", platformVouchers.length, platformVouchers, platformTab, setPlatformTab)}
-          {renderSection("Mã giảm giá của Shop", shopVouchers.length, shopVouchers, shopTab, setShopTab)}
+          {renderSection("Mã giảm giá của Sora", platformVouchers.length, platformVouchers, platformTab, setPlatformTab)}
+          {Object.entries(shopGroups).map(([shopName, vouchers]) => (
+            <div key={shopName} className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-700">{shopName}</span>
+                <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-orange-50 text-orange-500">
+                  {vouchers.length}
+                </span>
+              </div>
+              {renderSection(null, vouchers.length, vouchers, shopTab, setShopTab)}
+            </div>
+          ))}
         </div>
 
         {/* Footer */}

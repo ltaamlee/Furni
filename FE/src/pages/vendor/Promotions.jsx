@@ -139,21 +139,27 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
     const isVoucher = form.cardType === "coupon";
 
     const submit = async (status) => {
+        const cardType = form.cardType;
+
         if (!form.name.trim()) return showToast("Vui lòng nhập tên chương trình", "error");
-        if (isVoucher && !form.code.trim()) return showToast("Vui lòng nhập mã voucher", "error");
+        if (cardType === "coupon" && !form.code.trim()) return showToast("Vui lòng nhập mã voucher", "error");
         if (!form.startDate || !form.endDate) return showToast("Vui lòng chọn thời gian bắt đầu/kết thúc", "error");
-        if (isCombo && form.products.length < 2)
+        if (cardType === "combo" && form.products.length < 2)
             return showToast("Mua bộ cần chọn ít nhất 2 sản phẩm trong combo", "error");
-        if (!isCombo && form.appliesTo === "category" && form.categories.length === 0)
+        if (cardType !== "combo" && form.appliesTo === "category" && form.categories.length === 0)
             return showToast("Vui lòng chọn ít nhất một danh mục áp dụng", "error");
-        if (!isCombo && form.appliesTo === "product" && form.products.length === 0)
+        if (cardType !== "combo" && form.appliesTo === "product" && form.products.length === 0)
             return showToast("Vui lòng chọn ít nhất một sản phẩm áp dụng", "error");
+
+        const isFreeship = cardType === "freeship";
+        const isVoucher = cardType === "coupon";
+        const discountType = isFreeship ? "freeship" : form.discountType;
 
         const payload = {
             name: form.name.trim(),
             code: isVoucher ? form.code.trim().toUpperCase() : undefined,
-            type: CARD_TO_TYPE[form.cardType],
-            discountType: form.discountType,
+            type: CARD_TO_TYPE[cardType],
+            discountType,
             value: isFreeship ? 0 : Number(form.value) || 0,
             maxDiscount: Number(form.maxDiscount) || 0,
             minOrderValue: Number(form.minOrderValue) || 0,

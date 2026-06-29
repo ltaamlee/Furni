@@ -1550,6 +1550,10 @@ const confirmReceived = async (req, res) => {
 
         order.status = ORDER_STATUS.DELIVERED;
         order.deliveredAt = new Date();
+        // COD: khi khách xác nhận đã nhận hàng → coi như đã thanh toán
+        if (order.paymentMethod === 'COD') {
+            order.paymentStatus = 'paid';
+        }
         order.statusHistory.push({
             status: ORDER_STATUS.DELIVERED,
             timestamp: new Date(),

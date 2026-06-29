@@ -100,16 +100,17 @@ const createLedgerEntry = async (data, session) => {
  *   4. (nếu voucher sàn) CR Shop Wallet voucherPlatformAmount (quyết toán voucher sàn)
  *
  * ─────────────────────────────────────────────────────────────────── */
-const payoutOrderToVendors = async (orderId) => {
+const payoutOrderToVendors = async (orderId, session = null) => {
     console.log(`[Payout] Bat dau chi tra cho orderId=${orderId}`);
-    const session = null;
 
     try {
-        const order = await Order.findById(orderId);
+        const order = session ? 
+            await Order.findById(orderId).session(session) :
+            await Order.findById(orderId);
         if (!order) throw new Error('Không tìm thấy đơn hàng');
 
         // ── Guard: đã payout rồi → bỏ qua ───────────────────────────
-        if (await isOrderPaidOut(orderId)) {
+        if (session ? await isOrderPaidOut(orderId, session) : await isOrderPaidOut(orderId)) {
             console.log(`[Payout] Order ${order.orderNumber} đã được chi trả, bỏ qua`);
             return { success: true, alreadyPaid: true };
         }
@@ -127,7 +128,9 @@ const payoutOrderToVendors = async (orderId) => {
             throw new Error(`Don ${order.paymentMethod} chua thanh toan thanh cong`);
         }
 
-        const shop = await getShopFromOrder(order);
+        const shop = session
+            ? await getShopFromOrder(order, session)
+            : await getShopFromOrder(order);
         const shopId = shop?._id || null;
 
         // ── Dùng pre-calculated values từ Order ───────────────────────
@@ -245,7 +248,7 @@ const payoutOrderToVendors = async (orderId) => {
         order.platformFeePercent = feePercent;
         order.payoutStatus = 'paid';
         order.payoutAt = new Date();
-        await order.save();
+        await order.save(session ? { session } : undefined);
 
         if (session) await session.commitTransaction();
 
