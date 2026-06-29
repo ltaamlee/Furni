@@ -325,7 +325,6 @@ const OrderSuccessPage = () => {
                             <span className="text-[#6B5C4C]">Phương thức</span>
                             <span className="font-semibold text-sm text-[#1C1108]">
                                 {order?.paymentMethod === "COD" ? "💵 COD — Thanh toán khi nhận hàng" :
-                                 order?.paymentMethod === "PAYOS" ? "💳 PayOS — Thanh toán online" :
                                  order?.paymentMethod === "VNPAY" ? "🔵 VNPay" :
                                  order?.paymentMethod === "WALLET" ? "👛 Ví SORA" :
                                  `💵 ${order?.paymentMethod}`}

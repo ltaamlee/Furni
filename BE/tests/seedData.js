@@ -281,7 +281,7 @@ const BLOG_TITLES = [
 ];
 
 const orderStatuses = ['pending', 'confirmed', 'preparing', 'shipping', 'delivered', 'delivered', 'cancelled', 'cancel_requested'];
-const paymentMethods = ['COD', 'PAYOS', 'WALLET', 'VNPAY', 'MOMO', 'ZALOPAY'];
+const paymentMethods = ['COD', 'VNPAY', 'WALLET'];
 const shippingProviders = ['ghtk', 'jt', 'viettel'];
 
 const getNaturalProductName = (category, seedIndex) => {
@@ -467,10 +467,10 @@ const createWallets = async (users) => {
                 isDefault: true,
             },
             {
-                type: index % 2 === 0 ? 'momo' : 'zalopay',
+                type: 'vnpay',
                 accountNumber: user.phone,
                 accountHolder: user.fullName,
-                bankName: index % 2 === 0 ? 'MoMo' : 'ZaloPay',
+                bankName: 'VNPay',
                 branch: 'Vi dien tu',
                 isDefault: false,
             },
@@ -478,7 +478,7 @@ const createWallets = async (users) => {
         transactions: [
             { type: 'deposit', amount: 5000000 + index * 400000, description: 'Nap vi ban dau tu seed data', paymentMethod: 'BANK', status: 'completed' },
             { type: index % 3 === 0 ? 'withdraw' : 'deposit', amount: 1200000 + index * 150000, description: 'Giao dich mau co trang thai thanh cong', paymentMethod: 'BANK', status: 'completed' },
-            { type: 'deposit', amount: 800000, description: 'Giao dich dang xu ly de test trang thai pending', paymentMethod: 'MOMO', status: 'pending' },
+            { type: 'deposit', amount: 800000, description: 'Giao dich dang xu ly de test trang thai pending', paymentMethod: 'VNPAY', status: 'pending' },
         ],
     })));
 
@@ -706,7 +706,12 @@ const createOrdersForShop = async ({ shopRecord, products, customers, addressesB
         const onlinePaid = paymentStatus === 'paid' || paymentStatus === 'refunded';
         const refunded = status === 'cancelled' && onlinePaid;
         const shippingTier = index % 3 === 0 ? 'economy' : 'express';
-        const platformFeeAmount = ['delivered', 'shipping'].includes(status) ? money(subtotal * Number(shop.commissionRate || 2) / 100) : 0;
+        const voucherPlatformAmount = coupon && !coupon.shop ? couponDiscount : 0;
+        const shopCouponDiscount = Math.max(0, couponDiscount - voucherPlatformAmount);
+        const taxableRevenue = Math.max(0, subtotal - shopCouponDiscount);
+        const commissionAmount = money(taxableRevenue * Number(shop.commissionRate || 2) / 100);
+        const vendorTakeHome = Math.max(0, taxableRevenue - commissionAmount);
+        const platformFeeAmount = ['delivered', 'shipping'].includes(status) ? commissionAmount : 0;
 
         const order = await Order.create({
             user: customer._id,
@@ -718,7 +723,7 @@ const createOrdersForShop = async ({ shopRecord, products, customers, addressesB
             shippingAddress: buildShippingAddress(address, index % 5 === 0 ? 'Goi truoc khi giao 30 phut.' : ''),
             paymentMethod,
             paymentStatus,
-            payosOrderCode: paymentMethod === 'PAYOS' ? Number(`${Date.now()}${shopIndex}${index}`.slice(-10)) : null,
+            payosOrderCode: paymentMethod === 'VNPAY' ? Number(`${Date.now()}${shopIndex}${index}`.slice(-10)) : null,
             status,
             subtotal,
             shippingFee,
@@ -726,6 +731,7 @@ const createOrdersForShop = async ({ shopRecord, products, customers, addressesB
             shippingProvider: shippingProviders[(index + shopIndex) % shippingProviders.length],
             trackingNumber: ['shipping', 'delivered'].includes(status) ? `${shop.code}${String(index + 10000).padStart(7, '0')}` : null,
             couponDiscount,
+            shopCouponDiscount,
             couponCode: coupon?.code || null,
             totalPrice,
             walletUsedAmount: paymentMethod === 'WALLET' ? totalPrice : 0,
@@ -748,11 +754,16 @@ const createOrdersForShop = async ({ shopRecord, products, customers, addressesB
             deliveredAt: status === 'delivered' ? addDays(orderedAt, 5) : undefined,
             cancelledAt: status === 'cancelled' ? addDays(orderedAt, 2) : undefined,
             estimatedDelivery: addDays(orderedAt, shippingTier === 'express' ? 3 : 6),
-            paymentExpiresAt: paymentMethod === 'PAYOS' && paymentStatus === 'pending' ? addDays(orderedAt, 1) : null,
+            paymentExpiresAt: paymentMethod === 'VNPAY' && paymentStatus === 'pending' ? addDays(orderedAt, 1) : null,
             voucherSponsorType: coupon ? (coupon.shop ? 'shop' : 'platform') : null,
-            voucherPlatformAmount: coupon && !coupon.shop ? couponDiscount : 0,
+            voucherPlatformAmount,
+            platformDiscountAmount: voucherPlatformAmount,
             shippingSponsorType: coupon?.discountType === 'freeship' ? (coupon.shop ? 'shop' : 'platform') : null,
             shippingPlatformAmount: coupon?.discountType === 'freeship' && !coupon.shop ? couponDiscount : 0,
+            taxableRevenue,
+            commissionRate: Number(shop.commissionRate || 2),
+            commissionAmount,
+            vendorTakeHome,
             platformFeeAmount,
             platformFeePercent: Number(shop.commissionRate || 2),
             payoutStatus: status === 'cancelled' ? 'reversed' : status === 'delivered' && index % 3 === 0 ? 'paid' : 'pending',

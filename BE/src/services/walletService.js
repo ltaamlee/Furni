@@ -55,7 +55,7 @@ const getOrderWalletRefundTarget = (order) => {
     const walletUsedAmount = normalizeMoney(order.walletUsedAmount);
 
     if (order.paymentMethod === 'WALLET') return totalPrice;
-    if (order.paymentMethod === 'PAYOS') {
+    if (order.paymentMethod === 'VNPAY') {
         // Đơn đã paid → refund toàn bộ totalPrice
         if (order.paymentStatus === 'paid') return totalPrice;
         // Đơn chưa paid (failed/cancelled) nhưng có dùng ví → refund phần ví đã trừ
@@ -86,7 +86,7 @@ const refundOrderToWallet = async (order, opts = {}) => {
 
     if (
         order.paymentMethod === 'WALLET' ||
-        (order.paymentMethod === 'PAYOS' && order.paymentStatus === 'paid')
+        (order.paymentMethod === 'VNPAY' && order.paymentStatus === 'paid')
     ) {
         order.paymentStatus = 'refunded';
     }

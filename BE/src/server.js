@@ -144,7 +144,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/furni-eco
       const Product = mongoose.model('Product');
 
       const expiredOrders = await Order.find({
-        paymentMethod: 'PAYOS',
+        paymentMethod: 'VNPAY',
         paymentStatus: 'pending',
         status: 'pending',
         paymentExpiresAt: { $lt: new Date() },

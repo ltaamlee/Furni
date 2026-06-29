@@ -482,7 +482,7 @@ const buildCheckoutPreview = async (mode, body, userId) => {
         platformVouchers,
         paymentMethods: [
             { code: 'COD', name: 'Thanh toán khi nhận hàng (COD)', description: 'Trả tiền mặt khi nhận được hàng' },
-            { code: 'PAYOS', name: 'Thanh toán online qua PayOS', description: 'Ví điện tử, Ngân hàng, QR Code' },
+            { code: 'VNPAY', name: 'VNPay', description: 'Thanh toán online qua cổng PayOS' },
         ],
         summary: {
             subtotal,

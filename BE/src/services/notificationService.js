@@ -78,7 +78,7 @@ const subscribeCustomerNotifications = async (userId, res) => {
 
 const notifyCustomerOrderCreated = async (order) => {
     if (!order?.user) return null;
-    const paymentText = order.paymentMethod === 'PAYOS' && order.paymentStatus === 'pending'
+    const paymentText = order.paymentMethod === 'VNPAY' && order.paymentStatus === 'pending'
         ? 'Đơn đã được tạo và đang chờ thanh toán PayOS.'
         : 'Đơn hàng của bạn đã được ghi nhận.';
 

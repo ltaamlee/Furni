@@ -52,7 +52,13 @@ const bestPricing = (product, promos, basePrice = null) => {
         if (!promoApplies(promo, product)) continue;
         const sp = discountedPrice(base, promo);
         if (sp < base && (!best || sp < best.salePrice)) {
-            best = { salePrice: sp, promotionId: promo._id, promotionName: promo.name, promotionType: promo.type };
+            best = {
+                salePrice: sp,
+                promotionId: promo._id,
+                promotionName: promo.name,
+                promotionType: promo.type,
+                promotionShop: promo.shop || null,
+            };
         }
     }
     return best;
@@ -89,7 +95,7 @@ const attachPricing = async (products) => {
             p.salePrice = best.salePrice;
             p.originalPrice = p.price;
             p.discountPercent = Math.max(0, Math.round((1 - best.salePrice / p.price) * 100));
-            p.promotion = { id: best.promotionId, name: best.promotionName, type: best.promotionType };
+            p.promotion = { id: best.promotionId, name: best.promotionName, type: best.promotionType, shop: best.promotionShop };
         } else {
             p.salePrice = null;
             p.discountPercent = null;
@@ -105,7 +111,7 @@ const attachPricing = async (products) => {
                 if (variantBest) {
                     v.salePrice = variantBest.salePrice;
                     v.discountPercent = Math.round((1 - variantBest.salePrice / v.price) * 100);
-                    v.promotion = { id: variantBest.promotionId, name: variantBest.promotionName, type: variantBest.promotionType };
+                    v.promotion = { id: variantBest.promotionId, name: variantBest.promotionName, type: variantBest.promotionType, shop: variantBest.promotionShop };
                 } else {
                     v.salePrice = null;
                     v.discountPercent = null;

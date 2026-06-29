@@ -19,8 +19,7 @@ const STATUS_META = {
 const PAYMENT_META = {
     COD: { label: "COD", tone: "gray" },
     VNPAY: { label: "VNPay", tone: "blue" },
-    MOMO: { label: "Momo", tone: "purple" },
-    ZALOPAY: { label: "ZaloPay", tone: "blue" },
+    WALLET: { label: "Ví SORA", tone: "green" },
 };
 
 const PROVIDER_OPTIONS = [
@@ -324,8 +323,8 @@ const Orders = () => {
             } else {
                 showToast(msgOf(res) || "Cập nhật thất bại", "error");
             }
-        } catch {
-            showToast("Có lỗi xảy ra", "error");
+        } catch (error) {
+            showToast(error?.response?.data?.message || error?.message || "Có lỗi xảy ra", "error");
         } finally {
             setBusy(false);
         }

@@ -38,7 +38,7 @@ const walletTransactionSchema = new mongoose.Schema({
 const walletAccountSchema = new mongoose.Schema({
     type: {
         type: String,
-        enum: ['bank', 'momo', 'zalopay', 'vnpay'],
+        enum: ['bank', 'vnpay'],
         required: true
     },
     accountNumber: {
@@ -112,7 +112,7 @@ walletSchema.methods.refundFromCancellation = async function(amount, opts = {}) 
         description: opts.description || `Hoàn tiền từ hủy thanh toán PayOS đơn #${opts.orderNumber || ''}`,
         orderId: opts.orderId || null,
         orderNumber: opts.orderNumber || null,
-        paymentMethod: opts.paymentMethod || 'PAYOS',
+        paymentMethod: opts.paymentMethod || 'VNPAY',
         status: 'completed',
     });
     await this.save();

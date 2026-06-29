@@ -48,6 +48,54 @@ const getShopShippingProvider = (shippingProvider, shopId) => {
     return shippingProvider[shopId.toString()] || null;
 };
 
+const isPlatformPromotion = (promotion) => promotion && !promotion.shop;
+
+const calcProductPlatformDiscount = (items = []) =>
+    items.reduce((sum, item) => {
+        if (item.promotionSponsor !== 'platform') return sum;
+        const original = Number(item.originalPrice ?? item.price) || 0;
+        const price = Number(item.price) || 0;
+        return sum + Math.max(0, original - price) * (Number(item.quantity) || 0);
+    }, 0);
+
+const buildFinancialSnapshot = ({ subtotal, couponDiscount = 0, platformCouponDiscount = 0, productPlatformDiscount = 0, commissionRate = 2 }) => {
+    const shopCouponDiscount = Math.max(0, normalizeMoney(couponDiscount) - normalizeMoney(platformCouponDiscount));
+    const taxableRevenue = Math.max(0, normalizeMoney(subtotal) + normalizeMoney(productPlatformDiscount) - shopCouponDiscount);
+    const commissionAmount = Math.round(taxableRevenue * Number(commissionRate || 0) / 100);
+    return {
+        shopCouponDiscount,
+        taxableRevenue,
+        commissionAmount,
+        vendorTakeHome: Math.max(0, taxableRevenue - commissionAmount),
+        platformDiscountAmount: normalizeMoney(platformCouponDiscount) + normalizeMoney(productPlatformDiscount),
+    };
+};
+
+const recordCustomerRefundLedger = async (order, amount, description) => {
+    const refundAmount = normalizeMoney(amount);
+    if (!order || refundAmount <= 0) return;
+
+    const exists = await AdminLedger.exists({
+        order: order._id,
+        type: LEDGER_TYPE.REFUND_TO_CUSTOMER,
+    });
+    if (exists) return;
+
+    await AdminLedger.create([{
+        type: LEDGER_TYPE.REFUND_TO_CUSTOMER,
+        amount: refundAmount,
+        accountDebit: ACCOUNT_TYPE.PAYOS_HOLDING,
+        accountCredit: null,
+        order: order._id,
+        orderNumber: order.orderNumber,
+        checkoutGroupId: order.checkoutGroupId,
+        shop: order.shop || null,
+        customer: order.user,
+        status: LEDGER_STATUS.COMPLETED,
+        description,
+    }]);
+};
+
 const removeCheckoutItemsFromCart = async (cart, checkoutItems, selectedProductIds = []) => {
     if (Array.isArray(selectedProductIds) && selectedProductIds.length > 0) {
         const selected = new Set(selectedProductIds.map((id) => id.toString()));
@@ -184,7 +232,7 @@ const createOrder = async (req, res) => {
         const productMap = {};
         const productList = [];
         for (const item of checkoutItems) {
-            const product = await Product.findById(item.product).populate('shop', 'name code status isActive');
+            const product = await Product.findById(item.product).populate('shop', 'name code status isActive commissionRate');
             if (!product) {
                 return res.status(400).json({
                     success: false,
@@ -240,6 +288,7 @@ const createOrder = async (req, res) => {
             const salePrice = item.price ?? pricedProduct.salePrice ?? (productDiscount > 0
                 ? Math.round(originalPrice * (1 - productDiscount / 100))
                 : originalPrice);
+            const promotion = item.promotion || pricedProduct.promotion || null;
 
             shopGroups[shopId].items.push({
                 product: item.product,
@@ -250,6 +299,7 @@ const createOrder = async (req, res) => {
                 price: salePrice,
                 originalPrice: originalPrice,
                 discount: productDiscount,
+                promotionSponsor: isPlatformPromotion(promotion) ? 'platform' : (promotion ? 'shop' : null),
                 variant: item.variant || null,
                 variantId: item.variantId || null,
                 variantSku: item.variantSku || null,
@@ -331,8 +381,9 @@ const createOrder = async (req, res) => {
             const shopCouponDiscount = usedCouponShopId
                 ? (shopId === usedCouponShopId ? couponDiscount : 0)
                 : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
+            const platformCouponDiscount = usedCouponCode && !usedCouponShopId ? shopCouponDiscount : 0;
             const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
-            shopTotals[shopId] = { shippingFee, couponDiscount: shopCouponDiscount, total: groupTotal };
+            shopTotals[shopId] = { shippingFee, couponDiscount: shopCouponDiscount, platformCouponDiscount, total: groupTotal };
             totalByShop[shopId] = groupTotal;
         }
 
@@ -375,12 +426,18 @@ const createOrder = async (req, res) => {
                 const shopTotal = shopTotals[shopId];
                 const shippingFee = shopTotal.shippingFee;
                 const shopCouponDiscount = shopTotal.couponDiscount;
+                const platformCouponDiscount = shopTotal.platformCouponDiscount || 0;
                 const groupTotal = shopTotal.total;
 
-                const taxableRevenue = Math.max(0, group.subtotal - shopCouponDiscount);
                 const commissionRate = group.commissionRate ?? 2;
-                const commissionAmount = Math.round(taxableRevenue * commissionRate / 100);
-                const vendorTakeHome = taxableRevenue - commissionAmount;
+                const productPlatformDiscount = calcProductPlatformDiscount(group.items);
+                const financial = buildFinancialSnapshot({
+                    subtotal: group.subtotal,
+                    couponDiscount: shopCouponDiscount,
+                    platformCouponDiscount,
+                    productPlatformDiscount,
+                    commissionRate,
+                });
 
                 const order = new Order({
                     user: req.user._id,
@@ -394,6 +451,7 @@ const createOrder = async (req, res) => {
                     paymentStatus: 'paid',
                     subtotal: group.subtotal,
                     couponDiscount: shopCouponDiscount,
+                    shopCouponDiscount: financial.shopCouponDiscount,
                     couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
                     shippingFee,
                     shippingTier: effectiveTier,
@@ -405,10 +463,14 @@ const createOrder = async (req, res) => {
                     orderedAt: new Date(),
                     estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000),
                     orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v)),
-                    taxableRevenue,
+                    voucherSponsorType: shopCouponDiscount > 0 ? (platformCouponDiscount > 0 ? 'platform' : 'shop') : null,
+                    voucherPlatformAmount: platformCouponDiscount,
+                    productPlatformDiscount,
+                    platformDiscountAmount: financial.platformDiscountAmount,
+                    taxableRevenue: financial.taxableRevenue,
                     commissionRate,
-                    commissionAmount,
-                    vendorTakeHome,
+                    commissionAmount: financial.commissionAmount,
+                    vendorTakeHome: financial.vendorTakeHome,
                 });
 
                 // Trừ tồn kho
@@ -425,6 +487,22 @@ const createOrder = async (req, res) => {
                         orderNumber: order.orderNumber,
                         description: `Thanh toán đơn hàng #${order.orderNumber} bằng ví SORA`,
                     });
+                }
+
+                if (groupTotal > 0) {
+                    await AdminLedger.create([{
+                        order: order._id,
+                        orderNumber: order.orderNumber,
+                        checkoutGroupId: order.checkoutGroupId,
+                        type: LEDGER_TYPE.PAYOS_SETTLEMENT_IN,
+                        amount: groupTotal,
+                        accountDebit: null,
+                        accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                        customer: order.user,
+                        shop: order.shop || null,
+                        status: LEDGER_STATUS.COMPLETED,
+                        description: `Khach thanh toan bang vi SORA don #${order.orderNumber}`,
+                    }]);
                 }
 
                 createdOrders.push(order);
@@ -469,12 +547,18 @@ const createOrder = async (req, res) => {
             const shopCouponDiscount = usedCouponShopId
                 ? (shopId === usedCouponShopId ? couponDiscount : 0)
                 : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
+            const platformCouponDiscount = usedCouponCode && !usedCouponShopId ? shopCouponDiscount : 0;
             const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
 
-            const taxableRevenue = Math.max(0, group.subtotal - shopCouponDiscount);
             const commissionRate = group.commissionRate ?? 2;
-            const commissionAmount = Math.round(taxableRevenue * commissionRate / 100);
-            const vendorTakeHome = taxableRevenue - commissionAmount;
+            const productPlatformDiscount = calcProductPlatformDiscount(group.items);
+            const financial = buildFinancialSnapshot({
+                subtotal: group.subtotal,
+                couponDiscount: shopCouponDiscount,
+                platformCouponDiscount,
+                productPlatformDiscount,
+                commissionRate,
+            });
 
             const order = new Order({
                 user: req.user._id,
@@ -493,6 +577,7 @@ const createOrder = async (req, res) => {
                 payableAmount: Math.max(0, groupTotal - normalizeMoney(walletAllocationByShop[shopId])),
                 subtotal: group.subtotal,
                 couponDiscount: shopCouponDiscount,
+                shopCouponDiscount: financial.shopCouponDiscount,
                 couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
                 shippingFee,
                 shippingTier: effectiveTier,
@@ -502,10 +587,14 @@ const createOrder = async (req, res) => {
                 orderedAt: new Date(),
                 estimatedDelivery: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000),
                 orderNotes: new Map(Object.entries(orderNotes || {}).filter(([, v]) => v)),
-                taxableRevenue,
+                voucherSponsorType: shopCouponDiscount > 0 ? (platformCouponDiscount > 0 ? 'platform' : 'shop') : null,
+                voucherPlatformAmount: platformCouponDiscount,
+                productPlatformDiscount,
+                platformDiscountAmount: financial.platformDiscountAmount,
+                taxableRevenue: financial.taxableRevenue,
                 commissionRate,
-                commissionAmount,
-                vendorTakeHome,
+                commissionAmount: financial.commissionAmount,
+                vendorTakeHome: financial.vendorTakeHome,
             });
 
             // Trừ tồn kho cho sản phẩm của shop này
@@ -527,6 +616,22 @@ const createOrder = async (req, res) => {
                     orderNumber: order.orderNumber,
                     description: `Dung so du vi SORA cho don hang #${order.orderNumber}`,
                 });
+            }
+
+            if (walletForPartialPayment && walletDeduction > 0) {
+                await AdminLedger.create([{
+                    order: order._id,
+                    orderNumber: order.orderNumber,
+                    checkoutGroupId: order.checkoutGroupId,
+                    type: LEDGER_TYPE.PAYOS_SETTLEMENT_IN,
+                    amount: walletDeduction,
+                    accountDebit: null,
+                    accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                    customer: order.user,
+                    shop: order.shop || null,
+                    status: LEDGER_STATUS.COMPLETED,
+                    description: `Khach dung vi SORA cho don #${order.orderNumber}`,
+                }]);
             }
 
             createdOrders.push(order);
@@ -811,6 +916,11 @@ const cancelOrder = async (req, res) => {
         const refundResult = await refundOrderToWallet(order, {
             description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
         });
+        await recordCustomerRefundLedger(
+            order,
+            refundResult?.amount || 0,
+            `Hoan tien khach tu admin holding cho don huy #${order.orderNumber}`,
+        );
         order.statusHistory.push({
             status: ORDER_STATUS.CANCELLED,
             timestamp: new Date(),
@@ -944,6 +1054,11 @@ const updateOrderStatus = async (req, res) => {
             refundResult = await refundOrderToWallet(order, {
                 description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
             });
+            await recordCustomerRefundLedger(
+                order,
+                refundResult?.amount || 0,
+                `Hoan tien khach tu admin holding cho don huy #${order.orderNumber}`,
+            );
             order.cancelledAt = new Date();
         }
 
@@ -1094,7 +1209,7 @@ const processReturn = async (req, res) => {
 
             // PayOS refund: gọi cancelTransfer
             let refundResult = null;
-            if (order.paymentMethod === 'PAYOS' && order.paymentStatus === 'paid' && order.payosOrderCode) {
+            if (order.paymentMethod === 'VNPAY' && order.paymentStatus === 'paid' && order.payosOrderCode) {
                 try {
                     const { PayOS } = require('@payos/node');
                     const { payosConfig } = require('../config/payos');
@@ -1228,6 +1343,11 @@ const processCancelRequest = async (req, res) => {
             const refundResult = await refundOrderToWallet(order, {
                 description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
             });
+            await recordCustomerRefundLedger(
+                order,
+                refundResult?.amount || 0,
+                `Hoan tien khach tu admin holding cho don huy #${order.orderNumber}`,
+            );
             order.cancelRequest.processedAt = new Date();
             order.cancelRequest.processedBy = req.user._id;
             order.cancelRequest.status = 'approved';
@@ -1565,6 +1685,11 @@ const adminForceCancelOrder = async (req, res) => {
         const refundResult = await refundOrderToWallet(order, {
             description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
         });
+        await recordCustomerRefundLedger(
+            order,
+            refundResult?.amount || 0,
+            `Hoan tien khach tu admin holding cho don huy #${order.orderNumber}`,
+        );
         order.statusHistory.push({
             status: ORDER_STATUS.CANCELLED,
             timestamp: new Date(),

@@ -339,7 +339,6 @@ const OrderBillModal = ({ open, onClose, order }) => {
                                     <div className="flex items-center gap-2">
                                         <span className="text-[13px] font-semibold text-[#1C1108]">
                                             {order?.paymentMethod === "COD" ? "COD"
-                                            : order?.paymentMethod === "PAYOS" ? "PayOS"
                                             : order?.paymentMethod === "VNPAY" ? "VNPay"
                                             : order?.paymentMethod === "WALLET" ? "Ví SORA"
                                             : order?.paymentMethod || "—"}

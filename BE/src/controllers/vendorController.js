@@ -13,7 +13,14 @@ const Review = require('../models/review');
 const Notification = require('../models/notification');
 const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 const { refundOrderToWallet } = require('../services/walletService');
+const payoutService = require('../services/payoutService');
 const { notifyCustomerOrderStatus } = require('../services/notificationService');
+const AdminLedger = require('../models/adminLedger');
+const {
+    LEDGER_TYPE,
+    ACCOUNT_TYPE,
+    STATUS: LEDGER_STATUS,
+} = AdminLedger;
 
 // Lấy shop của vendor đang đăng nhập (helper dùng chung)
 const getOwnerShop = async (userId) => Shop.findOne({ owner: userId });
@@ -70,8 +77,8 @@ const attachVendorOrderRevenue = (order, shop) => {
     };
 };
 
-const ONLINE_PAYMENT_METHODS = ['PAYOS', 'VNPAY', 'MOMO', 'ZALOPAY', 'WALLET'];
-const WALLET_HISTORY_TX_CATEGORIES = ['withdraw', 'refund', 'adjustment'];
+const ONLINE_PAYMENT_METHODS = ['VNPAY', 'WALLET'];
+const WALLET_HISTORY_TX_CATEGORIES = ['order_income', 'withdraw', 'refund', 'adjustment'];
 
 const onlinePaidOrderQuery = (shopId) => ({
     shop: shopId,
@@ -107,6 +114,31 @@ const sumOnlineOrderCommission = (orders, shop) =>
         return sum + Math.round(withRevenue.shopSubtotal * withRevenue.commissionRate / 100);
     }, 0);
 
+const recordCustomerRefundLedger = async (order, amount, description) => {
+    const refundAmount = Math.max(0, Math.round(Number(amount) || 0));
+    if (!order || refundAmount <= 0) return;
+
+    const exists = await AdminLedger.exists({
+        order: order._id,
+        type: LEDGER_TYPE.REFUND_TO_CUSTOMER,
+    });
+    if (exists) return;
+
+    await AdminLedger.create([{
+        type: LEDGER_TYPE.REFUND_TO_CUSTOMER,
+        amount: refundAmount,
+        accountDebit: ACCOUNT_TYPE.PAYOS_HOLDING,
+        accountCredit: null,
+        order: order._id,
+        orderNumber: order.orderNumber,
+        checkoutGroupId: order.checkoutGroupId,
+        shop: order.shop || null,
+        customer: order.user,
+        status: LEDGER_STATUS.COMPLETED,
+        description,
+    }]);
+};
+
 // Tính phần thuộc về shop trong 1 đơn (Hướng B: 1 đơn có sản phẩm của nhiều shop)
 const shopSliceOfOrder = (order, shopId) => {
     const sid = shopId.toString();
@@ -124,17 +156,20 @@ const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); retur
 const revenueSeries = async (shopId, days) => {
     const start = startOfDay(new Date(Date.now() - (days - 1) * 86400000));
     const rows = await Order.aggregate([
-        { $match: { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED }, createdAt: { $gte: start } } },
-        { $unwind: '$products' },
-        { $match: { 'products.shop': shopId } },
-        { $group: {
-            _id: { date: { $dateToString: { format: '%d/%m', date: '$createdAt' } }, commissionRate: '$commissionRate' },
-            subtotal: { $sum: { $multiply: ['$products.price', '$products.quantity'] } }
-        }},
-        { $project: {
-            _id: 1,
-            revenue: { $subtract: ['$subtotal', { $multiply: ['$subtotal', { $divide: ['$_id.commissionRate', 100] }] }] }
-        }}
+        {
+            $match: {
+                shop: shopId,
+                status: ORDER_STATUS.DELIVERED,
+                payoutStatus: 'paid',
+                payoutAt: { $gte: start }
+            }
+        },
+        {
+            $group: {
+                _id: { date: { $dateToString: { format: '%d/%m', date: '$payoutAt' } } },
+                revenue: { $sum: '$vendorTakeHome' }
+            }
+        }
     ]);
     // sum by date
     const dateMap = {};
@@ -155,8 +190,8 @@ const revenueSeries = async (shopId, days) => {
 
 // Top sản phẩm bán chạy của shop theo số lượng; doanh thu dùng để phá hòa.
 const topProductsOfShop = async (shopId, since = null, limit = 5) => {
-    const match = { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED } };
-    if (since) match.createdAt = { $gte: since };
+    const match = { shop: shopId, status: ORDER_STATUS.DELIVERED, payoutStatus: 'paid' };
+    if (since) match.payoutAt = { $gte: since };
     const rows = await Order.aggregate([
         { $match: match },
         { $unwind: '$products' },
@@ -175,24 +210,13 @@ const topProductsOfShop = async (shopId, since = null, limit = 5) => {
 
 // Tổng doanh thu + số đơn của shop kể từ `since` (đã trừ phí sàn)
 const shopRevenueTotals = async (shopId, since = null) => {
-    const match = { 'products.shop': shopId, status: { $ne: ORDER_STATUS.CANCELLED } };
-    if (since) match.createdAt = { $gte: since };
+    const match = { shop: shopId, status: ORDER_STATUS.DELIVERED, payoutStatus: 'paid' };
+    if (since) match.payoutAt = { $gte: since };
     const rows = await Order.aggregate([
         { $match: match },
-        { $unwind: '$products' },
-        { $match: { 'products.shop': shopId } },
-        { $group: {
-            _id: '$_id',
-            orderRevenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } },
-            commissionRate: { $first: '$commissionRate' }
-        }},
-        { $project: {
-            orderRevenue: 1,
-            commission: { $multiply: ['$orderRevenue', { $divide: ['$commissionRate', 100] }] }
-        }},
         { $group: {
             _id: null,
-            revenue: { $sum: { $subtract: ['$orderRevenue', '$commission'] } },
+            revenue: { $sum: '$vendorTakeHome' },
             orders: { $sum: 1 }
         }}
     ]);
@@ -831,12 +855,28 @@ const updateMyOrderStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
         }
 
+        if (['PAYOS', 'MOMO', 'ZALOPAY'].includes(order.paymentMethod)) {
+            order.paymentMethod = 'VNPAY';
+        }
+
         if (!ORDER_TRANSITIONS[order.status]?.includes(status)) {
             return res.status(400).json({ success: false, message: 'Không thể chuyển sang trạng thái này!' });
         }
 
         // Khi chuyển sang 'shipping', phải chọn đơn vị vận chuyển
         // Nếu khách đã chọn khi checkout thì dùng luôn, không bắt chọn lại
+        const nextStatusByCurrent = {
+            [ORDER_STATUS.PENDING]: ORDER_STATUS.CONFIRMED,
+            [ORDER_STATUS.CONFIRMED]: ORDER_STATUS.PREPARING,
+            [ORDER_STATUS.PREPARING]: ORDER_STATUS.SHIPPING,
+            [ORDER_STATUS.SHIPPING]: ORDER_STATUS.DELIVERED,
+        };
+        const isCancelFlow = status === ORDER_STATUS.CANCELLED ||
+            (order.status === ORDER_STATUS.CANCEL_REQUESTED && status === ORDER_STATUS.PREPARING);
+        if (!isCancelFlow && nextStatusByCurrent[order.status] && status !== nextStatusByCurrent[order.status]) {
+            return res.status(400).json({ success: false, message: 'Vui long chuyen trang thai don hang theo tung buoc!' });
+        }
+
         if (status === 'shipping') {
             const effectiveProvider = pickShopShippingProvider(shippingProvider || order.shippingProvider, shop._id);
             if (effectiveProvider) {
@@ -855,6 +895,11 @@ const updateMyOrderStatus = async (req, res) => {
             refundResult = await refundOrderToWallet(order, {
                 description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
             });
+            await recordCustomerRefundLedger(
+                order,
+                refundResult?.amount || 0,
+                `Hoan tien khach tu admin holding cho don huy #${order.orderNumber}`,
+            );
             order.cancelledAt = new Date();
         }
 
@@ -866,13 +911,21 @@ const updateMyOrderStatus = async (req, res) => {
             if (effectiveProvider) order.shippingProvider = effectiveProvider;
             if (trackingNumber) order.trackingNumber = trackingNumber;
         }
+        if (status === ORDER_STATUS.DELIVERED) {
+            order.deliveredAt = new Date();
+        }
         await order.save();
+
+        let payoutResult = null;
+        if (status === ORDER_STATUS.DELIVERED) {
+            payoutResult = await payoutService.payoutOrderToVendors(order._id);
+        }
         await notifyCustomerOrderStatus(order, status, {
             message: status === ORDER_STATUS.CANCELLED ? 'Shop đã hủy đơn hàng.' : undefined,
             refundedAmount: refundResult?.amount || 0,
         });
 
-        res.status(200).json({ success: true, message: 'Cập nhật trạng thái thành công', data: { status: order.status, shippingProvider: order.shippingProvider } });
+        res.status(200).json({ success: true, message: 'Cập nhật trạng thái thành công', data: { status: order.status, shippingProvider: order.shippingProvider, payout: payoutResult } });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi khi cập nhật trạng thái', error: error.message });
     }
@@ -946,6 +999,27 @@ const ensureWallet = async (shop) => {
     return wallet;
 };
 
+const settleDeliveredOrdersForShop = async (shopId) => {
+    const orders = await Order.find({
+        shop: shopId,
+        status: ORDER_STATUS.DELIVERED,
+        paymentStatus: 'paid',
+        payoutStatus: { $ne: 'paid' },
+        $or: [
+            { paymentMethod: { $in: ONLINE_PAYMENT_METHODS } },
+            { paymentMethod: 'COD', paymentStatus: 'paid' },
+        ],
+    }).select('_id orderNumber').limit(50);
+
+    for (const order of orders) {
+        try {
+            await payoutService.payoutOrderToVendors(order._id);
+        } catch (error) {
+            console.error(`[VendorWallet] Payout reconcile failed for ${order.orderNumber}:`, error.message);
+        }
+    }
+};
+
 // @desc    Thông tin ví + thống kê tháng
 // @route   GET /api/vendor/wallet
 // @access  Private/Vendor
@@ -953,17 +1027,24 @@ const getWallet = async (req, res) => {
     try {
         const shop = await getOwnerShop(req.user._id);
         if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
+        await settleDeliveredOrdersForShop(shop._id);
         const wallet = await ensureWallet(shop);
 
         const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-        const [onlinePaidOrders, walletDebits, monthWithdrawAgg] = await Promise.all([
-            Order.find(onlinePaidOrderQuery(shop._id)).select('products subtotal orderNumber paymentMethod updatedAt orderedAt createdAt'),
-            Transaction.find({
-                wallet: wallet._id,
-                type: 'debit',
-                category: { $in: WALLET_HISTORY_TX_CATEGORIES },
-                status: { $in: ['success', 'pending'] },
-            }).select('amount'),
+        const [monthIncomeAgg, monthWithdrawAgg, monthFeeAgg] = await Promise.all([
+            Transaction.aggregate([
+                {
+                    $match: {
+                        wallet: wallet._id,
+                        type: 'credit',
+                        category: 'order_income',
+                        status: 'success',
+                        createdAt: { $gte: monthStart },
+                        description: { $not: /^Payout/ },
+                    },
+                },
+                { $group: { _id: null, total: { $sum: '$amount' } } },
+            ]),
             Transaction.aggregate([
                 {
                     $match: {
@@ -975,23 +1056,29 @@ const getWallet = async (req, res) => {
                 },
                 { $group: { _id: null, total: { $sum: '$amount' } } },
             ]),
+            Order.aggregate([
+                {
+                    $match: {
+                        shop: shop._id,
+                        status: ORDER_STATUS.DELIVERED,
+                        payoutStatus: 'paid',
+                        payoutAt: { $gte: monthStart },
+                    },
+                },
+                { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
+            ]),
         ]);
-
-        const monthOrders = onlinePaidOrders.filter((order) => new Date(dateOfPaidOrder(order)) >= monthStart);
-        const onlineIncome = sumOnlineOrderRevenue(onlinePaidOrders, shop);
-        const debitsTotal = walletDebits.reduce((sum, tx) => sum + (tx.amount || 0), 0);
-        const balance = Math.max(0, onlineIncome - debitsTotal);
 
         res.status(200).json({
             success: true,
             data: {
-                balance,
+                balance: wallet.balance || 0,
                 pendingBalance: wallet.pendingBalance || 0,
                 bankAccounts: wallet.accounts || [],
                 monthly: {
-                    income: sumOnlineOrderRevenue(monthOrders, shop),
+                    income: monthIncomeAgg[0]?.total || 0,
                     withdrawn: monthWithdrawAgg[0]?.total || 0,
-                    platformFee: sumOnlineOrderCommission(monthOrders, shop)
+                    platformFee: monthFeeAgg[0]?.total || 0
                 }
             }
         });
@@ -1026,33 +1113,27 @@ const getTransactions = async (req, res) => {
             });
         }
 
-        const orderQuery = onlinePaidOrderQuery(shop._id);
         const realTxQuery = {
             wallet: wallet._id,
             category: { $in: WALLET_HISTORY_TX_CATEGORIES },
+            description: { $not: /^Payout/ },
         };
         if (type === 'in') {
-            realTxQuery._id = null;
+            Object.assign(realTxQuery, { type: 'credit' });
         } else if (type === 'out') {
             Object.assign(realTxQuery, { type: 'debit' });
-            orderQuery._id = null;
         }
 
         const fetchLimit = skip + numericLimit;
-        const [onlineOrders, realTransactions, onlineTotal, realTotal] = await Promise.all([
-            Order.find(orderQuery).sort('-updatedAt').limit(fetchLimit),
+        const [realTransactions, realTotal] = await Promise.all([
             Transaction.find(realTxQuery).sort('-createdAt').limit(fetchLimit),
-            Order.countDocuments(orderQuery),
             Transaction.countDocuments(realTxQuery),
         ]);
 
-        const transactions = [
-            ...onlineOrders.map((order) => onlineOrderToWalletTx(order, shop)),
-            ...realTransactions,
-        ]
+        const transactions = realTransactions
             .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
             .slice(skip, skip + numericLimit);
-        const total = onlineTotal + realTotal;
+        const total = realTotal;
 
         res.status(200).json({
             success: true,
@@ -1076,22 +1157,10 @@ const requestWithdraw = async (req, res) => {
         const { note, bankIndex } = req.body;
         if (amount < 100000) return res.status(400).json({ success: false, message: 'Số tiền rút tối thiểu 100.000₫' });
 
-        const [onlinePaidOrders, walletDebits] = await Promise.all([
-            Order.find(onlinePaidOrderQuery(shop._id)).select('products subtotal'),
-            Transaction.find({
-                wallet: wallet._id,
-                type: 'debit',
-                category: { $in: WALLET_HISTORY_TX_CATEGORIES },
-                status: { $in: ['success', 'pending'] },
-            }).select('amount'),
-        ]);
-        const availableBalance = Math.max(
-            0,
-            sumOnlineOrderRevenue(onlinePaidOrders, shop) - walletDebits.reduce((sum, tx) => sum + (tx.amount || 0), 0)
-        );
+        const availableBalance = Math.max(0, Number(wallet.balance) || 0);
         if (amount > availableBalance) return res.status(400).json({ success: false, message: 'Số dư khả dụng không đủ' });
 
-        wallet.balance = Math.max(0, availableBalance - amount); // snapshot, số dư hiển thị vẫn tính từ đơn online
+        wallet.balance = Math.max(0, availableBalance - amount);
         await wallet.save();
 
         const accounts = wallet.accounts || [];

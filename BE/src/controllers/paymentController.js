@@ -74,6 +74,29 @@ const getProductImage = (product) => {
     return firstImage?.url || firstImage || product.image || null;
 };
 
+const isPlatformPromotion = (promotion) => promotion && !promotion.shop;
+
+const calcProductPlatformDiscount = (items = []) =>
+    items.reduce((sum, item) => {
+        if (item.promotionSponsor !== 'platform') return sum;
+        const original = Number(item.originalPrice ?? item.price) || 0;
+        const price = Number(item.price) || 0;
+        return sum + Math.max(0, original - price) * (Number(item.quantity) || 0);
+    }, 0);
+
+const buildFinancialSnapshot = ({ subtotal, couponDiscount = 0, platformCouponDiscount = 0, productPlatformDiscount = 0, commissionRate = 2 }) => {
+    const shopCouponDiscount = Math.max(0, normalizeMoney(couponDiscount) - normalizeMoney(platformCouponDiscount));
+    const taxableRevenue = Math.max(0, normalizeMoney(subtotal) + normalizeMoney(productPlatformDiscount) - shopCouponDiscount);
+    const commissionAmount = Math.round(taxableRevenue * Number(commissionRate || 0) / 100);
+    return {
+        shopCouponDiscount,
+        taxableRevenue,
+        commissionAmount,
+        vendorTakeHome: Math.max(0, taxableRevenue - commissionAmount),
+        platformDiscountAmount: normalizeMoney(platformCouponDiscount) + normalizeMoney(productPlatformDiscount),
+    };
+};
+
 const removeCheckoutItemsFromCart = async (cart, checkoutItems, selectedProducts = [], selectedProductIds = []) => {
     if (Array.isArray(selectedProducts) && selectedProducts.length > 0) {
         const purchasedByProduct = new Map(
@@ -152,7 +175,7 @@ const markPayOSOrderPaid = async (order) => {
 };
 
 const syncOrderWithPayOS = async (order) => {
-    if (order.paymentMethod !== 'PAYOS' || !order.payosOrderCode || order.paymentStatus === 'paid') {
+    if (order.paymentMethod !== 'VNPAY' || !order.payosOrderCode || order.paymentStatus === 'paid') {
         return { order, paymentLink: null };
     }
 
@@ -233,7 +256,7 @@ const createPayOSPayment = async (req, res) => {
         }
 
         // Kiểm tra phương thức thanh toán
-        if (order.paymentMethod !== 'PAYOS') {
+        if (order.paymentMethod !== 'VNPAY') {
             return res.status(400).json({
                 success: false,
                 message: 'Đơn hàng không phải thanh toán qua PayOS'
@@ -411,7 +434,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
         const productMap = {};
         const productList = [];
         for (const item of checkoutItems) {
-            const product = await Product.findById(item.product).select('+variants').populate('shop', 'name code status isActive');
+            const product = await Product.findById(item.product).select('+variants').populate('shop', 'name code status isActive commissionRate');
             if (!product) {
                 return res.status(400).json({
                     success: false,
@@ -451,10 +474,12 @@ const createPayOSPaymentWithCart = async (req, res) => {
             const salePrice = variant?.salePrice ?? pricedProduct?.salePrice ?? (productDiscount > 0
                 ? Math.round(originalPrice * (1 - productDiscount / 100))
                 : originalPrice);
+            const promotion = item.promotion || variant?.promotion || pricedProduct?.promotion || null;
 
             item.price = salePrice;
             item.originalPrice = originalPrice;
             item.discount = productDiscount || 0;
+            item.promotionSponsor = isPlatformPromotion(promotion) ? 'platform' : (promotion ? 'shop' : null);
             item.variantId = item.variantId || variant?._id || null;
             item.variant = item.variant || variant?.name || null;
             item.variantSku = item.variantSku || variant?.sku || null;
@@ -622,6 +647,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     ? (shopId === usedCouponShopId ? globalCouponDiscount : 0)
                     : (usedCoupon ? (subtotal > 0 ? Math.round(globalCouponDiscount * groupSubtotal / subtotal) : 0) : 0);
                 const groupCouponDiscount = globalGroupDiscount + (shopCouponDiscounts[shopId] || 0);
+                const platformCouponDiscount = usedCoupon && !usedCouponShopId ? globalGroupDiscount : 0;
                 const groupTotal = Math.max(0, groupSubtotal - groupCouponDiscount + groupShippingFee);
                 const walletUsedAmount = normalizeMoney(walletAllocationByShop[shopId]);
                 const groupPayableAmount = Math.max(0, groupTotal - walletUsedAmount);
@@ -638,6 +664,15 @@ const createPayOSPaymentWithCart = async (req, res) => {
                 const groupVoucherPlatformAmount = isPlatformCoupon
                     ? globalGroupDiscount
                     : 0;
+                const commissionRate = Number(groupShop?.commissionRate ?? 2);
+                const productPlatformDiscount = calcProductPlatformDiscount(groupItems);
+                const financial = buildFinancialSnapshot({
+                    subtotal: groupSubtotal,
+                    couponDiscount: groupCouponDiscount,
+                    platformCouponDiscount,
+                    productPlatformDiscount,
+                    commissionRate,
+                });
 
                 const order = new Order({
                     user: req.user._id,
@@ -674,12 +709,13 @@ const createPayOSPaymentWithCart = async (req, res) => {
                         ...shippingAddress,
                         note: note || shippingAddress?.note || ''
                     },
-                    paymentMethod: 'PAYOS',
+                    paymentMethod: 'VNPAY',
                     paymentStatus: 'pending',
                     walletUsedAmount,
                     payableAmount: groupPayableAmount,
                     subtotal: groupSubtotal,
                     couponDiscount: groupCouponDiscount,
+                    shopCouponDiscount: financial.shopCouponDiscount,
                     couponCode: usedCoupon
                         ? (usedCouponShopId ? (shopId === usedCouponShopId ? couponCode.toUpperCase() : null) : (shopId === shopKeys[0] ? couponCode.toUpperCase() : null))
                         : (usedShopCoupons[shopId]?.code || null),
@@ -697,8 +733,14 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     // ── Platform ledger fields ───────────────────────────
                     voucherSponsorType: groupCouponDiscount > 0 ? (isPlatformCoupon ? 'platform' : 'shop') : null,
                     voucherPlatformAmount: groupVoucherPlatformAmount,
+                    productPlatformDiscount,
+                    platformDiscountAmount: financial.platformDiscountAmount,
                     shippingSponsorType: isShippingFree ? 'platform' : null,
                     shippingPlatformAmount: isShippingFree ? (groupShippingFee) : 0,
+                    taxableRevenue: financial.taxableRevenue,
+                    commissionRate,
+                    commissionAmount: financial.commissionAmount,
+                    vendorTakeHome: financial.vendorTakeHome,
                 });
 
                 await order.save();
@@ -753,6 +795,19 @@ const createPayOSPaymentWithCart = async (req, res) => {
                                 orderNumber: order.orderNumber,
                                 description: `Dung so du vi SORA cho don hang #${order.orderNumber}`,
                             });
+                            await AdminLedger.create([{
+                                order: order._id,
+                                orderNumber: order.orderNumber,
+                                checkoutGroupId: order.checkoutGroupId,
+                                type: LEDGER_TYPE.PAYOS_SETTLEMENT_IN,
+                                amount: walletDeduction,
+                                accountDebit: null,
+                                accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
+                                customer: order.user,
+                                shop: order.shop || null,
+                                status: LEDGER_STATUS.COMPLETED,
+                                description: `Khach dung vi SORA cho don #${order.orderNumber}`,
+                            }]);
                         }
                     }
                 }
@@ -954,7 +1009,7 @@ const payOSWebhook = async (req, res) => {
                 await refundWallet(order.user, totalPaid, {
                     orderId: order._id,
                     orderNumber: order.orderNumber,
-                    paymentMethod: 'PAYOS',
+                    paymentMethod: 'VNPAY',
                     description: `Hoan tien tu huy PayOS ${orders.length} don (#${order.orderNumber}...)`,
                 });
                 for (const o of orders) {
@@ -1140,7 +1195,7 @@ const cancelPayOSPayment = async (req, res) => {
             });
         }
 
-        if (order.paymentMethod !== 'PAYOS') {
+        if (order.paymentMethod !== 'VNPAY') {
             return res.status(400).json({
                 success: false,
                 message: 'Đơn hàng không phải thanh toán qua PayOS'
@@ -1248,7 +1303,7 @@ const cancelPayOSPayment = async (req, res) => {
         const refundResult = await refundOrderToWallet(order, {
             orderId: order._id,
             orderNumber: order.orderNumber,
-            paymentMethod: 'PAYOS',
+            paymentMethod: 'VNPAY',
             description: `Hoàn tiền từ hủy PayOS đơn #${order.orderNumber}`,
         });
         await order.save();

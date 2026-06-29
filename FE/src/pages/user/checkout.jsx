@@ -965,7 +965,7 @@ const CheckoutPage = () => {
           : { cartItemIds: [...selectedItemIds] }),
       };
 
-      if (effectivePaymentMethod === "PAYOS") {
+      if (effectivePaymentMethod === "VNPAY") {
         const res = await createPayOSPaymentWithCartApi(orderPayload);
         if (res.success && res.data.checkoutUrl) {
           window.location.href = res.data.checkoutUrl;
@@ -1294,9 +1294,9 @@ const CheckoutPage = () => {
                   <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selectedPaymentMethodForUi === "COD" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>{selectedPaymentMethodForUi === "COD" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}</div>
                   <div className="flex-1"><p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán khi nhận hàng (COD)</p><p className="text-[11.5px] text-[#9E8E7E]">Trả tiền mặt khi nhận được hàng</p></div>
                 </div>
-                <div onClick={() => { setPaymentMethod("PAYOS"); if (walletCoversOrder) setUseWalletBalance(false); }} className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${selectedPaymentMethodForUi === "PAYOS" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"}`}>
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selectedPaymentMethodForUi === "PAYOS" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>{selectedPaymentMethodForUi === "PAYOS" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}</div>
-                  <div className="flex-1"><p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán online qua PayOS</p><p className="text-[11.5px] text-[#9E8E7E]">Ví điện tử, Ngân hàng, QR Code</p></div>
+                <div onClick={() => { setPaymentMethod("VNPAY"); if (walletCoversOrder) setUseWalletBalance(false); }} className={`flex items-center gap-3 p-3.5 rounded-[10px] border-2 cursor-pointer transition-all ${selectedPaymentMethodForUi === "VNPAY" ? "border-[#95520B] bg-[#fff8f0]" : "border-[#EDE8E0] bg-white hover:border-[#D5C9BC]"}`}>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selectedPaymentMethodForUi === "VNPAY" ? "border-[#95520B] bg-[#95520B]" : "border-[#D5C9BC]"}`}>{selectedPaymentMethodForUi === "VNPAY" && <div className="w-2.5 h-2.5 bg-white rounded-full" />}</div>
+                  <div className="flex-1"><p className="font-semibold text-[13px] text-[#1C1108]">Thanh toán qua VNPay</p><p className="text-[11.5px] text-[#9E8E7E]">Thanh toán online qua cổng PayOS</p></div>
                 </div>
               </div>
             </div>

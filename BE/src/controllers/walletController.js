@@ -48,7 +48,7 @@ const getTransactionHistory = async (req, res) => {
         
         // Lọc theo loại thanh toán
         if (type === 'payos') {
-            query.paymentMethod = 'PAYOS';
+            query.paymentMethod = 'VNPAY';
         } else if (type === 'cod') {
             query.paymentMethod = 'COD';
         }
@@ -67,7 +67,7 @@ const getTransactionHistory = async (req, res) => {
         // Transform orders to transaction-like format
         const transactions = orders.map(order => ({
             _id: order._id,
-            type: order.paymentMethod === 'PAYOS' ? 'payos' : 'cod',
+            type: order.paymentMethod === 'VNPAY' ? 'vnpay' : 'cod',
             category: 'purchase',
             amount: order.totalPrice,
             status: order.paymentStatus,
@@ -117,7 +117,7 @@ const addAccount = async (req, res) => {
         }
         
         // Validate type
-        const validTypes = ['bank', 'momo', 'zalopay', 'vnpay'];
+        const validTypes = ['bank', 'vnpay'];
         if (!validTypes.includes(type)) {
             return res.status(400).json({
                 success: false,

@@ -45,7 +45,7 @@ const OrderDetailPage = () => {
             const res = await getOrderByIdApi(id);
             if (res.success) {
                 let o = res.data;
-                if (o.paymentMethod === "PAYOS" && o.paymentStatus === "pending") {
+                if (o.paymentMethod === "VNPAY" && o.paymentStatus === "pending") {
                     const statusRes = await getPayOSPaymentStatusApi(id);
                     if (statusRes.success && statusRes.data?.paymentStatus !== o.paymentStatus) {
                         const refreshed = await getOrderByIdApi(id);
@@ -56,7 +56,7 @@ const OrderDetailPage = () => {
 
                 // Compute PayOS countdown from paymentExpiresAt
                 if (
-                    o.paymentMethod === "PAYOS" &&
+                    o.paymentMethod === "VNPAY" &&
                     o.paymentStatus === "pending" &&
                     o.status === "pending" &&
                     o.paymentExpiresAt
@@ -153,7 +153,7 @@ const OrderDetailPage = () => {
         try {
             setCancelling(true);
             let res;
-            if (order.paymentMethod === "PAYOS" && order.paymentStatus === "pending") {
+            if (order.paymentMethod === "VNPAY" && order.paymentStatus === "pending") {
                 res = await cancelPayOSPaymentApi(order._id);
             } else {
                 res = await cancelOrderApi(order._id, cancelReason.trim());
@@ -362,7 +362,7 @@ const OrderDetailPage = () => {
                 )}
 
                 {/* ─── PayOS: countdown banner + nút thanh toán lại ─── */}
-                {order.paymentMethod === "PAYOS" && order.paymentStatus === "pending" && order.status === "pending" && (
+                {order.paymentMethod === "VNPAY" && order.paymentStatus === "pending" && order.status === "pending" && (
                     (() => {
                         const isExpired = payosCountdown !== null && payosCountdown <= 0;
                         return (
@@ -679,12 +679,11 @@ const OrderDetailPage = () => {
                     <div className="px-5 py-4 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-[#B86B05]/10 rounded-2xl flex items-center justify-center">
-                                <span className="text-lg">{order.paymentMethod === "PAYOS" ? "💳" : "💵"}</span>
+                                <span className="text-lg">{order.paymentMethod === "VNPAY" ? "💳" : "💵"}</span>
                             </div>
                             <div>
                                 <p className="text-sm font-semibold text-[#1C1108]">
                                     {order.paymentMethod === "COD" ? "Thanh toán khi nhận hàng (COD)" :
-                                     order.paymentMethod === "PAYOS" ? "Thanh toán qua PayOS" :
                                      order.paymentMethod === "VNPAY" ? "VNPay" :
                                      order.paymentMethod === "WALLET" ? "Ví SORA" : order.paymentMethod}
                                 </p>

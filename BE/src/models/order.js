@@ -223,7 +223,7 @@ const orderSchema = new mongoose.Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['COD', 'VNPAY', 'MOMO', 'ZALOPAY', 'PAYOS', 'WALLET'],
+        enum: ['COD', 'VNPAY', 'WALLET'],
         default: 'COD'
     },
     paymentStatus: {
@@ -274,6 +274,11 @@ const orderSchema = new mongoose.Schema({
         default: null
     },
     couponDiscount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    shopCouponDiscount: {
         type: Number,
         default: 0,
         min: 0
@@ -432,6 +437,16 @@ const orderSchema = new mongoose.Schema({
     },
     // Số tiền voucher do sàn tài trợ (để quyết toán sau)
     voucherPlatformAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    productPlatformDiscount: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    platformDiscountAmount: {
         type: Number,
         default: 0,
         min: 0,
@@ -658,7 +673,7 @@ orderSchema.methods.canRequestCancel = function() {
 
 // Kiểm tra có thể thanh toán lại không (PayOS pending + chưa expired)
 orderSchema.methods.canRetryPayment = function() {
-    if (this.paymentMethod !== 'PAYOS') return false;
+    if (this.paymentMethod !== 'VNPAY') return false;
     if (this.paymentStatus === 'paid') return false;
     if (this.status === ORDER_STATUS.CANCELLED) return false;
     if (this.isPaymentExpired()) return false;

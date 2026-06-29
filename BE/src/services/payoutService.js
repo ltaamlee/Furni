@@ -84,7 +84,9 @@ const isOrderPaidOut = async (orderId) => {
  * Ghi ledger entry cho một giao dịch Admin
  * ─────────────────────────────────────────────────────────────────── */
 const createLedgerEntry = async (data, session) => {
-    const entry = await AdminLedger.create([data], { session });
+    const entry = session
+        ? await AdminLedger.create([data], { session })
+        : await AdminLedger.create([data]);
     return entry[0];
 };
 
@@ -100,17 +102,15 @@ const createLedgerEntry = async (data, session) => {
  * ─────────────────────────────────────────────────────────────────── */
 const payoutOrderToVendors = async (orderId) => {
     console.log(`[Payout] Bat dau chi tra cho orderId=${orderId}`);
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    const session = null;
 
     try {
-        const order = await Order.findById(orderId).session(session);
+        const order = await Order.findById(orderId);
         if (!order) throw new Error('Không tìm thấy đơn hàng');
 
         // ── Guard: đã payout rồi → bỏ qua ───────────────────────────
         if (await isOrderPaidOut(orderId)) {
             console.log(`[Payout] Order ${order.orderNumber} đã được chi trả, bỏ qua`);
-            await session.abortTransaction();
             return { success: true, alreadyPaid: true };
         }
 
@@ -123,6 +123,9 @@ const payoutOrderToVendors = async (orderId) => {
         if (order.paymentMethod === 'COD' && order.paymentStatus !== 'paid') {
             throw new Error('Đơn COD chưa được xác nhận thanh toán');
         }
+        if (['VNPAY', 'WALLET'].includes(order.paymentMethod) && order.paymentStatus !== 'paid') {
+            throw new Error(`Don ${order.paymentMethod} chua thanh toan thanh cong`);
+        }
 
         const shop = await getShopFromOrder(order);
         const shopId = shop?._id || null;
@@ -132,7 +135,8 @@ const payoutOrderToVendors = async (orderId) => {
         const netRevenue = order.vendorTakeHome || 0;
         const feePercent = order.commissionRate || 2;
         const voucherPlatformAmt = order.voucherPlatformAmount || 0;
-        const totalToVendor = netRevenue + voucherPlatformAmt;
+        const platformSponsorAmt = order.platformDiscountAmount || voucherPlatformAmt || 0;
+        const totalToVendor = netRevenue;
 
         // ── Ghi ledger: Thu phí sàn ────────────────────────────────
         if (platformFee > 0) {
@@ -153,13 +157,13 @@ const payoutOrderToVendors = async (orderId) => {
 
         // ── Ghi ledger: Ghi nhận chi phí voucher sàn (tạo nợ VOUCHER_LIAB) ──
         // Phải tạo TRƯỚC VOUCHER_SPONSOR_SETTLE để VOUCHER_LIAB không bị âm
-        if (voucherPlatformAmt > 0) {
+        if (platformSponsorAmt > 0) {
             await createLedgerEntry({
                 order: order._id,
                 orderNumber: order.orderNumber,
                 checkoutGroupId: order.checkoutGroupId,
                 type: LEDGER_TYPE.VOUCHER_SPONSOR_IN,
-                amount: voucherPlatformAmt,
+                amount: platformSponsorAmt,
                 accountDebit: ACCOUNT_TYPE.PAYOS_HOLDING,
                 accountCredit: ACCOUNT_TYPE.VOUCHER_LIAB,
                 shop: shopId,
@@ -188,13 +192,13 @@ const payoutOrderToVendors = async (orderId) => {
         }
 
         // ── Ghi ledger: Quyết toán voucher sàn (nếu có) ────────────
-        if (voucherPlatformAmt > 0) {
+        if (platformSponsorAmt > 0) {
             await createLedgerEntry({
                 order: order._id,
                 orderNumber: order.orderNumber,
                 checkoutGroupId: order.checkoutGroupId,
                 type: LEDGER_TYPE.VOUCHER_SPONSOR_SETTLE,
-                amount: voucherPlatformAmt,
+                amount: platformSponsorAmt,
                 accountDebit: ACCOUNT_TYPE.VOUCHER_LIAB,
                 accountCredit: null,
                 shop: shopId,
@@ -205,13 +209,10 @@ const payoutOrderToVendors = async (orderId) => {
 
             // Đồng thời ghi credit vào ví vendor (không qua PAYOS_HOLDING vì
             // voucher sàn đã được trừ ở payableAmount lúc checkout)
-            const vendorWallet = await getOrCreateVendorWallet(shop);
-            await creditToVendor(vendorWallet, voucherPlatformAmt, `Quyết toán voucher sàn đơn #${order.orderNumber}`, shopId, order._id, session);
         }
 
         // ── Ghi ledger: Chi trả cho vendor ────────────────────────
         if (netRevenue > 0) {
-            const vendorWallet = await getOrCreateVendorWallet(shop);
 
             await createLedgerEntry({
                 order: order._id,
@@ -228,6 +229,7 @@ const payoutOrderToVendors = async (orderId) => {
             }, session);
 
             // Credit vào ví vendor
+            const vendorWallet = await getOrCreateVendorWallet(shop);
             await creditToVendor(
                 vendorWallet,
                 netRevenue,
@@ -243,23 +245,11 @@ const payoutOrderToVendors = async (orderId) => {
         order.platformFeePercent = feePercent;
         order.payoutStatus = 'paid';
         order.payoutAt = new Date();
-        await order.save({ session });
+        await order.save();
 
-        // ── Đánh dấu đã payout (tạo Transaction marker) ───────────
-        await Transaction.create([{
-            wallet: (await getOrCreateVendorWallet(shop))._id,
-            shop: shopId,
-            type: TX_TYPE.CREDIT,
-            category: TX_CATEGORY.ORDER_INCOME,
-            amount: totalToVendor,
-            status: TX_STATUS.SUCCESS,
-            order: order._id,
-            description: `Payout đơn #${order.orderNumber}`,
-        }], { session });
+        if (session) await session.commitTransaction();
 
-        await session.commitTransaction();
-
-        console.log(`[Payout] ${order.orderNumber}: subtotal=${order.subtotal} | coupon=${order.couponDiscount || 0} | taxable=${order.taxableRevenue} | commission=${platformFee}(${feePercent}%) | net=${netRevenue} | voucherPlatform=${voucherPlatformAmt} | toVendor=${totalToVendor}`);
+        console.log(`[Payout] ${order.orderNumber}: subtotal=${order.subtotal} | coupon=${order.couponDiscount || 0} | taxable=${order.taxableRevenue} | commission=${platformFee}(${feePercent}%) | net=${netRevenue} | platformSponsor=${platformSponsorAmt} | toVendor=${totalToVendor}`);
 
         return {
             success: true,
@@ -271,16 +261,17 @@ const payoutOrderToVendors = async (orderId) => {
             platformFee,
             netRevenue,
             voucherPlatformAmount: voucherPlatformAmt,
+            platformDiscountAmount: platformSponsorAmt,
             totalToVendor,
             feePercent,
         };
 
     } catch (error) {
-        await session.abortTransaction();
+        if (session) await session.abortTransaction();
         console.error(`[Payout] Lỗi chi trả đơn ${orderId}:`, error.message);
         throw error;
     } finally {
-        session.endSession();
+        if (session) session.endSession();
     }
 };
 
@@ -289,9 +280,13 @@ const payoutOrderToVendors = async (orderId) => {
  * ─────────────────────────────────────────────────────────────────── */
 const creditToVendor = async (wallet, amount, description, shopId, orderId, session) => {
     wallet.balance += amount;
-    await wallet.save({ session });
+    if (session) {
+        await wallet.save({ session });
+    } else {
+        await wallet.save();
+    }
 
-    await Transaction.create([{
+    const docs = [{
         wallet: wallet._id,
         shop: shopId || null,
         type: TX_TYPE.CREDIT,
@@ -301,7 +296,12 @@ const creditToVendor = async (wallet, amount, description, shopId, orderId, sess
         order: orderId,
         description,
         balanceAfter: wallet.balance,
-    }], { session });
+    }];
+    if (session) {
+        await Transaction.create(docs, { session });
+    } else {
+        await Transaction.create(docs);
+    }
 };
 
 /** ─────────────────────────────────────────────────────────────────────
@@ -316,11 +316,10 @@ const creditToVendor = async (wallet, amount, description, shopId, orderId, sess
  *
  * ─────────────────────────────────────────────────────────────────── */
 const reversePayoutForCancelledOrder = async (orderId) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    const session = null;
 
     try {
-        const order = await Order.findById(orderId).session(session);
+        const order = await Order.findById(orderId);
         if (!order) throw new Error('Không tìm thấy đơn hàng');
 
         // Tìm transaction ORDER_INCOME từ payout trước đó
@@ -328,11 +327,10 @@ const reversePayoutForCancelledOrder = async (orderId) => {
             order: orderId,
             category: TX_CATEGORY.ORDER_INCOME,
             type: TX_TYPE.CREDIT,
-        }).session(session);
+        });
 
         if (incomeTransactions.length === 0) {
             console.log(`[ReversePayout] Đơn ${order.orderNumber} chưa được chi trả, không cần reverse`);
-            await session.abortTransaction();
             return { success: true, reversed: false };
         }
 
@@ -340,18 +338,19 @@ const reversePayoutForCancelledOrder = async (orderId) => {
         const platformFee = order.commissionAmount || 0;
         const netRevenue = order.vendorTakeHome || 0;
         const voucherPlatformAmt = order.voucherPlatformAmount || 0;
+        const platformSponsorAmt = order.platformDiscountAmount || voucherPlatformAmt || 0;
         const shippingPlatformAmt = order.shippingPlatformAmount || 0;
 
         const reverseResults = [];
 
         // ── Thu hồi netRevenue từ ví vendor ───────────────────────
         for (const tx of incomeTransactions) {
-            const vendorWallet = await Wallet.findById(tx.wallet).session(session);
+            const vendorWallet = await Wallet.findById(tx.wallet);
             if (!vendorWallet) continue;
 
             const debitAmount = Math.min(vendorWallet.balance, tx.amount);
             vendorWallet.balance = Math.max(0, vendorWallet.balance - debitAmount);
-            await vendorWallet.save({ session });
+            await vendorWallet.save();
 
             await Transaction.create([{
                 wallet: vendorWallet._id,
@@ -363,7 +362,7 @@ const reversePayoutForCancelledOrder = async (orderId) => {
                 order: orderId,
                 description: `Hoàn tiền do hủy đơn #${order.orderNumber} (thu hồi payout)`,
                 balanceAfter: vendorWallet.balance,
-            }], { session });
+            }]);
 
             reverseResults.push({
                 walletId: vendorWallet._id,
@@ -407,13 +406,13 @@ const reversePayoutForCancelledOrder = async (orderId) => {
         }
 
         // ── Ghi ledger: Hoàn voucher sàn (nếu có) ─────────────────
-        if (voucherPlatformAmt > 0) {
+        if (platformSponsorAmt > 0) {
             await createLedgerEntry({
                 order: order._id,
                 orderNumber: order.orderNumber,
                 checkoutGroupId: order.checkoutGroupId,
                 type: LEDGER_TYPE.VOUCHER_SPONSOR_REFUND,
-                amount: voucherPlatformAmt,
+                amount: platformSponsorAmt,
                 accountDebit: ACCOUNT_TYPE.VOUCHER_LIAB,
                 accountCredit: ACCOUNT_TYPE.PAYOS_HOLDING,
                 shop: order.shop || null,
@@ -442,11 +441,11 @@ const reversePayoutForCancelledOrder = async (orderId) => {
 
         // ── Cập nhật Order ────────────────────────────────────────
         order.payoutStatus = 'reversed';
-        await order.save({ session });
+        await order.save();
 
-        await session.commitTransaction();
+        if (session) await session.commitTransaction();
 
-        console.log(`[ReversePayout] Đơn ${order.orderNumber}: thu hồi net=${netRevenue} | hoàn phí=${platformFee} | hoàn voucher=${voucherPlatformAmt}`);
+        console.log(`[ReversePayout] Đơn ${order.orderNumber}: thu hồi net=${netRevenue} | hoàn phí=${platformFee} | hoàn voucher=${platformSponsorAmt}`);
 
         return {
             success: true,
@@ -454,16 +453,16 @@ const reversePayoutForCancelledOrder = async (orderId) => {
             orderNumber: order.orderNumber,
             netRevenueReversed: netRevenue,
             platformFeeRefunded: platformFee,
-            voucherRefunded: voucherPlatformAmt,
+            voucherRefunded: platformSponsorAmt,
             walletDebits: reverseResults,
         };
 
     } catch (error) {
-        await session.abortTransaction();
+        if (session) await session.abortTransaction();
         console.error(`[ReversePayout] Lỗi đơn ${orderId}:`, error.message);
         throw error;
     } finally {
-        session.endSession();
+        if (session) session.endSession();
     }
 };
 
