@@ -15,8 +15,10 @@ const TX_STATUS_META = {
 const fmtDate = (d) => new Date(d).toLocaleDateString("vi-VN");
 const fmtTime = (d) => new Date(d).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 const CAT_LABEL = {
-    order_income: "Doanh thu đơn hàng", withdraw: "Rút tiền", platform_fee: "Phí sàn", refund: "Hoàn tiền", adjustment: "Điều chỉnh",
+    order_income: "Nhận tiền vào ví",
+    withdraw: "Rút ra ngân hàng",
 };
+const VENDOR_WALLET_CATEGORIES = new Set(Object.keys(CAT_LABEL));
 
 const Wallet = () => {
     const { showToast } = useToast();
@@ -44,7 +46,9 @@ const Wallet = () => {
                 getVendorTransactionsApi({ type: "withdraw", limit: 10 }),
             ]);
             if (w.success) setWallet(w.data);
-            if (tx.success) setTransactions(tx.data.transactions || []);
+            if (tx.success) {
+                setTransactions((tx.data.transactions || []).filter((item) => VENDOR_WALLET_CATEGORIES.has(item.category)));
+            }
             if (wd.success) setWithdrawals(wd.data.transactions || []);
         } catch {
             setWallet(null);

@@ -777,6 +777,89 @@ const createOrdersForShop = async ({ shopRecord, products, customers, addressesB
     return orders;
 };
 
+const createRevenueDemoOrdersForShop = async ({ shopRecord, products, customers, addressesByUser, coupons, shopIndex }) => {
+    const { shop } = shopRecord;
+    const shopCoupons = coupons.filter((coupon) => coupon.shop && idKey(coupon.shop) === idKey(shop));
+    const orders = [];
+    const demoOrderCount = 60;
+
+    for (let index = 0; index < demoOrderCount; index += 1) {
+        const customer = customers[(index * 2 + shopIndex) % customers.length];
+        const customerAddresses = addressesByUser.get(idKey(customer));
+        const address = customerAddresses[(index + shopIndex) % customerAddresses.length];
+        const payoutAt = daysFromNow(-1 * ((index + shopIndex * 3) % 45));
+        const orderedAt = addDays(payoutAt, -7 - (index % 3));
+        const deliveredAt = addDays(payoutAt, -2);
+        const paymentMethod = paymentMethods[(index + shopIndex) % paymentMethods.length];
+        const items = makeOrderItems(products, shop, 500 + index + shopIndex * 17);
+        const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const shippingFee = 30000 + (index % 5) * 8000;
+        const coupon = index % 5 === 0 && shopCoupons.length ? shopCoupons[(index + shopIndex) % shopCoupons.length] : null;
+        const couponDiscount = money(calcDiscount(coupon, subtotal, shippingFee));
+        const totalPrice = money(subtotal + shippingFee - couponDiscount);
+        const taxableRevenue = Math.max(0, subtotal - couponDiscount);
+        const commissionRate = Number(shop.commissionRate || 2);
+        const commissionAmount = money(taxableRevenue * commissionRate / 100);
+        const vendorTakeHome = Math.max(0, taxableRevenue - commissionAmount);
+        const shippingTier = index % 4 === 0 ? 'economy' : 'express';
+
+        const order = await Order.create({
+            user: customer._id,
+            shop: shop._id,
+            shopName: shop.name,
+            shopCode: shop.code,
+            checkoutGroupId: index % 12 === 0 ? new mongoose.Types.ObjectId().toString() : null,
+            products: items,
+            shippingAddress: buildShippingAddress(address, index % 6 === 0 ? 'Don demo doanh thu, uu tien giao gio hanh chinh.' : ''),
+            paymentMethod,
+            paymentStatus: 'paid',
+            payosOrderCode: paymentMethod === 'VNPAY' ? Number(`${Date.now()}${shopIndex}${index}`.slice(-10)) : null,
+            status: 'delivered',
+            subtotal,
+            shippingFee,
+            shippingTier,
+            shippingProvider: shippingProviders[(index + shopIndex) % shippingProviders.length],
+            trackingNumber: `${shop.code}${String(index + 50000).padStart(7, '0')}`,
+            couponDiscount,
+            shopCouponDiscount: couponDiscount,
+            couponCode: coupon?.code || null,
+            totalPrice,
+            walletUsedAmount: paymentMethod === 'WALLET' ? totalPrice : 0,
+            payableAmount: paymentMethod === 'WALLET' ? 0 : totalPrice,
+            walletRefundedAmount: 0,
+            refundedToWalletAt: null,
+            totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
+            statusHistory: buildStatusHistory('delivered', orderedAt),
+            orderedAt,
+            confirmedAt: addDays(orderedAt, 1),
+            deliveredAt,
+            cancelledAt: null,
+            estimatedDelivery: addDays(orderedAt, shippingTier === 'express' ? 3 : 6),
+            paymentExpiresAt: null,
+            voucherSponsorType: coupon ? 'shop' : null,
+            voucherPlatformAmount: 0,
+            platformDiscountAmount: 0,
+            shippingSponsorType: null,
+            shippingPlatformAmount: 0,
+            taxableRevenue,
+            commissionRate,
+            commissionAmount,
+            vendorTakeHome,
+            platformFeeAmount: commissionAmount,
+            platformFeePercent: commissionRate,
+            payoutStatus: 'paid',
+            payoutAt,
+            voucherRolledBack: false,
+            createdAt: orderedAt,
+            updatedAt: payoutAt,
+        });
+
+        orders.push(order);
+    }
+
+    return orders;
+};
+
 const createVouchers = async ({ customers, coupons, orders, shopRecords }) => {
     const shopNameById = new Map(shopRecords.map((record) => [idKey(record.shop), record.shop.name]));
     const payload = [];
@@ -825,18 +908,19 @@ const createWalletTransactionsFromOrders = async ({ orders, walletByUser, shopRe
 
         for (const order of shopOrders) {
             if (order.status === 'delivered') {
-                const income = money(order.totalPrice - order.shippingFee - order.platformFeeAmount);
-                balance += income;
+                const income = money(order.vendorTakeHome || (order.totalPrice - order.shippingFee - order.platformFeeAmount));
+                const payoutCompleted = order.payoutStatus === 'paid';
+                if (payoutCompleted) balance += income;
                 transactionPayload.push({
                     wallet: wallet._id,
                     shop: record.shop._id,
                     type: 'credit',
                     category: 'order_income',
                     amount: income,
-                    status: order.payoutStatus === 'paid' ? 'success' : 'pending',
+                    status: payoutCompleted ? 'success' : 'pending',
                     description: `Doanh thu don ${order.orderNumber}`,
                     order: order._id,
-                    balanceAfter: balance,
+                    balanceAfter: payoutCompleted ? balance : null,
                 });
                 embeddedTransactions.push({
                     type: 'deposit',
@@ -845,22 +929,7 @@ const createWalletTransactionsFromOrders = async ({ orders, walletByUser, shopRe
                     orderId: order._id,
                     orderNumber: order.orderNumber,
                     paymentMethod: order.paymentMethod,
-                    status: order.payoutStatus === 'paid' ? 'completed' : 'pending',
-                });
-            }
-
-            if (order.platformFeeAmount > 0) {
-                balance = Math.max(0, balance - order.platformFeeAmount);
-                transactionPayload.push({
-                    wallet: wallet._id,
-                    shop: record.shop._id,
-                    type: 'debit',
-                    category: 'platform_fee',
-                    amount: order.platformFeeAmount,
-                    status: 'success',
-                    description: `Phi san don ${order.orderNumber}`,
-                    order: order._id,
-                    balanceAfter: balance,
+                    status: payoutCompleted ? 'completed' : 'pending',
                 });
             }
 
@@ -1193,6 +1262,17 @@ const seed = async () => {
         });
         allOrders.push(...orders);
         console.log(`Created ${orders.length} orders for ${record.shop.name}`);
+
+        const revenueDemoOrders = await createRevenueDemoOrdersForShop({
+            shopRecord: record,
+            products: productsByShop.get(idKey(record.shop)),
+            customers,
+            addressesByUser,
+            coupons,
+            shopIndex,
+        });
+        allOrders.push(...revenueDemoOrders);
+        console.log(`Created ${revenueDemoOrders.length} revenue demo orders for ${record.shop.name}`);
     }
 
     await createVouchers({ customers, coupons, orders: allOrders, shopRecords });
@@ -1225,7 +1305,7 @@ const seed = async () => {
     console.log(`Admin   : ${admin.email} / Admin123`);
     vendors.forEach((vendor, index) => console.log(`Vendor ${index + 1}: ${vendor.email} / Vendor123`));
     customers.forEach((customer, index) => console.log(`Customer ${index + 1}: ${customer.email} / Customer123`));
-    console.log('Summary : 3 shops, 55 products, 105 orders, 19 promotions, 15 blogs');
+    console.log('Summary : 3 shops, 55 products, 285 orders, 19 promotions, 15 blogs');
     console.log('=============================================');
 };
 

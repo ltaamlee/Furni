@@ -78,7 +78,7 @@ const attachVendorOrderRevenue = (order, shop) => {
 };
 
 const ONLINE_PAYMENT_METHODS = ['VNPAY', 'WALLET'];
-const WALLET_HISTORY_TX_CATEGORIES = ['order_income', 'withdraw', 'refund', 'adjustment'];
+const WALLET_HISTORY_TX_CATEGORIES = ['order_income', 'withdraw'];
 
 const onlinePaidOrderQuery = (shopId) => ({
     shop: shopId,
@@ -150,18 +150,49 @@ const shopSliceOfOrder = (order, shopId) => {
 
 // ── Helpers tổng hợp doanh thu theo shop (chỉ tính dòng sản phẩm của shop) ──
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const endOfDay = (d) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
+
+const getReportRange = (period, offset = 0) => {
+    const now = new Date();
+    if (period === 'today') {
+        const day = new Date(now);
+        day.setDate(day.getDate() - offset);
+        return { start: startOfDay(day), end: endOfDay(day) };
+    }
+    if (period === 'month') {
+        const start = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+        const end = offset === 0
+            ? endOfDay(now)
+            : endOfDay(new Date(now.getFullYear(), now.getMonth() - offset + 1, 0));
+        return { start, end };
+    }
+    if (period === 'quarter') {
+        const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3 - offset * 3;
+        const start = new Date(now.getFullYear(), quarterStartMonth, 1);
+        const end = offset === 0
+            ? endOfDay(now)
+            : endOfDay(new Date(now.getFullYear(), quarterStartMonth + 3, 0));
+        return { start, end };
+    }
+
+    const days = period === '7d' ? 7 : 30;
+    const end = endOfDay(new Date(now.getTime() - offset * days * 86400000));
+    const start = startOfDay(new Date(end.getTime() - (days - 1) * 86400000));
+    return { start, end };
+};
+
+const daysInRange = (start, end) => Math.floor((startOfDay(end) - startOfDay(start)) / 86400000) + 1;
 
 // Doanh thu shop theo từng ngày trong `days` ngày gần nhất (đơn chưa huỷ)
 // revenue = subtotal của shop - commission = vendorTakeHome (không tính coupon để đơn giản)
-const revenueSeries = async (shopId, days) => {
-    const start = startOfDay(new Date(Date.now() - (days - 1) * 86400000));
+const revenueSeries = async (shopId, start, end) => {
     const rows = await Order.aggregate([
         {
             $match: {
                 shop: shopId,
                 status: ORDER_STATUS.DELIVERED,
                 payoutStatus: 'paid',
-                payoutAt: { $gte: start }
+                payoutAt: { $gte: start, $lte: end }
             }
         },
         {
@@ -179,6 +210,7 @@ const revenueSeries = async (shopId, days) => {
     });
     const labels = [];
     const data = [];
+    const days = daysInRange(start, end);
     for (let i = 0; i < days; i++) {
         const d = new Date(start.getTime() + i * 86400000);
         const key = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -189,14 +221,26 @@ const revenueSeries = async (shopId, days) => {
 };
 
 // Top sản phẩm bán chạy của shop theo số lượng; doanh thu dùng để phá hòa.
-const topProductsOfShop = async (shopId, since = null, limit = 5) => {
+const topProductsOfShop = async (shopId, start = null, end = null, limit = 5) => {
     const match = { shop: shopId, status: ORDER_STATUS.DELIVERED, payoutStatus: 'paid' };
-    if (since) match.payoutAt = { $gte: since };
+    if (start || end) match.payoutAt = { ...(start ? { $gte: start } : {}), ...(end ? { $lte: end } : {}) };
     const rows = await Order.aggregate([
         { $match: match },
         { $unwind: '$products' },
         { $match: { 'products.shop': shopId } },
-        { $group: { _id: '$products.product', name: { $first: '$products.name' }, sold: { $sum: '$products.quantity' }, revenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } },
+        { $addFields: { lineRevenue: { $multiply: ['$products.price', '$products.quantity'] } } },
+        {
+            $addFields: {
+                lineNetRevenue: {
+                    $cond: [
+                        { $gt: ['$subtotal', 0] },
+                        { $multiply: ['$vendorTakeHome', { $divide: ['$lineRevenue', '$subtotal'] }] },
+                        0
+                    ]
+                }
+            }
+        },
+        { $group: { _id: '$products.product', name: { $first: '$products.name' }, sold: { $sum: '$products.quantity' }, revenue: { $sum: '$lineNetRevenue' } } },
         { $sort: { sold: -1, revenue: -1 } },
         { $limit: limit }
     ]);
@@ -205,13 +249,13 @@ const topProductsOfShop = async (shopId, since = null, limit = 5) => {
     const prods = await Product.find({ _id: { $in: ids } }).populate('category', 'name').select('category name');
     const catOf = {};
     prods.forEach((p) => { catOf[p._id.toString()] = p.category?.name || '—'; });
-    return rows.map((r, i) => ({ rank: i + 1, productId: r._id, name: r.name, cat: catOf[r._id?.toString()] || '—', sold: r.sold, revenue: r.revenue }));
+    return rows.map((r, i) => ({ rank: i + 1, productId: r._id, name: r.name, cat: catOf[r._id?.toString()] || '—', sold: r.sold, revenue: Math.round(r.revenue || 0) }));
 };
 
-// Tổng doanh thu + số đơn của shop kể từ `since` (đã trừ phí sàn)
-const shopRevenueTotals = async (shopId, since = null) => {
+// Tổng doanh thu + số đơn của shop trong khoảng payout (đã trừ phí sàn)
+const shopRevenueTotals = async (shopId, start = null, end = null) => {
     const match = { shop: shopId, status: ORDER_STATUS.DELIVERED, payoutStatus: 'paid' };
-    if (since) match.payoutAt = { $gte: since };
+    if (start || end) match.payoutAt = { ...(start ? { $gte: start } : {}), ...(end ? { $lte: end } : {}) };
     const rows = await Order.aggregate([
         { $match: match },
         { $group: {
@@ -395,6 +439,9 @@ const getDashboardSummary = async (req, res) => {
         const base = { shop: shop._id };
         const orderBase = { shop: shop._id };
         const todayStart = startOfDay(new Date());
+        const todayEnd = endOfDay(new Date());
+        const weekRange = getReportRange('7d');
+        const monthRange = getReportRange('month');
 
         await Promotion.syncLifecycleStatuses(base);
 
@@ -410,10 +457,10 @@ const getDashboardSummary = async (req, res) => {
             Order.countDocuments(orderBase),
             Order.countDocuments({ ...orderBase, status: ORDER_STATUS.PENDING }),
             Order.countDocuments({ ...orderBase, createdAt: { $gte: todayStart } }),
-            shopRevenueTotals(shop._id, todayStart),
-            revenueSeries(shop._id, 7),
-            revenueSeries(shop._id, 30),
-            topProductsOfShop(shop._id, null, 5),
+            shopRevenueTotals(shop._id, todayStart, todayEnd),
+            revenueSeries(shop._id, weekRange.start, weekRange.end),
+            revenueSeries(shop._id, monthRange.start, monthRange.end),
+            topProductsOfShop(shop._id, null, null, 5),
             Order.find(orderBase).populate('user', 'fullName').sort('-createdAt').limit(5),
             Order.countDocuments({ ...orderBase, status: ORDER_STATUS.DELIVERED }),
             Order.countDocuments({ ...orderBase, status: ORDER_STATUS.CANCELLED }),
@@ -945,7 +992,6 @@ const updateMyOrderStatus = async (req, res) => {
 // @desc    Báo cáo doanh thu của shop
 // @route   GET /api/vendor/reports?period=month
 // @access  Private/Vendor
-const PERIOD_DAYS = { today: 1, '7d': 7, month: 30, quarter: 90 };
 const CHART_COLORS = ['#B86B05', '#95520B', '#DE9601', '#FBC309', '#7B440C', '#C4A882'];
 
 const getReports = async (req, res) => {
@@ -954,26 +1000,38 @@ const getReports = async (req, res) => {
         if (!shop) return res.status(404).json({ success: false, message: 'Bạn chưa có cửa hàng' });
 
         const period = req.query.period || 'month';
-        const days = PERIOD_DAYS[period] || 30;
-        const since = startOfDay(new Date(Date.now() - (days - 1) * 86400000));
+        const range = getReportRange(period);
+        const prevRange = getReportRange(period, 1);
 
         const [totals, prevTotals, revenue, topRaw, catRows, cancelledCount] = await Promise.all([
-            shopRevenueTotals(shop._id, since),
-            shopRevenueTotals(shop._id, startOfDay(new Date(Date.now() - (2 * days - 1) * 86400000))),
-            revenueSeries(shop._id, days),
-            topProductsOfShop(shop._id, since, 5),
+            shopRevenueTotals(shop._id, range.start, range.end),
+            shopRevenueTotals(shop._id, prevRange.start, prevRange.end),
+            revenueSeries(shop._id, range.start, range.end),
+            topProductsOfShop(shop._id, range.start, range.end, 5),
             Order.aggregate([
-                { $match: { 'products.shop': shop._id, status: { $ne: ORDER_STATUS.CANCELLED }, createdAt: { $gte: since } } },
+                { $match: { shop: shop._id, status: ORDER_STATUS.DELIVERED, payoutStatus: 'paid', payoutAt: { $gte: range.start, $lte: range.end } } },
                 { $unwind: '$products' },
                 { $match: { 'products.shop': shop._id } },
+                { $addFields: { lineRevenue: { $multiply: ['$products.price', '$products.quantity'] } } },
+                {
+                    $addFields: {
+                        lineNetRevenue: {
+                            $cond: [
+                                { $gt: ['$subtotal', 0] },
+                                { $multiply: ['$vendorTakeHome', { $divide: ['$lineRevenue', '$subtotal'] }] },
+                                0
+                            ]
+                        }
+                    }
+                },
                 { $lookup: { from: 'products', localField: 'products.product', foreignField: '_id', as: 'p' } },
                 { $unwind: { path: '$p', preserveNullAndEmptyArrays: true } },
                 { $lookup: { from: 'categories', localField: 'p.category', foreignField: '_id', as: 'c' } },
                 { $unwind: { path: '$c', preserveNullAndEmptyArrays: true } },
-                { $group: { _id: { $ifNull: ['$c.name', 'Khác'] }, revenue: { $sum: { $multiply: ['$products.price', '$products.quantity'] } } } },
+                { $group: { _id: { $ifNull: ['$c.name', 'Khác'] }, revenue: { $sum: '$lineNetRevenue' } } },
                 { $sort: { revenue: -1 } }
             ]),
-            Order.countDocuments({ 'products.shop': shop._id, status: ORDER_STATUS.CANCELLED, createdAt: { $gte: since } })
+            Order.countDocuments({ shop: shop._id, status: ORDER_STATUS.CANCELLED, updatedAt: { $gte: range.start, $lte: range.end } })
         ]);
 
         const avgOrder = totals.orders ? Math.round(totals.revenue / totals.orders) : 0;
@@ -981,6 +1039,9 @@ const getReports = async (req, res) => {
         const totalCatRev = catRows.reduce((s, c) => s + c.revenue, 0) || 1;
         const categoryShares = catRows.map((c, i) => ({ label: c._id, value: Math.round((c.revenue / totalCatRev) * 100), color: CHART_COLORS[i % CHART_COLORS.length] }));
         const topProducts = topRaw.map((p) => ({ ...p, share: Math.round((p.revenue / (totals.revenue || 1)) * 100) }));
+        const revenueChangePct = prevTotals.revenue
+            ? Math.round(((totals.revenue - prevTotals.revenue) / prevTotals.revenue) * 100)
+            : (totals.revenue > 0 ? 100 : 0);
 
         res.status(200).json({
             success: true,
@@ -991,7 +1052,7 @@ const getReports = async (req, res) => {
                     orderCount: totals.orders,
                     avgOrderValue: avgOrder,
                     returnRate,
-                    revenueChangePct: prevTotals.revenue ? Math.round(((totals.revenue - (prevTotals.revenue - totals.revenue)) / Math.max(1, prevTotals.revenue - totals.revenue)) * 100) : 0
+                    revenueChangePct
                 },
                 revenue,
                 categoryShares,
