@@ -23,6 +23,10 @@ const AdminLedger = require('../models/adminLedger');
 const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 const { attachPricing } = require('../utils/pricing');
 const {
+    markVoucherUsed,
+    restoreVoucherForOrder,
+} = require('../services/voucherUsageService');
+const {
     notifyCustomerOrderCreated,
     notifyCustomerOrderStatus,
 } = require('../services/notificationService');
@@ -370,6 +374,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
             buyNowProduct = null,
             couponCode = null,
             shopCouponCodes = {},
+            shopShippingCouponCodes = {},
             selectedShippingCoupon = null,
             useWalletBalance = false,
             walletAmount = 0
@@ -588,6 +593,29 @@ const createPayOSPaymentWithCart = async (req, res) => {
             }
         }
 
+        const usedShopShippingCoupons = {};
+        if (shopShippingCouponCodes && typeof shopShippingCouponCodes === 'object') {
+            for (const [shopId, code] of Object.entries(shopShippingCouponCodes)) {
+                if (!code || !shopGroups[shopId]) continue;
+
+                const voucher = await VoucherWallet.findOne({
+                    user: req.user._id,
+                    code: String(code).toUpperCase()
+                }).populate('coupon');
+                const coupon = voucher?.coupon;
+                if (!voucher || voucher.status !== VOUCHER_STATUS.ACTIVE || !coupon?.isActive) continue;
+
+                const couponShopId = coupon.shop ? coupon.shop.toString() : null;
+                const discountType = coupon.discountType || voucher.discountType;
+                const couponEndDate = coupon.endDate || voucher.endDate;
+                if (couponShopId !== shopId) continue;
+                if (discountType !== 'freeship') continue;
+                if (couponEndDate && new Date(couponEndDate) < new Date()) continue;
+
+                usedShopShippingCoupons[shopId] = voucher;
+            }
+        }
+
         {
             const checkoutGroupId = new mongoose.Types.ObjectId().toString();
             const createdOrders = [];
@@ -605,7 +633,8 @@ const createPayOSPaymentWithCart = async (req, res) => {
                 let groupShippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
                     ? Number(shippingFeesByShop[shopId])
                     : (shippingFee || 0);
-                if (isShippingFree) groupShippingFee = 0;
+                const hasShopShippingCoupon = Boolean(usedShopShippingCoupons[shopId]);
+                if (isShippingFree || hasShopShippingCoupon) groupShippingFee = 0;
 
                 const globalGroupDiscount = usedCouponShopId
                     ? (shopId === usedCouponShopId ? globalCouponDiscount : 0)
@@ -641,7 +670,8 @@ const createPayOSPaymentWithCart = async (req, res) => {
                 let groupShippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
                     ? Number(shippingFeesByShop[shopId])
                     : (shippingFee || 0);
-                if (isShippingFree) groupShippingFee = 0;
+                const hasShopShippingCoupon = Boolean(usedShopShippingCoupons[shopId]);
+                if (isShippingFree || hasShopShippingCoupon) groupShippingFee = 0;
 
                 const globalGroupDiscount = usedCouponShopId
                     ? (shopId === usedCouponShopId ? globalCouponDiscount : 0)
@@ -719,6 +749,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     couponCode: usedCoupon
                         ? (usedCouponShopId ? (shopId === usedCouponShopId ? couponCode.toUpperCase() : null) : (shopId === shopKeys[0] ? couponCode.toUpperCase() : null))
                         : (usedShopCoupons[shopId]?.code || null),
+                    shippingCouponCode: usedShopShippingCoupons[shopId]?.code || null,
                     shippingFee: groupShippingFee,
                     shippingTier,
                     shippingProvider: groupShippingProvider,
@@ -727,6 +758,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     usedCouponId: usedCoupon
                         ? (usedCouponShopId ? (shopId === usedCouponShopId ? usedCoupon._id : null) : (shopId === shopKeys[0] ? usedCoupon._id : null))
                         : (usedShopCoupons[shopId]?._id || null),
+                    usedShippingCouponId: usedShopShippingCoupons[shopId]?._id || null,
                     orderedAt: now,
                     estimatedDelivery,
                     paymentExpiresAt: new Date(now.getTime() + 30 * 60 * 1000),
@@ -970,15 +1002,10 @@ const payOSWebhook = async (req, res) => {
 
                 // Đánh dấu voucher USED
                 if (payosOrder.usedCouponId) {
-                    await VoucherWallet.findByIdAndUpdate(payosOrder.usedCouponId, {
-                        status: VOUCHER_STATUS.USED,
-                        usedAt: new Date(),
-                        usedForOrder: payosOrder._id,
-                    });
-                    await Coupon.findByIdAndUpdate(
-                        (await VoucherWallet.findById(payosOrder.usedCouponId))?.coupon,
-                        { $inc: { usedCount: 1 } }
-                    );
+                    await markVoucherUsed(payosOrder.usedCouponId, payosOrder._id);
+                }
+                if (payosOrder.usedShippingCouponId) {
+                    await markVoucherUsed(payosOrder.usedShippingCouponId, payosOrder._id);
                 }
 
                 await payosOrder.save();
@@ -1023,18 +1050,7 @@ const payOSWebhook = async (req, res) => {
 
             // Rollback voucher → ACTIVE
             for (const payosOrder of orders) {
-                if (payosOrder.usedCouponId && !payosOrder.voucherRolledBack) {
-                    await VoucherWallet.findByIdAndUpdate(payosOrder.usedCouponId, {
-                        status: VOUCHER_STATUS.ACTIVE,
-                        usedAt: null,
-                        usedForOrder: null,
-                    });
-                    await Coupon.findByIdAndUpdate(
-                        (await VoucherWallet.findById(payosOrder.usedCouponId))?.coupon,
-                        { $inc: { usedCount: -1 } }
-                    );
-                    payosOrder.voucherRolledBack = true;
-                }
+                await restoreVoucherForOrder(payosOrder);
                 payosOrder.paymentStatus = 'failed';
                 payosOrder.status = ORDER_STATUS.CANCELLED;
                 payosOrder.cancelledAt = new Date();

@@ -19,6 +19,10 @@ const {
     notifyCustomerOrderCreated,
     notifyCustomerOrderStatus,
 } = require('../services/notificationService');
+const {
+    markVoucherUsed,
+    restoreVoucherForOrder,
+} = require('../services/voucherUsageService');
 const AdminLedger = require('../models/adminLedger');
 const {
     LEDGER_TYPE,
@@ -150,6 +154,8 @@ const createOrder = async (req, res) => {
             shippingProvider = null,   // { [shopId]: { _id, name, code } } (STEP 11)
             shippingFeesByShop = {},    // { [shopId]: fee } (STEP 11)
             couponCode = null,
+            shopCouponCodes = {},
+            shopShippingCouponCodes = {},
             selectedShippingCoupon = null,
             useWalletBalance = false,
             walletAmount = 0,
@@ -360,6 +366,67 @@ const createOrder = async (req, res) => {
             }
         }
 
+        const shopCouponDiscounts = {};
+        const usedShopCoupons = {};
+        if (shopCouponCodes && typeof shopCouponCodes === 'object') {
+            for (const [shopId, code] of Object.entries(shopCouponCodes)) {
+                if (!code || !shopGroups[shopId]) continue;
+
+                const voucher = await VoucherWallet.findOne({
+                    user: req.user._id,
+                    code: String(code).toUpperCase()
+                }).populate('coupon');
+                const coupon = voucher?.coupon;
+                if (!voucher || voucher.status !== VOUCHER_STATUS.ACTIVE || !coupon?.isActive) continue;
+
+                const couponShopId = coupon.shop ? coupon.shop.toString() : null;
+                if (couponShopId && couponShopId !== shopId) continue;
+
+                const applicableSubtotal = shopGroups[shopId].subtotal || 0;
+                const couponEndDate = coupon.endDate || voucher.endDate;
+                const minOrderValue = coupon.minOrderValue ?? voucher.minOrderValue;
+                if (couponEndDate && new Date(couponEndDate) < new Date()) continue;
+                if (applicableSubtotal <= 0 || (minOrderValue && applicableSubtotal < minOrderValue)) continue;
+
+                const couponValue = coupon.value ?? voucher.value;
+                const maxDiscount = coupon.maxDiscount ?? voucher.maxDiscount;
+                const discountType = coupon.discountType || voucher.discountType;
+                let discount = 0;
+                if (discountType === 'percent') {
+                    discount = Math.round(applicableSubtotal * couponValue / 100);
+                    if (maxDiscount) discount = Math.min(discount, maxDiscount);
+                } else {
+                    discount = Math.min(couponValue, applicableSubtotal);
+                }
+
+                shopCouponDiscounts[shopId] = discount;
+                usedShopCoupons[shopId] = voucher;
+            }
+        }
+
+        const usedShopShippingCoupons = {};
+        if (shopShippingCouponCodes && typeof shopShippingCouponCodes === 'object') {
+            for (const [shopId, code] of Object.entries(shopShippingCouponCodes)) {
+                if (!code || !shopGroups[shopId]) continue;
+
+                const voucher = await VoucherWallet.findOne({
+                    user: req.user._id,
+                    code: String(code).toUpperCase()
+                }).populate('coupon');
+                const coupon = voucher?.coupon;
+                if (!voucher || voucher.status !== VOUCHER_STATUS.ACTIVE || !coupon?.isActive) continue;
+
+                const couponShopId = coupon.shop ? coupon.shop.toString() : null;
+                const discountType = coupon.discountType || voucher.discountType;
+                const couponEndDate = coupon.endDate || voucher.endDate;
+                if (couponShopId !== shopId) continue;
+                if (discountType !== 'freeship') continue;
+                if (couponEndDate && new Date(couponEndDate) < new Date()) continue;
+
+                usedShopShippingCoupons[shopId] = voucher;
+            }
+        }
+
         // Tạo 1 đơn hàng độc lập cho mỗi shop (không còn parent/child)
         const createdOrders = [];
         const checkoutGroupId = new mongoose.Types.ObjectId().toString();
@@ -376,12 +443,14 @@ const createOrder = async (req, res) => {
             let shippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
                 ? Number(shippingFeesByShop[shopId])
                 : (req.body.shippingFee || 0);
-            if (isShippingFree) shippingFee = 0;
+            const hasShopShippingCoupon = Boolean(usedShopShippingCoupons[shopId]);
+            if (isShippingFree || hasShopShippingCoupon) shippingFee = 0;
 
-            const shopCouponDiscount = usedCouponShopId
+            const globalShopCouponDiscount = usedCouponShopId
                 ? (shopId === usedCouponShopId ? couponDiscount : 0)
                 : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
-            const platformCouponDiscount = usedCouponCode && !usedCouponShopId ? shopCouponDiscount : 0;
+            const shopCouponDiscount = globalShopCouponDiscount + (shopCouponDiscounts[shopId] || 0);
+            const platformCouponDiscount = usedCouponCode && !usedCouponShopId ? globalShopCouponDiscount : 0;
             const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
             shopTotals[shopId] = { shippingFee, couponDiscount: shopCouponDiscount, platformCouponDiscount, total: groupTotal };
             totalByShop[shopId] = groupTotal;
@@ -452,7 +521,12 @@ const createOrder = async (req, res) => {
                     subtotal: group.subtotal,
                     couponDiscount: shopCouponDiscount,
                     shopCouponDiscount: financial.shopCouponDiscount,
-                    couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
+                    couponCode: usedShopCoupons[shopId]?.code
+                        || (usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null)),
+                    usedCouponId: usedShopCoupons[shopId]?._id
+                        || (usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponId : null) : (shopId === shopKeys[0] ? usedCouponId : null)),
+                    shippingCouponCode: usedShopShippingCoupons[shopId]?.code || null,
+                    usedShippingCouponId: usedShopShippingCoupons[shopId]?._id || null,
                     shippingFee,
                     shippingTier: effectiveTier,
                     shippingProvider: getShopShippingProvider(shippingProvider, shopId),
@@ -509,8 +583,13 @@ const createOrder = async (req, res) => {
             }
 
             // Đánh dấu voucher đã sử dụng
-            if (usedCouponId) {
-                await VoucherWallet.findByIdAndUpdate(usedCouponId, { status: VOUCHER_STATUS.USED, usedAt: new Date() });
+            for (const order of createdOrders) {
+                if (order.usedCouponId) {
+                    await markVoucherUsed(order.usedCouponId, order._id);
+                }
+                if (order.usedShippingCouponId) {
+                    await markVoucherUsed(order.usedShippingCouponId, order._id);
+                }
             }
 
             // Xóa khỏi giỏ
@@ -539,15 +618,17 @@ const createOrder = async (req, res) => {
             let shippingFee = (shippingFeesByShop[shopId] !== undefined && shippingFeesByShop[shopId] !== null)
                 ? Number(shippingFeesByShop[shopId])
                 : (req.body.shippingFee || 0);
-            if (isShippingFree) {
+            const hasShopShippingCoupon = Boolean(usedShopShippingCoupons[shopId]);
+            if (isShippingFree || hasShopShippingCoupon) {
                 shippingFee = 0; // Miễn phí vận chuyển khi có voucher freeship
             }
 
             // Phân bổ coupon discount theo tỷ lệ subtotal của shop
-            const shopCouponDiscount = usedCouponShopId
+            const globalShopCouponDiscount = usedCouponShopId
                 ? (shopId === usedCouponShopId ? couponDiscount : 0)
                 : (totalSubtotal > 0 ? Math.round(couponDiscount * group.subtotal / totalSubtotal) : 0);
-            const platformCouponDiscount = usedCouponCode && !usedCouponShopId ? shopCouponDiscount : 0;
+            const shopCouponDiscount = globalShopCouponDiscount + (shopCouponDiscounts[shopId] || 0);
+            const platformCouponDiscount = usedCouponCode && !usedCouponShopId ? globalShopCouponDiscount : 0;
             const groupTotal = Math.max(0, group.subtotal - shopCouponDiscount + shippingFee);
 
             const commissionRate = group.commissionRate ?? 2;
@@ -578,7 +659,12 @@ const createOrder = async (req, res) => {
                 subtotal: group.subtotal,
                 couponDiscount: shopCouponDiscount,
                 shopCouponDiscount: financial.shopCouponDiscount,
-                couponCode: usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null),
+                couponCode: usedShopCoupons[shopId]?.code
+                    || (usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null)),
+                usedCouponId: usedShopCoupons[shopId]?._id
+                    || (usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponId : null) : (shopId === shopKeys[0] ? usedCouponId : null)),
+                shippingCouponCode: usedShopShippingCoupons[shopId]?.code || null,
+                usedShippingCouponId: usedShopShippingCoupons[shopId]?._id || null,
                 shippingFee,
                 shippingTier: effectiveTier,
                 shippingProvider: getShopShippingProvider(shippingProvider, shopId),
@@ -638,11 +724,13 @@ const createOrder = async (req, res) => {
         }
 
         // Đánh dấu voucher là đã sử dụng (sau khi tất cả orders được tạo)
-        if (usedCouponId) {
-            await VoucherWallet.findByIdAndUpdate(usedCouponId, {
-                status: VOUCHER_STATUS.USED,
-                usedAt: new Date()
-            });
+        for (const order of createdOrders) {
+            if (order.usedCouponId) {
+                await markVoucherUsed(order.usedCouponId, order._id);
+            }
+            if (order.usedShippingCouponId) {
+                await markVoucherUsed(order.usedShippingCouponId, order._id);
+            }
         }
 
         // Xóa khỏi giỏ các sản phẩm vừa thanh toán, giữ lại item chưa chọn.
@@ -888,19 +976,8 @@ const cancelOrder = async (req, res) => {
             );
         }
 
-        // Rollback voucher → ACTIVE (vì chưa paid)
-        if (order.usedCouponId && !order.voucherRolledBack) {
-            await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
-                status: VOUCHER_STATUS.ACTIVE,
-                usedAt: null,
-                usedForOrder: null,
-            });
-            const voucher = await VoucherWallet.findById(order.usedCouponId);
-            if (voucher?.coupon) {
-                await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: -1 } });
-            }
-            order.voucherRolledBack = true;
-        }
+        // Rollback voucher → ACTIVE (vì đơn bị hủy)
+        await restoreVoucherForOrder(order);
 
         // Nếu đã payout rồi → thu hồi tiền vendor + hoàn phí sàn
         if (order.payoutStatus === 'paid') {
@@ -1051,6 +1128,7 @@ const updateOrderStatus = async (req, res) => {
             for (const item of order.products || []) {
                 await Product.findByIdAndUpdate(item.product, { $inc: { quantity: item.quantity } });
             }
+            await restoreVoucherForOrder(order);
             refundResult = await refundOrderToWallet(order, {
                 description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
             });
@@ -1316,18 +1394,7 @@ const processCancelRequest = async (req, res) => {
             }
 
             // Rollback voucher → ACTIVE
-            if (order.usedCouponId && !order.voucherRolledBack) {
-                await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
-                    status: VOUCHER_STATUS.ACTIVE,
-                    usedAt: null,
-                    usedForOrder: null,
-                });
-                const voucher = await VoucherWallet.findById(order.usedCouponId);
-                if (voucher?.coupon) {
-                    await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: -1 } });
-                }
-                order.voucherRolledBack = true;
-            }
+            await restoreVoucherForOrder(order);
 
             // Nếu đã payout rồi → thu hồi tiền vendor + hoàn phí sàn
             if (order.payoutStatus === 'paid') {
@@ -1654,18 +1721,7 @@ const adminForceCancelOrder = async (req, res) => {
         }
 
         // Rollback voucher → ACTIVE
-        if (order.usedCouponId && !order.voucherRolledBack) {
-            await VoucherWallet.findByIdAndUpdate(order.usedCouponId, {
-                status: VOUCHER_STATUS.ACTIVE,
-                usedAt: null,
-                usedForOrder: null,
-            });
-            const voucher = await VoucherWallet.findById(order.usedCouponId);
-            if (voucher?.coupon) {
-                await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: -1 } });
-            }
-            order.voucherRolledBack = true;
-        }
+        await restoreVoucherForOrder(order);
 
         // Nếu đã payout rồi → thu hồi tiền vendor + hoàn phí sàn
         if (order.payoutStatus === 'paid') {

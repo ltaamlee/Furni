@@ -292,6 +292,15 @@ const orderSchema = new mongoose.Schema({
         ref: 'VoucherWallet',
         default: null
     },
+    shippingCouponCode: {
+        type: String,
+        default: null
+    },
+    usedShippingCouponId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'VoucherWallet',
+        default: null
+    },
     totalPrice: {
         type: Number,
         required: true,

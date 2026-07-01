@@ -124,6 +124,8 @@ JWT_SECRET=your_jwt_secret
 JWT_EXPIRE=30d
 JWT_REFRESH_SECRET=your_refresh_secret
 JWT_REFRESH_EXPIRE=7d
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
 EMAIL_USER=your_email@gmail.com
 EMAIL_PASS=your_email_app_password
 PAYOS_CLIENT_ID=your_payos_client_id
@@ -133,6 +135,8 @@ PAYOS_CLIENT_URL=http://localhost:5173
 CLOUDINARY_CLOUD_NAME=your_cloud_name
 CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 ```
 
 Back-end mặc định chạy tại:

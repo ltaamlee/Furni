@@ -4,6 +4,7 @@ const Shop = require('../models/Shop');
 const Order = require('../models/Order');
 const Product = require('../models/product');
 const Promotion = require('../models/promotion');
+const { markVoucherUsed } = require('../services/voucherUsageService');
 
 // @desc    Claim a voucher (coupon) into user's wallet
 // @route   POST /api/vouchers/claim
@@ -194,28 +195,7 @@ const applyVoucher = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Voucher đã hết hạn' });
         }
 
-        // Chỉ đánh dấu USED nếu coupon có giới hạn lượt VÀ đã dùng hết
-        // Nếu usageLimit === 0 (không giới hạn) → chỉ tăng usedCount, giữ ACTIVE
-        const freshCoupon = await Coupon.findById(voucher.coupon);
-        const isCouponExhausted = freshCoupon?.usageLimit > 0 &&
-            freshCoupon?.usedCount >= freshCoupon.usageLimit;
-
-        if (isCouponExhausted) {
-            voucher.status = VOUCHER_STATUS.USED;
-        }
-        // else: giữ nguyên status = ACTIVE (voucher không giới hạn hoặc chưa hết lượt)
-
-        voucher.usedAt = new Date();
-        voucher.usedForOrder = orderId || null;
-        await voucher.save();
-
-        // Increment coupon usedCount
-        const updatedCoupon = await Coupon.findByIdAndUpdate(voucher.coupon, { $inc: { usedCount: 1 } }, { new: true });
-
-        // Đồng bộ Promotion.usedCount để progress bar vendor hiển thị đúng
-        if (updatedCoupon?.promotion) {
-            await Promotion.findByIdAndUpdate(updatedCoupon.promotion, { $inc: { usedCount: 1 } });
-        }
+        await markVoucherUsed(voucher._id, orderId || null);
 
         res.status(200).json({ success: true, message: 'Đã áp dụng voucher', data: voucher });
     } catch (error) {

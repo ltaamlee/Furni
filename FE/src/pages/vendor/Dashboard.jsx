@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardTitle, StatCard, Badge, AlertStrip, Btn } from "../../components/vendor/ui";
 import LineChart from "../../components/vendor/LineChart";
-import { IconDollar, IconBag, IconBox, IconEye, IconAlertTriangle, IconAlertCircle } from "../../components/vendor/icons";
+import { IconDollar, IconBag, IconBox, IconEye, IconTag, IconAlertTriangle, IconAlertCircle } from "../../components/vendor/icons";
 import { formatVND } from "../../components/vendor/data";
 import { getVendorDashboardApi } from "../../utils/api";
 
@@ -47,6 +47,7 @@ const Dashboard = () => {
         { key: "orders", label: "Đơn hàng hôm nay", value: String(stats.ordersToday), color: "blue", icon: <IconBag size={18} /> },
         { key: "products", label: "Sản phẩm đang bán", value: String(stats.activeProducts), color: "green", icon: <IconBox size={18} /> },
         { key: "visits", label: "Lượt xem sản phẩm", value: stats.visits.toLocaleString("vi-VN"), color: "rose", icon: <IconEye size={18} /> },
+        { key: "commission", label: "Chiết khấu shop", value: `${Number(data.shop?.commissionRate || 0).toLocaleString("vi-VN")}%`, color: "amber", icon: <IconTag size={18} /> },
     ].map(({ key, ...props }) => ({ ...props, statKey: key }));
 
     const quickRows = [
@@ -75,7 +76,7 @@ const Dashboard = () => {
             </div>
 
             {/* KPI cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-5">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5 mb-5">
                 {kpiCards.map((s) => <StatCard key={s.statKey} {...s} />)}
             </div>
 

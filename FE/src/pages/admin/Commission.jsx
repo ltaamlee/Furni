@@ -134,10 +134,10 @@ const AdminCommission = () => {
         if (rateToSubmit === editModal.currentRate) { setEditModal({ show: false, shopId: null, shopName: "", currentRate: "", newRate: "" }); return; }
         try {
             const res = await updateShopCommissionApi(editModal.shopId, { commissionRate: rateToSubmit });
-            if (res?.data?.success) {
+            if (res?.success) {
                 showToast("success", `Đã cập nhật chiết khấu của ${editModal.shopName} thành ${rateToSubmit}%!`);
                 setShops(prev => prev.map(s => s._id === editModal.shopId ? { ...s, commissionRate: rateToSubmit } : s));
-            } else { showToast("error", res?.data?.message || "Cập nhật thất bại!"); }
+            } else { showToast("error", res?.message || "Cập nhật thất bại!"); }
         } catch (e) { showToast("error", e.response?.data?.message || "Có lỗi xảy ra!"); }
         finally { setEditModal({ show: false, shopId: null, shopName: "", currentRate: "", newRate: "" }); }
     };

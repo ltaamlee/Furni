@@ -15,6 +15,7 @@ const { VoucherWallet, VOUCHER_STATUS } = require('../models/voucherWallet');
 const { refundOrderToWallet } = require('../services/walletService');
 const payoutService = require('../services/payoutService');
 const { notifyCustomerOrderStatus } = require('../services/notificationService');
+const { restoreVoucherForOrder } = require('../services/voucherUsageService');
 const AdminLedger = require('../models/adminLedger');
 const {
     LEDGER_TYPE,
@@ -480,7 +481,7 @@ const getDashboardSummary = async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                shop: { id: shop._id, name: shop.name, status: shop.status, isActive: shop.isActive },
+                shop: { id: shop._id, name: shop.name, status: shop.status, isActive: shop.isActive, commissionRate: shop.commissionRate || 0 },
                 stats: {
                     revenueToday: today.revenue,
                     ordersToday,
@@ -948,6 +949,7 @@ const updateMyOrderStatus = async (req, res) => {
             await Promise.all(order.products.map((it) =>
                 Product.findByIdAndUpdate(it.product, { $inc: { quantity: it.quantity, sold: -it.quantity } })
             ));
+            await restoreVoucherForOrder(order);
             refundResult = await refundOrderToWallet(order, {
                 description: `Hoan tien don huy #${order.orderNumber} vao vi SORA`,
             });

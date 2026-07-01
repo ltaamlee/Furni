@@ -82,6 +82,11 @@ const CheckoutPage = () => {
   const [availableVouchers, setAvailableVouchers] = useState([]);
   const [loadingVouchers, setLoadingVouchers] = useState(false);
   const [showProductVoucherModal, setShowProductVoucherModal] = useState(false);
+  const [shippingModal, setShippingModal] = useState({ open: false, shopId: null });
+  const [shopVoucherModal, setShopVoucherModal] = useState({ open: false, shopId: null, tab: "discount" });
+  const [shopProductCoupons, setShopProductCoupons] = useState({});
+  const [shopShippingCoupons, setShopShippingCoupons] = useState({});
+  const [shopNotes, setShopNotes] = useState({});
 
   const isBuyNowRef = useRef(false);
 
@@ -221,7 +226,10 @@ const CheckoutPage = () => {
     const totalShippingFee = Object.values(shopFees).reduce((s, f) => s + f, 0);
     const totalProductCouponDiscount = Object.values(shopProductCoupons || {}).reduce((s, v) => s + (v.discount || 0), 0) + productCouponDiscount;
     const totalBeforeShipping = subtotal - totalProductCouponDiscount;
-    const effectiveShippingFee = selectedShippingCoupon ? 0 : totalShippingFee;
+    const effectiveShippingFee = selectedShippingCoupon
+      ? 0
+      : Object.entries(shopFees).reduce((sum, [shopId, fee]) =>
+        shopShippingCoupons[shopId] ? sum : sum + (Number(fee) || 0), 0);
     const grandTotal = Math.max(0, totalBeforeShipping + effectiveShippingFee);
     const walletDiscount = useWalletBalance ? Math.min(Math.max(0, Number(walletBalance) || 0), grandTotal) : 0;
     const amountToPay = Math.max(0, grandTotal - walletDiscount);
@@ -240,7 +248,7 @@ const CheckoutPage = () => {
       walletDiscount,
       amountToPay,
     });
-  }, [checkout, computedShippingFeesByShop, productCouponDiscount, selectedShippingCoupon, shippingInfo.provinceCode, selectedAddressId, walletBalance, useWalletBalance]);
+  }, [checkout, computedShippingFeesByShop, productCouponDiscount, selectedShippingCoupon, shopShippingCoupons, shippingInfo.provinceCode, selectedAddressId, walletBalance, useWalletBalance]);
 
   // selectedCheckoutAddress: always derive from local addresses state (authoritative)
   const selectedCheckoutAddress = addresses.find(a => a._id === selectedAddressId) || null;
@@ -263,13 +271,6 @@ const CheckoutPage = () => {
   useEffect(() => {
     if (user?.id) fetchWalletBalance();
   }, [user?.id]);
-
-  // ── Shop-level modals (must be before any return / JSX) ──
-  const [shippingModal, setShippingModal] = useState({ open: false, shopId: null });
-  const [shopVoucherModal, setShopVoucherModal] = useState({ open: false, shopId: null, tab: "discount" });
-  const [shopProductCoupons, setShopProductCoupons] = useState({});
-  const [shopShippingCoupons, setShopShippingCoupons] = useState({});
-  const [shopNotes, setShopNotes] = useState({});
 
   const openShippingModal = (shopId) => setShippingModal({ open: true, shopId });
   const closeShippingModal = () => setShippingModal({ open: false, shopId: null });
@@ -1081,13 +1082,17 @@ const CheckoutPage = () => {
 
   // Count how many shops have freeship coupon applied
   const shopsWithShippingCoupon = Object.keys(shopShippingCoupons).length;
-  const allShopsHaveShippingCoupon = (checkout?.shops || []).every(s => shopShippingCoupons[s.shopId]);
+  const shopShippingCouponDiscount = (checkout?.shops || []).reduce((sum, shop) => {
+    const shopId = shop.shopId;
+    return shopShippingCoupons[shopId] ? sum + (computedShippingFeesByShop[shopId] || 0) : sum;
+  }, 0);
 
   // ── Global computed values (must be after all useMemo / useRef) ──
   const totalProductCouponDiscount = Object.values(shopProductCoupons).reduce((sum, v) => sum + (v.discount || 0), 0) + productCouponDiscount;
   const totalBeforeShipping = selectedSubtotal - totalProductCouponDiscount;
-  // effectiveShippingFee: only 0 if platform freeship OR ALL shops have shop freeship coupon
-  const effectiveShippingFee = selectedShippingCoupon ? 0 : (allShopsHaveShippingCoupon ? 0 : shippingFee);
+  const effectiveShippingFee = selectedShippingCoupon
+    ? 0
+    : Math.max(0, shippingFee - shopShippingCouponDiscount);
   const grandTotal = Math.max(0, totalBeforeShipping + effectiveShippingFee);
   const availableWalletBalance = Math.max(0, Number(walletBalance) || 0);
   const walletCoversOrder = availableWalletBalance >= grandTotal && grandTotal > 0;
@@ -1406,7 +1411,7 @@ const CheckoutPage = () => {
                   {totalProductCouponDiscount > 0 && <div className="flex justify-between text-[#16a34a]"><span>Giảm giá</span><span className="font-semibold">-{formatPrice(totalProductCouponDiscount)}</span></div>}
                   {totalProductCouponDiscount === 0 && shopProductCoupons && Object.keys(shopProductCoupons).length > 0 && Object.values(shopProductCoupons).some(v => v.discount > 0) && <div className="flex justify-between text-[#16a34a]"><span>Giảm giá Shop</span><span className="font-semibold">-{formatPrice(Object.values(shopProductCoupons).reduce((s, v) => s + (v.discount || 0), 0))}</span></div>}
                   {selectedShippingCoupon && <div className="flex justify-between text-blue-600"><span>Miễn phí ship</span><span className="font-semibold">-{formatPrice(shippingFee)}</span></div>}
-                  {!selectedShippingCoupon && shopsWithShippingCoupon > 0 && <div className="flex justify-between text-blue-600"><span>Miễn phí ship ({shopsWithShippingCoupon} shop)</span><span className="font-semibold">-{formatPrice(shippingFee)}</span></div>}
+                  {!selectedShippingCoupon && shopsWithShippingCoupon > 0 && <div className="flex justify-between text-blue-600"><span>Miễn phí ship ({shopsWithShippingCoupon} shop)</span><span className="font-semibold">-{formatPrice(shopShippingCouponDiscount)}</span></div>}
                   <div className="flex justify-between"><span className="text-[#6B5C4C]">Phí vận chuyển</span><span className="font-semibold text-[#1C1108]">{effectiveShippingFee === 0 ? <span className="text-[#16a34a]">Miễn phí</span> : formatPrice(effectiveShippingFee)}</span></div>
                   {walletDiscountAmount > 0 && <div className="flex justify-between text-[#16a34a]"><span>Ví SORA</span><span className="font-semibold">-{formatPrice(walletDiscountAmount)}</span></div>}
                   <div className="border-t border-[#EDE8E0] pt-3 flex justify-between items-center">
