@@ -427,6 +427,38 @@ const createOrder = async (req, res) => {
             }
         }
 
+        let usedPlatformShippingCoupon = null;
+        if (selectedShippingCoupon) {
+            const voucher = await VoucherWallet.findOne({
+                user: req.user._id,
+                code: String(selectedShippingCoupon).toUpperCase()
+            }).populate('coupon');
+            const coupon = voucher?.coupon;
+            const discountType = coupon?.discountType || voucher?.discountType;
+            const couponShopId = coupon?.shop ? coupon.shop.toString() : null;
+            const couponEndDate = coupon?.endDate || voucher?.endDate;
+            const minOrderValue = coupon?.minOrderValue ?? voucher?.minOrderValue;
+
+            if (
+                voucher &&
+                voucher.status === VOUCHER_STATUS.ACTIVE &&
+                coupon?.isActive &&
+                !couponShopId &&
+                discountType === 'freeship' &&
+                (!couponEndDate || new Date(couponEndDate) >= new Date()) &&
+                (!minOrderValue || totalSubtotal >= minOrderValue)
+            ) {
+                usedPlatformShippingCoupon = voucher;
+            }
+
+            if (!usedPlatformShippingCoupon) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Voucher miễn phí vận chuyển không hợp lệ hoặc đã được sử dụng.'
+                });
+            }
+        }
+
         // Tạo 1 đơn hàng độc lập cho mỗi shop (không còn parent/child)
         const createdOrders = [];
         const checkoutGroupId = new mongoose.Types.ObjectId().toString();
@@ -434,9 +466,13 @@ const createOrder = async (req, res) => {
         // Lấy shippingFee per-shop từ frontend (FE đã tính riêng cho mỗi shop)
         // shippingFeesByShop đã được destructured ở đầu hàm
         // Kiểm tra xem có dùng shipping coupon (freeship) không
-        const isShippingFree = Boolean(selectedShippingCoupon);
+        const isShippingFree = Boolean(usedPlatformShippingCoupon);
         const shopTotals = {};
         const totalByShop = {};
+        const getShippingCouponForShop = (shopId) => (
+            usedShopShippingCoupons[shopId]
+            || (isShippingFree && shopId === shopKeys[0] ? usedPlatformShippingCoupon : null)
+        );
 
         for (const shopId of shopKeys) {
             const group = shopGroups[shopId];
@@ -525,8 +561,8 @@ const createOrder = async (req, res) => {
                         || (usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null)),
                     usedCouponId: usedShopCoupons[shopId]?._id
                         || (usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponId : null) : (shopId === shopKeys[0] ? usedCouponId : null)),
-                    shippingCouponCode: usedShopShippingCoupons[shopId]?.code || null,
-                    usedShippingCouponId: usedShopShippingCoupons[shopId]?._id || null,
+                    shippingCouponCode: getShippingCouponForShop(shopId)?.code || null,
+                    usedShippingCouponId: getShippingCouponForShop(shopId)?._id || null,
                     shippingFee,
                     shippingTier: effectiveTier,
                     shippingProvider: getShopShippingProvider(shippingProvider, shopId),
@@ -663,8 +699,8 @@ const createOrder = async (req, res) => {
                     || (usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponCode : null) : (shopId === shopKeys[0] ? usedCouponCode : null)),
                 usedCouponId: usedShopCoupons[shopId]?._id
                     || (usedCouponShopId ? (shopId === usedCouponShopId ? usedCouponId : null) : (shopId === shopKeys[0] ? usedCouponId : null)),
-                shippingCouponCode: usedShopShippingCoupons[shopId]?.code || null,
-                usedShippingCouponId: usedShopShippingCoupons[shopId]?._id || null,
+                shippingCouponCode: getShippingCouponForShop(shopId)?.code || null,
+                usedShippingCouponId: getShippingCouponForShop(shopId)?._id || null,
                 shippingFee,
                 shippingTier: effectiveTier,
                 shippingProvider: getShopShippingProvider(shippingProvider, shopId),

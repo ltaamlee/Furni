@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import SlideOver from "../../components/vendor/SlideOver";
 import { promoTypes, formatVND } from "../../components/vendor/data";
-import { IconPlus, IconZap, IconTag, IconBox, IconTruck, IconImage, IconEdit, IconTrash, IconCheck } from "../../components/vendor/icons";
+import { IconPlus, IconTag, IconBox, IconTruck, IconImage, IconEdit, IconTrash, IconCheck } from "../../components/vendor/icons";
 import { useToast } from "../../components/context/ToastContext";
 import {
     getAdminPromotionsSiteApi,
@@ -10,9 +10,10 @@ import {
     deleteAdminPromotionSiteApi,
 } from "../../utils/api";
 
-const TYPE_ICON = { flash: IconZap, coupon: IconTag, combo: IconBox, freeship: IconTruck };
-const CARD_TO_TYPE = { flash: "flash_sale", coupon: "coupon", combo: "bundle", freeship: "freeship" };
-const TYPE_TO_CARD = { flash_sale: "flash", coupon: "coupon", bundle: "combo", gift: "combo", freeship: "freeship" };
+const ADMIN_PROMO_TYPES = promoTypes.filter((t) => !["flash", "combo"].includes(t.key));
+const TYPE_ICON = { coupon: IconTag, combo: IconBox, freeship: IconTruck };
+const CARD_TO_TYPE = { coupon: "coupon", combo: "bundle", freeship: "freeship" };
+const TYPE_TO_CARD = { coupon: "coupon", bundle: "combo", gift: "combo", freeship: "freeship" };
 
 const DISCOUNT_OPTIONS = {
     percent: { value: "percent", label: "Phần trăm (%)" },
@@ -20,14 +21,12 @@ const DISCOUNT_OPTIONS = {
     freeship: { value: "freeship", label: "Miễn phí vận chuyển" },
 };
 const DISCOUNTS_BY_CARD = {
-    flash: ["percent", "fixed"],
     coupon: ["percent", "fixed"],
     combo: ["percent", "fixed"],
     freeship: ["freeship"],
 };
 
 const TYPE_META = {
-    flash_sale: { label: "Flash Sale", tone: "red" },
     coupon: { label: "Coupon", tone: "purple" },
     bundle: { label: "Mua bộ", tone: "orange" },
     gift: { label: "Quà tặng", tone: "blue" },
@@ -59,11 +58,11 @@ const toLocalInput = (d) => {
 
 const buildForm = (editing) => {
     if (!editing) return {
-        cardType: "flash", name: "", code: "", discountType: "percent", value: "25",
+        cardType: "coupon", name: "", code: "", discountType: "percent", value: "25",
         maxDiscount: "", minOrderValue: "0", startDate: "", endDate: "", maxUsage: "",
     };
     return {
-        cardType: TYPE_TO_CARD[editing.type] || "flash",
+        cardType: TYPE_TO_CARD[editing.type] || "coupon",
         name: editing.name || "",
         code: editing.couponCode && editing.couponCode !== 'N/A' ? editing.couponCode : "",
         discountType: editing.discountType || "percent",
@@ -80,7 +79,7 @@ const discountText = (p) => {
     if (p.discountType === "freeship" || p.type === "freeship") return "Miễn phí vận chuyển";
     const hi = p.discountType === "percent" ? `${p.value}%` : formatVND(p.value);
     const cond = p.minOrderValue ? ` cho đơn từ ${formatVND(p.minOrderValue)}` : "";
-    return { hi, cond, tone: p.type === "flash_sale" ? "text-red-600" : "text-[#B86B05]" };
+    return { hi, cond, tone: "text-[#B86B05]" };
 };
 
 const Badge = ({ tone, children }) => {
@@ -171,8 +170,7 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
 
             <Label required>Loại khuyến mãi</Label>
             <div className="grid grid-cols-2 gap-2 mb-[18px] mt-1">
-                {promoTypes.map((t) => {
-                    if (t.key === "combo") return null;
+                {ADMIN_PROMO_TYPES.map((t) => {
                     const Icon = TYPE_ICON[t.key];
                     const selected = form.cardType === t.key;
                     return (
@@ -189,7 +187,7 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
             <div className="mb-3.5">
                 <Label required>Tên chương trình</Label>
                 <input className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B86B05]/20 focus:border-[#B86B05] text-[14px]"
-                    value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="VD: Flash Sale Furni cuối tuần" />
+                    value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="VD: Voucher Furni cuối tuần" />
             </div>
 
             <div className="mb-3.5">
@@ -257,7 +255,7 @@ const PromoModal = ({ open, onClose, editing, onSaved }) => {
             <div className="rounded-[10px] p-[18px] text-white mt-1 bg-gradient-to-br from-[#1a3a6b] to-[#2563eb]">
                 <span className="inline-block bg-white/20 backdrop-blur border border-white/30 px-2.5 py-[3px] rounded-full text-[11px] font-bold mb-2">Preview</span>
                 <div className="text-[18px] font-extrabold mb-1">
-                    {promoTypes.find((t) => t.key === form.cardType)?.label} {!isFreeship && `– Giảm ${form.value || 0}${unit}`}
+                    {ADMIN_PROMO_TYPES.find((t) => t.key === form.cardType)?.label} {!isFreeship && `– Giảm ${form.value || 0}${unit}`}
                 </div>
                 <div className="text-[12.5px] opacity-80">Áp dụng: Toàn sàn Furni</div>
                 {!isFreeship && (

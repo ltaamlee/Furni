@@ -17,7 +17,10 @@ const updateStatusByDate = (promo) => {
 const getAdminPromotions = async (req, res) => {
     try {
         const { search, type, status, page = 1, limit = 10 } = req.query;
-        const query = { shop: null }; // Chỉ lấy khuyến mãi toàn sàn
+        const query = {
+            shop: null,
+            type: { $ne: Promotion.TYPE.FLASH_SALE }
+        }; // Chỉ lấy khuyến mãi toàn sàn, không hiển thị Flash Sale
 
         if (type) query.discountType = type;
         if (search) query.name = { $regex: search, $options: 'i' };
@@ -72,7 +75,7 @@ const getAdminPromotions = async (req, res) => {
 // @route   POST /api/admin/promotions
 const createAdminPromotion = async (req, res) => {
     try {
-        const { name, code, discountType, value, maxDiscount, minOrderValue, startDate, endDate, maxUsage, status } = req.body;
+        const { name, code, type, discountType, value, maxDiscount, minOrderValue, startDate, endDate, maxUsage, status } = req.body;
 
         const promoCode = (code || '').trim().toUpperCase();
         if (!promoCode) return res.status(400).json({ success: false, message: 'Vui lòng nhập mã giảm giá!' });
@@ -80,13 +83,22 @@ const createAdminPromotion = async (req, res) => {
         const existingCoupon = await Coupon.findOne({ code: promoCode });
         if (existingCoupon) return res.status(400).json({ success: false, message: 'Mã giảm giá này đã tồn tại!' });
 
+        const promoType = type === Promotion.TYPE.FREESHIP || discountType === Coupon.DISCOUNT_TYPE.FREESHIP
+            ? Promotion.TYPE.FREESHIP
+            : Promotion.TYPE.COUPON;
+        const normalizedDiscountType = promoType === Promotion.TYPE.FREESHIP
+            ? Coupon.DISCOUNT_TYPE.FREESHIP
+            : discountType;
+        const normalizedValue = normalizedDiscountType === Coupon.DISCOUNT_TYPE.FREESHIP ? 0 : value;
+        const normalizedMaxDiscount = normalizedDiscountType === Coupon.DISCOUNT_TYPE.PERCENT ? maxDiscount : 0;
+
         const newPromo = await Promotion.create({
             shop: null,
             name,
-            type: Promotion.TYPE.COUPON,
-            discountType,
-            value,
-            maxDiscount: discountType === 'percent' ? maxDiscount : 0,
+            type: promoType,
+            discountType: normalizedDiscountType,
+            value: normalizedValue,
+            maxDiscount: normalizedMaxDiscount,
             minOrderValue,
             startDate,
             endDate,
@@ -104,12 +116,13 @@ const createAdminPromotion = async (req, res) => {
             code: promoCode,
             promotion: newPromo._id,
             shop: null,
-            discountType,
-            value,
-            maxDiscount: discountType === 'percent' ? maxDiscount : 0,
+            discountType: normalizedDiscountType,
+            value: normalizedValue,
+            maxDiscount: normalizedMaxDiscount,
             minOrderValue,
             startDate,
             endDate,
+            usageLimit: maxUsage || 0,
             isActive: shouldBeActive,
         });
 
@@ -146,15 +159,30 @@ const deleteAdminPromotion = async (req, res) => {
 // @route   PUT /api/admin/promotions/:id
 const updateAdminPromotion = async (req, res) => {
     try {
-        const { name, code, discountType, value, maxDiscount, minOrderValue, startDate, endDate, maxUsage, status } = req.body;
+        const { name, code, type, discountType, value, maxDiscount, minOrderValue, startDate, endDate, maxUsage, status } = req.body;
 
         const promo = await Promotion.findById(req.params.id);
         if (!promo) return res.status(404).json({ success: false, message: 'Không tìm thấy khuyến mãi' });
 
+        const requestedType = type || promo.type;
+        const normalizedType = requestedType === Promotion.TYPE.FREESHIP || discountType === Coupon.DISCOUNT_TYPE.FREESHIP
+            ? Promotion.TYPE.FREESHIP
+            : Promotion.TYPE.COUPON;
+        const normalizedDiscountType = normalizedType === Promotion.TYPE.FREESHIP
+            ? Coupon.DISCOUNT_TYPE.FREESHIP
+            : (discountType !== undefined ? discountType : promo.discountType);
+        const normalizedValue = normalizedDiscountType === Coupon.DISCOUNT_TYPE.FREESHIP
+            ? 0
+            : (value !== undefined ? value : promo.value);
+        const normalizedMaxDiscount = normalizedDiscountType === Coupon.DISCOUNT_TYPE.PERCENT
+            ? (maxDiscount !== undefined ? maxDiscount : promo.maxDiscount)
+            : 0;
+
         if (name !== undefined) promo.name = name;
-        if (discountType !== undefined) promo.discountType = discountType;
-        if (value !== undefined) promo.value = value;
-        if (maxDiscount !== undefined) promo.maxDiscount = discountType === 'percent' ? maxDiscount : 0;
+        if (type !== undefined || discountType !== undefined) promo.type = normalizedType;
+        if (type !== undefined || discountType !== undefined) promo.discountType = normalizedDiscountType;
+        if (type !== undefined || discountType !== undefined || value !== undefined) promo.value = normalizedValue;
+        if (type !== undefined || discountType !== undefined || maxDiscount !== undefined) promo.maxDiscount = normalizedMaxDiscount;
         if (minOrderValue !== undefined) promo.minOrderValue = minOrderValue;
         if (startDate !== undefined) promo.startDate = startDate;
         if (endDate !== undefined) promo.endDate = endDate;
@@ -194,14 +222,14 @@ const updateAdminPromotion = async (req, res) => {
 
         // Đồng bộ các field voucher đã thay đổi (không phải status) vào VoucherWallet
         const updatedFields = {};
-        if (value !== undefined) updatedFields.value = value;
-        if (discountType !== undefined) updatedFields.discountType = discountType;
-        if (maxDiscount !== undefined) updatedFields.maxDiscount = promo.discountType === 'percent' ? maxDiscount : 0;
+        if (type !== undefined || discountType !== undefined || value !== undefined) updatedFields.value = promo.value;
+        if (type !== undefined || discountType !== undefined) updatedFields.discountType = promo.discountType;
+        if (type !== undefined || discountType !== undefined || maxDiscount !== undefined) updatedFields.maxDiscount = promo.maxDiscount;
         if (minOrderValue !== undefined) updatedFields.minOrderValue = minOrderValue;
         if (endDate !== undefined) updatedFields.endDate = endDate;
-        if (Object.keys(updatedFields).length > 0) {
+        if (coupon && Object.keys(updatedFields).length > 0) {
             await VoucherWallet.updateMany(
-                { coupon: promo._id },
+                { coupon: coupon?._id },
                 { $set: updatedFields }
             );
         }

@@ -1000,7 +1000,7 @@ const CheckoutPage = () => {
             .map(([shopId, data]) => [shopId, data?.coupon?.code])
             .filter(([, code]) => Boolean(code))
         ),
-        selectedShippingCoupon: selectedShippingCoupon ? true : null,
+        selectedShippingCoupon: selectedShippingCoupon?.code || null,
         shopShippingCouponCodes: Object.fromEntries(
           Object.entries(shopShippingCoupons)
             .map(([shopId, voucher]) => [shopId, voucher?.code])

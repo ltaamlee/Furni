@@ -85,6 +85,28 @@ const getShopSubtotal = (order) => {
     if (typeof order?.subtotal === "number") return order.subtotal;
     return (order?.products || []).reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 0), 0);
 };
+const getOrderDiscountSnapshot = (order) => {
+    const rates = new Set();
+    const amount = (order?.products || []).reduce((sum, item) => {
+        const qty = Number(item.quantity || 0);
+        const price = Number(item.price || 0);
+        const original = Number(item.originalPrice || 0);
+        const rate = Number(item.discount || 0);
+
+        if (rate > 0) rates.add(`${rate}%`);
+        if (original > price) return sum + ((original - price) * qty);
+        if (rate > 0 && rate < 100) {
+            const estimatedOriginal = Math.round(price / (1 - rate / 100));
+            return sum + Math.max(0, estimatedOriginal - price) * qty;
+        }
+        return sum;
+    }, 0);
+
+    return {
+        amount,
+        label: rates.size === 0 ? "0%" : [...rates].join(", "),
+    };
+};
 const getShopRevenue = (order) => {
     if (typeof order?.vendorTakeHome === 'number') return Math.max(0, order.vendorTakeHome);
     if (typeof order?.shopRevenue === 'number') return Math.max(0, order.shopRevenue);
@@ -147,6 +169,7 @@ const OrderDetail = ({ open, onClose, order, onAction, busy }) => {
     const next = NEXT_ACTION[order.status];
     const canCancel = CANCELLABLE.includes(order.status);
     const shippingProvider = getShippingProvider(order);
+    const discountSnapshot = getOrderDiscountSnapshot(order);
 
     return (
         <SlideOver
@@ -218,9 +241,16 @@ const OrderDetail = ({ open, onClose, order, onAction, busy }) => {
 
             <SectionHdr>Tóm tắt</SectionHdr>
             <DetailCard>
-                <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Tạm tính (sản phẩm shop)</span><span>{formatVND(getShopSubtotal(order))}</span></div>
+                <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Giá sản phẩm</span><span>{formatVND(getShopSubtotal(order))}</span></div>
+                <div className="flex justify-between py-1.5 text-[13px]">
+                    <span className="text-[#6B5C4C]">Chiết khấu</span>
+                    <span className="text-[#16a34a] font-semibold">
+                        {discountSnapshot.amount > 0 ? `-${formatVND(discountSnapshot.amount)}` : formatVND(0)}
+                        <span className="text-[#9E8E7E] font-normal ml-1">({discountSnapshot.label})</span>
+                    </span>
+                </div>
                 <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Phương thức TT</span><Badge tone={pay.tone}>{pay.label}</Badge></div>
-                <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Tổng cả đơn (mọi shop)</span><span className="text-[#9E8E7E]">{formatVND(order.totalPrice || 0)}</span></div>
+                <div className="flex justify-between py-1.5 text-[13px]"><span className="text-[#6B5C4C]">Thành tiền</span><span className="text-[#9E8E7E]">{formatVND(order.totalPrice || 0)}</span></div>
                 <div className="flex justify-between border-t border-[#EDE8E0] mt-1 pt-2.5 font-bold text-sm">
                     <span>Doanh thu shop</span>
                     {order.status === 'cancelled' ? (

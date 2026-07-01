@@ -616,15 +616,51 @@ const createPayOSPaymentWithCart = async (req, res) => {
             }
         }
 
+        let usedPlatformShippingCoupon = null;
+        if (selectedShippingCoupon) {
+            const voucher = await VoucherWallet.findOne({
+                user: req.user._id,
+                code: String(selectedShippingCoupon).toUpperCase()
+            }).populate('coupon');
+            const coupon = voucher?.coupon;
+            const discountType = coupon?.discountType || voucher?.discountType;
+            const couponShopId = coupon?.shop ? coupon.shop.toString() : null;
+            const couponEndDate = coupon?.endDate || voucher?.endDate;
+            const minOrderValue = coupon?.minOrderValue ?? voucher?.minOrderValue;
+
+            if (
+                voucher &&
+                voucher.status === VOUCHER_STATUS.ACTIVE &&
+                coupon?.isActive &&
+                !couponShopId &&
+                discountType === 'freeship' &&
+                (!couponEndDate || new Date(couponEndDate) >= new Date()) &&
+                (!minOrderValue || subtotal >= minOrderValue)
+            ) {
+                usedPlatformShippingCoupon = voucher;
+            }
+
+            if (!usedPlatformShippingCoupon) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Voucher miễn phí vận chuyển không hợp lệ hoặc đã được sử dụng.'
+                });
+            }
+        }
+
         {
             const checkoutGroupId = new mongoose.Types.ObjectId().toString();
             const createdOrders = [];
-            const isShippingFree = Boolean(selectedShippingCoupon);
+            const isShippingFree = Boolean(usedPlatformShippingCoupon);
             const usedCouponShopId = usedCoupon?.coupon?.shop ? usedCoupon.coupon.shop.toString() : null;
             const now = new Date();
             const estimatedDelivery = new Date(now.getTime() + (shippingTier === 'express' ? 3 : 7) * 24 * 60 * 60 * 1000);
             let totalPrice = 0;
             const totalByShop = {};
+            const getShippingCouponForShop = (shopId) => (
+                usedShopShippingCoupons[shopId]
+                || (isShippingFree && shopId === shopKeys[0] ? usedPlatformShippingCoupon : null)
+            );
 
             for (const shopId of shopKeys) {
                 const group = shopGroups[shopId];
@@ -749,7 +785,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     couponCode: usedCoupon
                         ? (usedCouponShopId ? (shopId === usedCouponShopId ? couponCode.toUpperCase() : null) : (shopId === shopKeys[0] ? couponCode.toUpperCase() : null))
                         : (usedShopCoupons[shopId]?.code || null),
-                    shippingCouponCode: usedShopShippingCoupons[shopId]?.code || null,
+                    shippingCouponCode: getShippingCouponForShop(shopId)?.code || null,
                     shippingFee: groupShippingFee,
                     shippingTier,
                     shippingProvider: groupShippingProvider,
@@ -758,7 +794,7 @@ const createPayOSPaymentWithCart = async (req, res) => {
                     usedCouponId: usedCoupon
                         ? (usedCouponShopId ? (shopId === usedCouponShopId ? usedCoupon._id : null) : (shopId === shopKeys[0] ? usedCoupon._id : null))
                         : (usedShopCoupons[shopId]?._id || null),
-                    usedShippingCouponId: usedShopShippingCoupons[shopId]?._id || null,
+                    usedShippingCouponId: getShippingCouponForShop(shopId)?._id || null,
                     orderedAt: now,
                     estimatedDelivery,
                     paymentExpiresAt: new Date(now.getTime() + 30 * 60 * 1000),
