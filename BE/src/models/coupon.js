@@ -1,118 +1,137 @@
 const mongoose = require('mongoose');
 
-const DISCOUNT_TYPE = {
-    PERCENT: 'percent',
-    FIXED: 'fixed',
-    FREESHIP: 'freeship'
-};
-
 const couponSchema = new mongoose.Schema({
     code: {
         type: String,
         required: [true, 'Vui lòng nhập mã giảm giá!'],
         unique: true,
         uppercase: true,
-        trim: true,
-        maxlength: [30, 'Mã giảm giá không được vượt quá 30 ký tự!'],
-        match: [/^[A-Z0-9_-]+$/, 'Mã giảm giá chỉ gồm chữ in hoa, số, gạch ngang/dưới!']
+        trim: true
     },
-    // Chương trình khuyến mãi gắn với mã (nếu có)
-    promotion: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Promotion',
-        default: null
-    },
-    shop: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Shop',
-        default: null
+    name: {
+        type: String,
+        required: [true, 'Vui lòng nhập tên khuyến mãi!'],
+        trim: true
     },
     description: {
         type: String,
-        maxlength: [300, 'Mô tả không được vượt quá 300 ký tự!'],
-        default: ''
+        trim: true
     },
-    discountType: {
+    type: {
         type: String,
-        enum: Object.values(DISCOUNT_TYPE),
-        default: DISCOUNT_TYPE.PERCENT
+        enum: ['percent', 'fixed', 'free_shipping', 'loyalty'],
+        required: true
     },
     value: {
         type: Number,
-        default: 0,
-        min: [0, 'Giá trị giảm phải lớn hơn hoặc bằng 0!']
+        required: [true, 'Vui lòng nhập giá trị giảm giá!'],
+        min: 0
     },
     maxDiscount: {
         type: Number,
-        default: 0,
-        min: 0
+        default: null
     },
     minOrderValue: {
         type: Number,
         default: 0,
         min: 0
     },
-    // Tổng số lượt dùng tối đa; 0 = không giới hạn
-    usageLimit: {
+    maxUses: {
         type: Number,
-        default: 0,
-        min: 0
+        default: null
     },
     usedCount: {
         type: Number,
-        default: 0,
-        min: 0
+        default: 0
     },
-    // Số lần tối đa mỗi user được dùng
     perUserLimit: {
         type: Number,
-        default: 1,
-        min: 1
+        default: 1
     },
-    usedBy: [{
-        user: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User'
-        },
-        count: {
-            type: Number,
-            default: 1
-        }
-    }],
     startDate: {
         type: Date,
-        default: Date.now
+        required: [true, 'Vui lòng chọn ngày bắt đầu!']
     },
     endDate: {
-        type: Date
+        type: Date,
+        required: [true, 'Vui lòng chọn ngày kết thúc!']
     },
+    applicableProducts: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Product'
+    }],
+    applicableCategories: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Category'
+    }],
     isActive: {
         type: Boolean,
         default: true
+    },
+    isPublic: {
+        type: Boolean,
+        default: true
+    },
+    loyaltyCost: {
+        type: Number,
+        default: null
+    },
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
     }
 }, { timestamps: true });
 
-couponSchema.index({ shop: 1, isActive: 1 });
+// Check if coupon is valid
+couponSchema.methods.isValid = function() {
+    const now = new Date();
+    return this.isActive && 
+           now >= this.startDate && 
+           now <= this.endDate &&
+           (this.maxUses === null || this.usedCount < this.maxUses);
+};
 
-couponSchema.virtual('id').get(function () {
+// Check if user can use this coupon
+couponSchema.methods.canUserUse = function(userUsageCount) {
+    return this.isValid() && 
+           (this.perUserLimit === null || userUsageCount < this.perUserLimit);
+};
+
+// Calculate discount amount
+couponSchema.methods.calculateDiscount = function(orderTotal, productIds = []) {
+    if (!this.isValid()) return 0;
+    
+    if (this.minOrderValue && orderTotal < this.minOrderValue) return 0;
+    
+    let discount = 0;
+    
+    switch (this.type) {
+        case 'percent':
+            discount = (orderTotal * this.value) / 100;
+            if (this.maxDiscount) {
+                discount = Math.min(discount, this.maxDiscount);
+            }
+            break;
+        case 'fixed':
+            discount = this.value;
+            break;
+        case 'free_shipping':
+            discount = this.value;
+            break;
+        case 'loyalty':
+            discount = this.value;
+            break;
+    }
+    
+    return Math.min(discount, orderTotal);
+};
+
+// Virtual for id
+couponSchema.virtual('id').get(function() {
     return this._id.toHexString();
 });
-
-// Mã còn hiệu lực để sử dụng không
-couponSchema.methods.isUsable = function () {
-    const now = Date.now();
-    if (!this.isActive) return false;
-    if (this.startDate && new Date(this.startDate).getTime() > now) return false;
-    if (this.endDate && new Date(this.endDate).getTime() < now) return false;
-    if (this.usageLimit !== 0 && this.usedCount >= this.usageLimit) return false;
-    return true;
-};
 
 couponSchema.set('toJSON', { virtuals: true });
 couponSchema.set('toObject', { virtuals: true });
 
-// Kiểm tra xem model đã được khởi tạo chưa, nếu chưa thì mới tạo mới
-const Coupon = mongoose.models.Coupon || mongoose.model('Coupon', couponSchema);
-Coupon.DISCOUNT_TYPE = DISCOUNT_TYPE;
-
-module.exports = Coupon;
+module.exports = mongoose.model('Coupon', couponSchema);
