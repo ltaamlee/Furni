@@ -1,14 +1,14 @@
 /* ============================================================
-   Seed data lon cho Furni.
+   Seed data lớn cho Furni.
 
-   Tao day du:
+   Tạo đầy đủ:
    - 1 admin, 3 vendor, 5 customer
-   - Moi vendor co 1 shop
-   - Moi shop co 10-25 product, 30-40 order, 3-6 promotion, 4-6 blog
-   - Vi dien tu, dia chi, coupon/voucher, transaction, review, cart, notification
-   - 4 promotion toan san do admin tao (shop: null)
+   - Mỗi vendor có 1 shop
+   - Mỗi shop có 10-25 product, 30-40 order, 3-6 promotion, 4-6 blog
+   - Ví điện tử, địa chỉ, coupon/voucher, transaction, review, cart, notification
+   - 4 promotion toàn sàn do admin tạo (shop: null)
 
-   Chay: cd BE && npm run seed
+   Chạy: cd BE && npm run seed
    ============================================================ */
 const path = require('path');
 const mongoose = require('mongoose');
@@ -30,6 +30,7 @@ const Notification = require('../src/models/notification');
 const Blog = require('../src/models/blog');
 const Address = require('../src/models/Address');
 const { ShippingRate } = require('../src/models/shippingRate');
+const BlogComment = require('../src/models/blogComment'); 
 
 const now = new Date();
 const DAY = 24 * 60 * 60 * 1000;
@@ -40,14 +41,14 @@ const idKey = (value) => String(value?._id || value);
 
 const USERS = [
     { fullName: 'System Admin', email: 'admin@gmail.com', phone: '0912345678', username: 'admin01', password: 'Admin123', role: 'admin', isVerified: true, gender: 'other' },
-    { fullName: 'Nguyen Thanh Furni', email: 'vendor@gmail.com', phone: '0987654321', username: 'vendor01', password: 'Vendor123', role: 'vendor', isVerified: true, gender: 'male' },
-    { fullName: 'Tran Minh Decor', email: 'vendor2@gmail.com', phone: '0978123456', username: 'vendor02', password: 'Vendor123', role: 'vendor', isVerified: true, gender: 'male' },
-    { fullName: 'Le Bao Nesta', email: 'vendor3@gmail.com', phone: '0966123456', username: 'vendor03', password: 'Vendor123', role: 'vendor', isVerified: true, gender: 'female' },
-    { fullName: 'Nguyen Van Khach', email: 'customer@gmail.com', phone: '0909123457', username: 'customer01', password: 'Customer123', role: 'customer', isVerified: true, gender: 'male', dateOfBirth: daysFromNow(-11200) },
-    { fullName: 'Le Thi Mai Anh', email: 'maianh@gmail.com', phone: '0909555123', username: 'customer02', password: 'Customer123', role: 'customer', isVerified: true, gender: 'female', dateOfBirth: daysFromNow(-10400) },
-    { fullName: 'Pham Quang Huy', email: 'huypham@gmail.com', phone: '0918666777', username: 'customer03', password: 'Customer123', role: 'customer', isVerified: true, gender: 'male', dateOfBirth: daysFromNow(-12200) },
-    { fullName: 'Do Ngoc Linh', email: 'linhdo@gmail.com', phone: '0933444555', username: 'customer04', password: 'Customer123', role: 'customer', isVerified: true, gender: 'female', dateOfBirth: daysFromNow(-9900) },
-    { fullName: 'Hoang Anh Tuan', email: 'tuannguyen@gmail.com', phone: '0944666888', username: 'customer05', password: 'Customer123', role: 'customer', isVerified: true, gender: 'male', dateOfBirth: daysFromNow(-13300) },
+    { fullName: 'Nguyễn Thanh Furni', email: 'vendor@gmail.com', phone: '0987654321', username: 'vendor01', password: 'Vendor123', role: 'vendor', isVerified: true, gender: 'male' },
+    { fullName: 'Trần Minh Decor', email: 'vendor2@gmail.com', phone: '0978123456', username: 'vendor02', password: 'Vendor123', role: 'vendor', isVerified: true, gender: 'male' },
+    { fullName: 'Lê Bảo Nesta', email: 'vendor3@gmail.com', phone: '0966123456', username: 'vendor03', password: 'Vendor123', role: 'vendor', isVerified: true, gender: 'female' },
+    { fullName: 'Nguyễn Văn Khang', email: 'customer@gmail.com', phone: '0909123457', username: 'customer01', password: 'Customer123', role: 'customer', isVerified: true, gender: 'male', dateOfBirth: daysFromNow(-11200) },
+    { fullName: 'Lê Thị Mai Anh', email: 'maianh@gmail.com', phone: '0909555123', username: 'customer02', password: 'Customer123', role: 'customer', isVerified: true, gender: 'female', dateOfBirth: daysFromNow(-10400) },
+    { fullName: 'Phạm Quang Huy', email: 'huypham@gmail.com', phone: '0918666777', username: 'customer03', password: 'Customer123', role: 'customer', isVerified: true, gender: 'male', dateOfBirth: daysFromNow(-12200) },
+    { fullName: 'Đỗ Ngọc Linh', email: 'linhdo@gmail.com', phone: '0933444555', username: 'customer04', password: 'Customer123', role: 'customer', isVerified: true, gender: 'female', dateOfBirth: daysFromNow(-9900) },
+    { fullName: 'Hoàng Anh Tuấn', email: 'tuannguyen@gmail.com', phone: '0944666888', username: 'customer05', password: 'Customer123', role: 'customer', isVerified: true, gender: 'male', dateOfBirth: daysFromNow(-13300) },
 ];
 
 const CATEGORIES = [
@@ -66,12 +67,12 @@ const SHOP_PROFILES = [
     {
         code: 'FHST',
         name: 'Furni Home Studio',
-        description: 'Noi that go tu nhien, thiet ke tinh gon va dich vu lap dat tron goi cho can ho hien dai.',
+        description: 'Nội thất gỗ tự nhiên, thiết kế tinh gọn và dịch vụ lắp đặt trọn gói cho căn hộ hiện đại.',
         phone: '0987654321',
         email: 'shop@furnihome.vn',
-        address: '123 Nguyen Van Cu, Phuong 4, Quan 5, TP. Ho Chi Minh',
+        address: '123 Nguyễn Văn Cừ, Phường 4, Quận 5, TP. Hồ Chí Minh',
         provinceCode: '79',
-        provinceName: 'TP. Ho Chi Minh',
+        provinceName: 'TP. Hồ Chí Minh',
         logo: 'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?w=240',
         banner: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=1200',
         commissionRate: 2,
@@ -82,12 +83,12 @@ const SHOP_PROFILES = [
     {
         code: 'MOAN',
         name: 'Moc An Living',
-        description: 'Noi that Japandi, vat lieu ben vung va nhung san pham toi uu dien tich cho nha pho.',
+        description: 'Nội thất Japandi, vật liệu bền vững và những sản phẩm tối ưu diện tích cho nhà phố.',
         phone: '0978123456',
         email: 'hello@mocan.vn',
-        address: '86 Nguyen Thi Minh Khai, Phuong Vo Thi Sau, Quan 3, TP. Ho Chi Minh',
+        address: '86 Nguyễn Thị Minh Khai, Phường Võ Thị Sáu, Quận 3, TP. Hồ Chí Minh',
         provinceCode: '79',
-        provinceName: 'TP. Ho Chi Minh',
+        provinceName: 'TP. Hồ Chí Minh',
         logo: 'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=240',
         banner: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=1200',
         commissionRate: 2.5,
@@ -98,12 +99,12 @@ const SHOP_PROFILES = [
     {
         code: 'NEST',
         name: 'Nesta Decor House',
-        description: 'Decor cao cap cho phong khach, phong ngu va goc lam viec voi phong cach do thi am ap.',
+        description: 'Decor cao cấp cho phòng khách, phòng ngủ và góc làm việc với phong cách đô thị ấm áp.',
         phone: '0966123456',
         email: 'care@nesta.vn',
-        address: '22 Ly Thuong Kiet, Phuong Tran Hung Dao, Quan Hoan Kiem, Ha Noi',
+        address: '22 Lý Thường Kiệt, Phường Trần Hưng Đạo, Quận Hoàn Kiếm, Hà Nội',
         provinceCode: '01',
-        provinceName: 'Ha Noi',
+        provinceName: 'Hà Nội',
         logo: 'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?w=240',
         banner: 'https://images.unsplash.com/photo-1618220179428-22790b461013?w=1200',
         commissionRate: 3,
@@ -114,12 +115,12 @@ const SHOP_PROFILES = [
 ];
 
 const ADDRESS_BOOK = [
-    { provinceCode: '79', provinceName: 'TP. Ho Chi Minh', districtCode: '760', districtName: 'Quan 1', wardName: 'Phuong Ben Nghe', street: '12 Le Loi', lat: 10.7769, lng: 106.7009 },
-    { provinceCode: '79', provinceName: 'TP. Ho Chi Minh', districtCode: '769', districtName: 'Quan 7', wardName: 'Phuong Tan Phu', street: '45 Nguyen Luong Bang', lat: 10.7296, lng: 106.7219 },
-    { provinceCode: '01', provinceName: 'Ha Noi', districtCode: '001', districtName: 'Quan Ba Dinh', wardName: 'Phuong Dien Bien', street: '18 Kim Ma', lat: 21.0336, lng: 105.8142 },
-    { provinceCode: '01', provinceName: 'Ha Noi', districtCode: '007', districtName: 'Quan Thanh Xuan', wardName: 'Phuong Nhan Chinh', street: '62 Nguyen Trai', lat: 20.9991, lng: 105.8099 },
-    { provinceCode: '48', provinceName: 'Da Nang', districtCode: '490', districtName: 'Quan Hai Chau', wardName: 'Phuong Hai Chau I', street: '28 Bach Dang', lat: 16.0678, lng: 108.2208 },
-    { provinceCode: '92', provinceName: 'Can Tho', districtCode: '916', districtName: 'Quan Ninh Kieu', wardName: 'Phuong An Cu', street: '39 Mau Than', lat: 10.0452, lng: 105.7469 },
+    { provinceCode: '79', provinceName: 'TP. Hồ Chí Minh', districtCode: '760', districtName: 'Quận 1', wardName: 'Phường Bến Nghé', street: '12 Lê Lợi', lat: 10.7769, lng: 106.7009 },
+    { provinceCode: '79', provinceName: 'TP. Hồ Chí Minh', districtCode: '769', districtName: 'Quận 7', wardName: 'Phường Tân Phú', street: '45 Nguyễn Lương Bằng', lat: 10.7296, lng: 106.7219 },
+    { provinceCode: '01', provinceName: 'Hà Nội', districtCode: '001', districtName: 'Quận Ba Đình', wardName: 'Phường Điện Biên', street: '18 Kim Mã', lat: 21.0336, lng: 105.8142 },
+    { provinceCode: '01', provinceName: 'Hà Nội', districtCode: '007', districtName: 'Quận Thanh Xuân', wardName: 'Phường Nhân Chính', street: '62 Nguyễn Trãi', lat: 20.9991, lng: 105.8099 },
+    { provinceCode: '48', provinceName: 'Đà Nẵng', districtCode: '490', districtName: 'Quận Hải Châu', wardName: 'Phường Hải Châu I', street: '28 Bạch Đằng', lat: 16.0678, lng: 108.2208 },
+    { provinceCode: '92', provinceName: 'Cần Thơ', districtCode: '916', districtName: 'Quận Ninh Kiều', wardName: 'Phường An Cư', street: '39 Mậu Thân', lat: 10.0452, lng: 105.7469 },
 ];
 
 const PRODUCT_BLUEPRINTS = [
@@ -197,7 +198,7 @@ const PRODUCT_NAME_POOL = {
         'Kệ sách mở năm tầng',
         'Tủ rượu kính khung gỗ',
         'Tủ đầu giường nhỏ gọn',
-        'Kệ console hành lang',
+        'Kệ console hành hành lang',
         'Tủ lưu trữ tối giản',
     ],
     Ghế: [
@@ -273,11 +274,11 @@ const PRODUCT_NAME_POOL = {
 };
 
 const BLOG_TITLES = [
-    { title: 'Cach chon sofa dung kich thuoc cho phong khach can ho', category: 'guide', tags: ['sofa', 'phong khach', 'kich thuoc'] },
-    { title: 'Phoi go sang va vai trung tinh de nha am hon', category: 'styling', tags: ['go sang', 'styling', 'can ho'] },
-    { title: 'Checklist bao quan noi that go trong mua mua', category: 'guide', tags: ['bao quan', 'go tu nhien', 'meo hay'] },
-    { title: 'Hanh trinh thiet ke bo suu tap moi cua shop', category: 'brand_story', tags: ['thuong hieu', 'xuong moc', 'thiet ke'] },
-    { title: 'Xu huong noi that 2026 cho khong gian nho', category: 'trend', tags: ['xu huong', '2026', 'khong gian nho'] },
+    { title: 'Cách chọn sofa đúng kích thước cho phòng khách căn hộ', category: 'guide', tags: ['sofa', 'phòng khách', 'kích thước'] },
+    { title: 'Phối gỗ sáng và vải trung tính để nhà ấm hơn', category: 'styling', tags: ['gỗ sáng', 'styling', 'căn hộ'] },
+    { title: 'Checklist bảo quản nội thất gỗ trong mùa mưa', category: 'guide', tags: ['bảo quản', 'gỗ tự nhiên', 'mẹo hay'] },
+    { title: 'Hành trình thiết kế bộ sưu tập mới của shop', category: 'brand_story', tags: ['thương hiệu', 'xưởng mộc', 'thiết kế'] },
+    { title: 'Xu hướng nội thất 2026 cho không gian nhỏ', category: 'trend', tags: ['xu hướng', '2026', 'không gian nhỏ'] },
 ];
 
 const orderStatuses = ['pending', 'confirmed', 'preparing', 'shipping', 'delivered', 'delivered', 'cancelled', 'cancel_requested'];
@@ -344,18 +345,18 @@ const buildStatusHistory = (status, orderedAt) => {
     return flow.map((item, index) => ({
         status: item,
         timestamp: addDays(orderedAt, Math.min(index, 6)),
-        note: index === 0 ? 'Don hang duoc tao tu seed data.' : `Cap nhat trang thai ${item}.`,
+        note: index === 0 ? 'Đơn hàng được tạo từ seed data.' : `Cập nhật trạng thái ${item}.`,
     }));
 };
 
 const buildBlogContent = (shopName, title, accent) => {
     const paragraphs = [
-        `${title} la chu de duoc ${shopName} chuan bi nhu mot cam nang thuc hanh cho khach hang dang hoan thien nha. Bai viet khong chi dung lai o viec gioi thieu san pham, ma con giai thich cach do dien tich, cach chon vat lieu, cach can doi ngan sach va cach tranh nhung loi pho bien khi mua noi that online.`,
-        `Voi nhung khong gian nho, yeu to quan trong nhat la ty le. Mot chiec sofa dep nhung qua sau co the lam loi di bi hep, mot chiec ban an qua lon co the khien bep mat do thong thoang. Doi ngu ${shopName} thuong khuyen khach hang chup lai mat bang, do khoang mo cua, do vi tri o cam va danh dau cac duong di chinh truoc khi dat hang.`,
-        `Ve vat lieu, ${accent} mang lai cam giac am va co do ben tot neu duoc bao quan dung cach. Be mat go nen duoc lau bang khan am mem, tranh chat tay manh va tranh dat sat cua so bi nang gat lien tuc. Cac phan vai boc nen duoc hut bui hang tuan, xoay dem dinh ky va xu ly vet ban ngay khi vua phat sinh.`,
-        `Khi phoi mau, mot bang mau co ba lop thuong de ap dung hon: mau nen cho san va tuong, mau chinh cho noi that lon, mau nhan cho den, tham, tranh va goi tua. Cach lam nay giup can phong co chieu sau ma khong bi roi mat. Neu can mot diem nhan ro hon, hay dung chat lieu khac nhau thay vi them qua nhieu mau sac.`,
-        `Bai viet cung nhac den trai nghiem sau mua: kiem tra ma don, chon hinh thuc giao phu hop, doc ky dieu kien lap dat va luu lai phieu bao hanh. Voi san pham can lap rap, khach nen sap xep san khong gian truoc ngay giao de doi ky thuat co the thao tac nhanh, an toan va khong anh huong den do dac co san.`,
-        `Sau cung, ${shopName} xem moi can nha la mot bo suu tap dang song. Do noi that tot khong can qua phuc tap; no can dung kich thuoc, dung vat lieu, dung thoi diem va phu hop voi thoi quen cua nguoi dung. Do la ly do cac bai blog trong seed data duoc viet dai, co ngu canh va du thong tin de kiem thu giao dien doc bai.`,
+        `${title} là chủ đề được ${shopName} chuẩn bị như một cẩm nang thực hành cho khách hàng đang hoàn thiện nhà. Bài viết không chỉ dừng lại ở việc giới thiệu sản phẩm, mà còn giải thích cách đo diện tích, cách chọn vật liệu, cách cân đối ngân sách và cách tránh những lỗi phổ biến khi mua nội thất online.`,
+        `Với những không gian nhỏ, yếu tố quan trọng nhất là tỷ lệ. Một chiếc sofa đẹp nhưng quá sâu có thể làm lối đi bị hẹp, một chiếc bàn ăn quá lớn có thể khiến bếp mất độ thông thoáng. Đội ngũ ${shopName} thường khuyên khách hàng chụp lại mặt bằng, đo khoảng mở cửa, đo vị trí ổ cắm và đánh dấu các đường đi chính trước khi đặt hàng.`,
+        `Về vật liệu, ${accent} mang lại cảm giác ấm và có độ bền tốt nếu được bảo quản đúng cách. Bề mặt gỗ nên được lau bằng khăn ẩm mềm, tránh chất tẩy mạnh và tránh đặt sát cửa sổ bị nắng gắt liên tục. Các phần vải bọc nên được hút bụi hàng tuần, xoay đệm định kỳ và xử lý vết bẩn ngay khi vừa phát sinh.`,
+        `Khi phối màu, một bảng màu có ba lớp thường dễ áp dụng hơn: màu nền cho sàn và tường, màu chính cho nội thất lớn, màu nhấn cho đèn, thảm, tranh và gối tựa. Cách làm này giúp căn phòng có chiều sâu mà không bị rối mắt. Nếu cần một điểm nhấn rõ hơn, hãy dùng chất liệu khác nhau thay vì thêm quá nhiều màu sắc.`,
+        `Bài viết cũng nhắc đến trải nghiệm sau mua: kiểm tra mã đơn, chọn hình thức giao phù hợp, đọc kỹ điều kiện lắp đặt và lưu lại phiếu bảo hành. Với sản phẩm cần lắp ráp, khách nên sắp xếp sẵn không gian trước ngày giao để đội kỹ thuật có thể thao tác nhanh, an toàn và không ảnh hưởng đến đồ đạc có sẵn.`,
+        `Sau cùng, ${shopName} xem mỗi căn nhà là một bộ sưu tập đáng sống. Đồ nội thất tốt không cần quá phức tạp; nó cần đúng kích thước, đúng vật liệu, đúng thời điểm và phù hợp với thói quen của người dùng. Đó là lý do các bài blog trong seed data được viết dài, có ngữ cảnh và đủ thông tin để kiểm thử giao diện đọc bài.`,
     ];
 
     return paragraphs.map((paragraph) => `<p>${paragraph}</p>`).join('\n');
@@ -463,7 +464,7 @@ const createWallets = async (users) => {
                 accountNumber: `970436${String(100000 + index * 1379).slice(-6)}`,
                 accountHolder: user.fullName.toUpperCase(),
                 bankName: index % 2 === 0 ? 'Vietcombank' : 'Techcombank',
-                branch: index % 2 === 0 ? 'Ho Chi Minh' : 'Ha Noi',
+                branch: index % 2 === 0 ? 'Hồ Chí Minh' : 'Hà Nội',
                 isDefault: true,
             },
             {
@@ -471,14 +472,14 @@ const createWallets = async (users) => {
                 accountNumber: user.phone,
                 accountHolder: user.fullName,
                 bankName: 'VNPay',
-                branch: 'Vi dien tu',
+                branch: 'Ví điện tử',
                 isDefault: false,
             },
         ],
         transactions: [
-            { type: 'deposit', amount: 5000000 + index * 400000, description: 'Nap vi ban dau tu seed data', paymentMethod: 'BANK', status: 'completed' },
-            { type: index % 3 === 0 ? 'withdraw' : 'deposit', amount: 1200000 + index * 150000, description: 'Giao dich mau co trang thai thanh cong', paymentMethod: 'BANK', status: 'completed' },
-            { type: 'deposit', amount: 800000, description: 'Giao dich dang xu ly de test trang thai pending', paymentMethod: 'VNPAY', status: 'pending' },
+            { type: 'deposit', amount: 5000000 + index * 400000, description: 'Nạp ví ban đầu từ seed data', paymentMethod: 'BANK', status: 'completed' },
+            { type: index % 3 === 0 ? 'withdraw' : 'deposit', amount: 1200000 + index * 150000, description: 'Giao dịch mẫu có trạng thái thành công', paymentMethod: 'BANK', status: 'completed' },
+            { type: 'deposit', amount: 800000, description: 'Giao dịch đang xử lý để test trạng thái pending', paymentMethod: 'VNPAY', status: 'pending' },
         ],
     })));
 
@@ -538,7 +539,7 @@ const createProductsForShop = async (shopRecord, categoryMap) => {
             style: blueprint.style,
             requiresAssembly: blueprint.requiresAssembly || index % 3 === 0,
             deliveryType: blueprint.deliveryType || (index % 5 === 0 ? 'with_installation' : 'standard'),
-            variant: index % 2 === 0 ? 'Tieu chuan' : 'Cao cap',
+            variant: index % 2 === 0 ? 'Tiêu chuẩn' : 'Cao cấp',
             variants: index % 3 === 0 ? buildProductVariants(profile.code, index, basePrice, stockState.quantity, blueprint.material, blueprint.style) : [],
             price: basePrice,
             originalPrice,
@@ -564,10 +565,9 @@ const createProductsForShop = async (shopRecord, categoryMap) => {
 
 const createPlatformPromotions = async () => {
     const specs = [
-        { name: 'Mega Sale toan san 15%', description: 'Admin tao voucher giam 15% cho don tu 2 trieu.', type: 'coupon', discountType: 'percent', value: 15, maxDiscount: 300000, minOrderValue: 2000000, status: 'running', startDate: daysFromNow(-5), endDate: daysFromNow(15), maxUsage: 500, usedCount: 126 },
-        { name: 'Freeship toan san cuoi tuan', description: 'Mien phi van chuyen cho tat ca shop khi dat tu 800k.', type: 'freeship', discountType: 'freeship', value: 0, maxDiscount: 80000, minOrderValue: 800000, status: 'running', startDate: daysFromNow(-2), endDate: daysFromNow(4), maxUsage: 300, usedCount: 44 },
-        { name: 'Flash Sale san noi that 6.6', description: 'Chuong trinh flash sale toan san cho san pham noi bat.', type: 'flash_sale', discountType: 'percent', value: 12, maxDiscount: 250000, minOrderValue: 0, status: 'scheduled', startDate: daysFromNow(2), endDate: daysFromNow(9), maxUsage: 250, usedCount: 0 },
-        { name: 'Voucher 100K don lon', description: 'Voucher fixed amount cho don hang tu 4 trieu.', type: 'coupon', discountType: 'fixed', value: 100000, maxDiscount: 100000, minOrderValue: 4000000, status: 'ended', startDate: daysFromNow(-30), endDate: daysFromNow(-2), maxUsage: 180, usedCount: 180 },
+        { name: 'Mega Sale toàn sàn 15%', description: 'Admin tạo voucher giảm 15% cho đơn từ 2 triệu.', type: 'coupon', discountType: 'percent', value: 15, maxDiscount: 300000, minOrderValue: 2000000, status: 'running', startDate: daysFromNow(-5), endDate: daysFromNow(15), maxUsage: 500, usedCount: 126 },
+        { name: 'Freeship toàn sàn cuối tuần', description: 'Miễn phí vận chuyển cho tất cả shop khi đặt từ 800k.', type: 'freeship', discountType: 'freeship', value: 0, maxDiscount: 80000, minOrderValue: 800000, status: 'running', startDate: daysFromNow(-2), endDate: daysFromNow(4), maxUsage: 300, usedCount: 44 },
+        { name: 'Voucher 100K đơn lớn', description: 'Voucher fixed amount cho đơn hàng từ 4 triệu.', type: 'coupon', discountType: 'fixed', value: 100000, maxDiscount: 100000, minOrderValue: 4000000, status: 'ended', startDate: daysFromNow(-30), endDate: daysFromNow(-2), maxUsage: 180, usedCount: 180 },
     ];
 
     return Promotion.create(specs.map((spec) => ({ ...spec, shop: null, appliesTo: 'all' })));
@@ -577,11 +577,11 @@ const createShopPromotions = async (shopRecord, products, categoryMap) => {
     const { shop, profile } = shopRecord;
     const firstCategory = products[0]?.category || categoryMap.get('Sofa')._id;
     const specs = [
-        { name: `${shop.name} Flash Sale phong khach`, description: 'Giam nhanh nhom san pham noi bat trong thoi gian ngan.', type: 'flash_sale', discountType: 'percent', value: 18, maxDiscount: 450000, minOrderValue: 0, appliesTo: 'product', products: products.slice(0, 5).map((product) => product._id), startDate: daysFromNow(-1), endDate: daysFromNow(6), maxUsage: 120, usedCount: 18, status: 'running' },
-        { name: `${shop.name} Coupon WELCOME`, description: 'Ma giam gia rieng cua shop cho khach moi.', type: 'coupon', discountType: 'percent', value: 10, maxDiscount: 220000, minOrderValue: 1200000, appliesTo: 'all', startDate: daysFromNow(-6), endDate: daysFromNow(20), maxUsage: 200, usedCount: 35, status: 'running' },
-        { name: `${shop.name} Freeship noi thanh`, description: 'Mien phi van chuyen cho khu vuc noi thanh.', type: 'freeship', discountType: 'freeship', value: 0, maxDiscount: 70000, minOrderValue: 900000, appliesTo: 'all', startDate: daysFromNow(1), endDate: daysFromNow(18), maxUsage: 100, usedCount: 0, status: 'scheduled' },
-        { name: `${shop.name} Combo tiet kiem`, description: 'Mua theo bo de toi uu chi phi setup nha.', type: 'bundle', discountType: 'fixed', value: 350000, maxDiscount: 350000, minOrderValue: 3500000, appliesTo: 'category', categories: [firstCategory], startDate: daysFromNow(-20), endDate: daysFromNow(-1), maxUsage: 80, usedCount: 80, status: 'ended' },
-        { name: `${shop.name} Qua tang decor`, description: `Tang phu kien decor theo phong cach ${profile.accent}.`, type: 'gift', discountType: 'fixed', value: 0, maxDiscount: 0, minOrderValue: 5000000, appliesTo: 'product', products: products.slice(5, 9).map((product) => product._id), startDate: daysFromNow(5), endDate: daysFromNow(25), maxUsage: 60, usedCount: 0, status: shop.code === 'NEST' ? 'paused' : 'draft' },
+        { name: `${shop.name} Flash Sale phòng khách`, description: 'Giảm nhanh nhóm sản phẩm nổi bật trong thời gian ngắn.', type: 'flash_sale', discountType: 'percent', value: 18, maxDiscount: 450000, minOrderValue: 0, appliesTo: 'product', products: products.slice(0, 5).map((product) => product._id), startDate: daysFromNow(-1), endDate: daysFromNow(6), maxUsage: 120, usedCount: 18, status: 'running' },
+        { name: `${shop.name} Coupon WELCOME`, description: 'Mã giảm giá riêng của shop cho khách mới.', type: 'coupon', discountType: 'percent', value: 10, maxDiscount: 220000, minOrderValue: 1200000, appliesTo: 'all', startDate: daysFromNow(-6), endDate: daysFromNow(20), maxUsage: 200, usedCount: 35, status: 'running' },
+        { name: `${shop.name} Freeship nội thành`, description: 'Miễn phí vận chuyển cho khu vực nội thành.', type: 'freeship', discountType: 'freeship', value: 0, maxDiscount: 70000, minOrderValue: 900000, appliesTo: 'all', startDate: daysFromNow(1), endDate: daysFromNow(18), maxUsage: 100, usedCount: 0, status: 'scheduled' },
+        { name: `${shop.name} Combo tiết kiệm`, description: 'Mua theo bộ để tối ưu chi phí setup nhà.', type: 'bundle', discountType: 'fixed', value: 350000, maxDiscount: 350000, minOrderValue: 3500000, appliesTo: 'category', categories: [firstCategory], startDate: daysFromNow(-20), endDate: daysFromNow(-1), maxUsage: 80, usedCount: 80, status: 'ended' },
+        { name: `${shop.name} Quà tặng decor`, description: `Tặng phụ kiện decor theo phong cách ${profile.accent}.`, type: 'gift', discountType: 'fixed', value: 0, maxDiscount: 0, minOrderValue: 5000000, appliesTo: 'product', products: products.slice(5, 9).map((product) => product._id), startDate: daysFromNow(5), endDate: daysFromNow(25), maxUsage: 60, usedCount: 0, status: shop.code === 'NEST' ? 'paused' : 'draft' },
     ];
 
     return Promotion.create(specs.map((spec) => ({ ...spec, shop: shop._id })));
@@ -589,10 +589,9 @@ const createShopPromotions = async (shopRecord, products, categoryMap) => {
 
 const createCoupons = async (platformPromotions, shopPromotionMap, shopRecords) => {
     const couponPayload = [
-        { code: 'MEGA15', promotion: platformPromotions[0]._id, shop: null, description: 'Voucher toan san 15%', discountType: 'percent', value: 15, maxDiscount: 300000, minOrderValue: 2000000, usageLimit: 500, usedCount: 126, perUserLimit: 1, startDate: platformPromotions[0].startDate, endDate: platformPromotions[0].endDate, isActive: true },
-        { code: 'FREESHIPALL', promotion: platformPromotions[1]._id, shop: null, description: 'Mien phi van chuyen toan san', discountType: 'freeship', value: 0, maxDiscount: 80000, minOrderValue: 800000, usageLimit: 300, usedCount: 44, perUserLimit: 2, startDate: platformPromotions[1].startDate, endDate: platformPromotions[1].endDate, isActive: true },
-        { code: 'FLASH66', promotion: platformPromotions[2]._id, shop: null, description: 'Ma hen gio cho flash sale toan san', discountType: 'percent', value: 12, maxDiscount: 250000, minOrderValue: 0, usageLimit: 250, usedCount: 0, perUserLimit: 1, startDate: platformPromotions[2].startDate, endDate: platformPromotions[2].endDate, isActive: true },
-        { code: 'FURNI100K', promotion: platformPromotions[3]._id, shop: null, description: 'Voucher toan san da het han', discountType: 'fixed', value: 100000, maxDiscount: 100000, minOrderValue: 4000000, usageLimit: 180, usedCount: 180, perUserLimit: 1, startDate: platformPromotions[3].startDate, endDate: platformPromotions[3].endDate, isActive: false },
+        { code: 'MEGA15', promotion: platformPromotions[0]._id, shop: null, description: 'Voucher toàn sàn 15%', discountType: 'percent', value: 15, maxDiscount: 300000, minOrderValue: 2000000, usageLimit: 500, usedCount: 126, perUserLimit: 1, startDate: platformPromotions[0].startDate, endDate: platformPromotions[0].endDate, isActive: true },
+        { code: 'FREESHIPALL', promotion: platformPromotions[1]._id, shop: null, description: 'Miễn phí vận chuyển toàn sàn', discountType: 'freeship', value: 0, maxDiscount: 80000, minOrderValue: 800000, usageLimit: 300, usedCount: 44, perUserLimit: 2, startDate: platformPromotions[1].startDate, endDate: platformPromotions[1].endDate, isActive: true },
+        { code: 'FURNI100K', promotion: platformPromotions[2]._id, shop: null, description: 'Voucher toàn sàn đã hết hạn', discountType: 'fixed', value: 100000, maxDiscount: 100000, minOrderValue: 4000000, usageLimit: 180, usedCount: 180, perUserLimit: 1, startDate: platformPromotions[2].startDate, endDate: platformPromotions[2].endDate, isActive: false },
     ];
 
     for (const record of shopRecords) {
@@ -603,7 +602,7 @@ const createCoupons = async (platformPromotions, shopPromotionMap, shopRecords) 
             code: `${record.shop.code}WELCOME10`,
             promotion: couponPromo._id,
             shop: record.shop._id,
-            description: `Ma giam 10% rieng cua ${record.shop.name}`,
+            description: `Mã giảm 10% riêng của ${record.shop.name}`,
             discountType: 'percent',
             value: 10,
             maxDiscount: 220000,
@@ -619,7 +618,7 @@ const createCoupons = async (platformPromotions, shopPromotionMap, shopRecords) 
             code: `${record.shop.code}SHIP`,
             promotion: freeshipPromo._id,
             shop: record.shop._id,
-            description: `Freeship noi thanh cua ${record.shop.name}`,
+            description: `Freeship nội thành của ${record.shop.name}`,
             discountType: 'freeship',
             value: 0,
             maxDiscount: 70000,
@@ -720,7 +719,7 @@ const createOrdersForShop = async ({ shopRecord, products, customers, addressesB
             shopCode: shop.code,
             checkoutGroupId: index % 9 === 0 ? new mongoose.Types.ObjectId().toString() : null,
             products: items,
-            shippingAddress: buildShippingAddress(address, index % 5 === 0 ? 'Goi truoc khi giao 30 phut.' : ''),
+            shippingAddress: buildShippingAddress(address, index % 5 === 0 ? 'Gọi trước khi giao 30 phút.' : ''),
             paymentMethod,
             paymentStatus,
             payosOrderCode: paymentMethod === 'VNPAY' ? Number(`${Date.now()}${shopIndex}${index}`.slice(-10)) : null,
@@ -742,7 +741,7 @@ const createOrdersForShop = async ({ shopRecord, products, customers, addressesB
             statusHistory: buildStatusHistory(status, orderedAt),
             cancelRequest: ['cancel_requested', 'cancelled'].includes(status)
                 ? {
-                    reason: index % 2 === 0 ? 'Khach doi kich thuoc san pham.' : 'Khach muon doi phuong thuc thanh toan.',
+                    reason: index % 2 === 0 ? 'Khách đổi kích thước sản phẩm.' : 'Khách muốn đổi phương thức thanh toán.',
                     requestedAt: addDays(orderedAt, 1),
                     processedAt: status === 'cancelled' ? addDays(orderedAt, 2) : null,
                     processedBy: status === 'cancelled' ? shopRecord.vendor._id : null,
@@ -810,7 +809,7 @@ const createRevenueDemoOrdersForShop = async ({ shopRecord, products, customers,
             shopCode: shop.code,
             checkoutGroupId: index % 12 === 0 ? new mongoose.Types.ObjectId().toString() : null,
             products: items,
-            shippingAddress: buildShippingAddress(address, index % 6 === 0 ? 'Don demo doanh thu, uu tien giao gio hanh chinh.' : ''),
+            shippingAddress: buildShippingAddress(address, index % 6 === 0 ? 'Đơn demo doanh thu, ưu tiên giao giờ hành chính.' : ''),
             paymentMethod,
             paymentStatus: 'paid',
             payosOrderCode: paymentMethod === 'VNPAY' ? Number(`${Date.now()}${shopIndex}${index}`.slice(-10)) : null,
@@ -866,7 +865,7 @@ const createVouchers = async ({ customers, coupons, orders, shopRecords }) => {
 
     customers.forEach((customer, customerIndex) => {
         const customerOrders = orders.filter((order) => idKey(order.user) === idKey(customer));
-        for (let index = 0; index < 5; index += 1) {
+        for (let index = 0; index < 3; index += 1) {
             const coupon = coupons[(customerIndex * 3 + index) % coupons.length];
             const status = index === 1 ? VOUCHER_STATUS.USED : index === 3 ? VOUCHER_STATUS.EXPIRED : VOUCHER_STATUS.ACTIVE;
             payload.push({
@@ -918,14 +917,14 @@ const createWalletTransactionsFromOrders = async ({ orders, walletByUser, shopRe
                     category: 'order_income',
                     amount: income,
                     status: payoutCompleted ? 'success' : 'pending',
-                    description: `Doanh thu don ${order.orderNumber}`,
+                    description: `Doanh thu đơn ${order.orderNumber}`,
                     order: order._id,
                     balanceAfter: payoutCompleted ? balance : null,
                 });
                 embeddedTransactions.push({
                     type: 'deposit',
                     amount: income,
-                    description: `Ghi nhan doanh thu don ${order.orderNumber}`,
+                    description: `Ghi nhận doanh thu đơn ${order.orderNumber}`,
                     orderId: order._id,
                     orderNumber: order.orderNumber,
                     paymentMethod: order.paymentMethod,
@@ -942,7 +941,7 @@ const createWalletTransactionsFromOrders = async ({ orders, walletByUser, shopRe
                     category: 'refund',
                     amount: order.walletRefundedAmount,
                     status: 'success',
-                    description: `Hoan tien don huy ${order.orderNumber}`,
+                    description: `Hoàn tiền đơn hủy ${order.orderNumber}`,
                     order: order._id,
                     balanceAfter: balance,
                 });
@@ -961,7 +960,7 @@ const createWalletTransactionsFromOrders = async ({ orders, walletByUser, shopRe
             pushed.push({
                 type: 'payment',
                 amount: order.totalPrice,
-                description: `Thanh toan don ${order.orderNumber}`,
+                description: `Thanh toán đơn ${order.orderNumber}`,
                 orderId: order._id,
                 orderNumber: order.orderNumber,
                 paymentMethod: 'WALLET',
@@ -972,7 +971,7 @@ const createWalletTransactionsFromOrders = async ({ orders, walletByUser, shopRe
             pushed.push({
                 type: 'cancellation_refund',
                 amount: order.walletRefundedAmount,
-                description: `Hoan tien don huy ${order.orderNumber}`,
+                description: `Hoàn tiền đơn hủy ${order.orderNumber}`,
                 orderId: order._id,
                 orderNumber: order.orderNumber,
                 paymentMethod: order.paymentMethod,
@@ -1003,11 +1002,11 @@ const createReviews = async ({ orders, productsByShop, customers }) => {
             order: order._id,
             rating: 3 + (index % 3),
             content: index % 5 === 0
-                ? 'San pham dung mo ta, dong goi can than nhung thoi gian giao con co the cai thien.'
-                : 'Chat lieu dep, mau sac hop khong gian va shop tu van rat ky truoc khi giao.',
+                ? 'Sản phẩm đúng mô tả, đóng gói cẩn thận nhưng thời gian giao còn có thể cải thiện.'
+                : 'Chất liệu đẹp, màu sắc hợp không gian và shop tư vấn rất kỹ trước khi giao.',
             images: index % 4 === 0 ? [item.image].filter(Boolean) : [],
             vendorReply: index % 2 === 0
-                ? { content: 'Shop cam on anh/chi da danh gia, chung em se tiep tuc cai thien dich vu.', repliedAt: daysFromNow(-1) }
+                ? { content: 'Shop cảm ơn anh/chị đã đánh giá, chúng em sẽ tiếp tục cải thiện dịch vụ.', repliedAt: daysFromNow(-1) }
                 : { content: '', repliedAt: null },
             createdAt: daysFromNow(-20 + index),
         });
@@ -1023,8 +1022,8 @@ const createReviews = async ({ orders, productsByShop, customers }) => {
             targetId: shopId,
             shop: shopId,
             rating: 5,
-            content: 'Trai nghiem mua hang tot, shop phan hoi nhanh va co nhieu san pham de phoi dong bo.',
-            vendorReply: { content: 'Cam on anh/chi da tin tuong shop.', repliedAt: daysFromNow(-2) },
+            content: 'Trải nghiệm mua hàng tốt, shop phản hồi nhanh và có nhiều sản phẩm để phối đồng bộ.',
+            vendorReply: { content: 'Cảm ơn anh/chị đã tin tưởng shop.', repliedAt: daysFromNow(-2) },
             product: null,
             order: null,
         });
@@ -1036,7 +1035,7 @@ const createReviews = async ({ orders, productsByShop, customers }) => {
             product: product._id,
             shop: shopId,
             rating: 5,
-            content: 'San pham mau dep va ty le rat vua voi can ho.',
+            content: 'Sản phẩm mẫu đẹp và tỷ lệ rất vừa với căn hộ.',
             vendorReply: { content: '', repliedAt: null },
         });
     }
@@ -1119,7 +1118,7 @@ const createBlogs = async ({ shopRecords, productsByShop }) => {
                 shop: record.shop._id,
                 author: record.vendor._id,
                 title: `${blog.title} - ${record.shop.name}`,
-                excerpt: `Goi y thuc te tu ${record.shop.name} ve ${blog.tags.join(', ')}.`,
+                excerpt: `Gợi ý thực tế từ ${record.shop.name} về ${blog.tags.join(', ')}.`,
                 content: buildBlogContent(record.shop.name, blog.title, record.profile.accent),
                 coverImage: products[(index * 2) % products.length]?.images?.[0] || record.shop.banner,
                 category: blog.category,
@@ -1141,6 +1140,56 @@ const createBlogs = async ({ shopRecords, productsByShop }) => {
 
     return Blog.create(payload);
 };
+const createBlogComments = async (blogs, customers, vendors) => {
+    const topLevelComments = [];
+    const contents = [
+        'Bài viết rất chi tiết và hữu ích! Mình đang setup lại phòng khách và bài này giải quyết đúng vấn đề mình thắc mắc.',
+        'Cho mình hỏi thêm về chất liệu được nhắc đến trong bài, độ bền thực tế khoảng bao nhiêu năm vậy shop?',
+        'Cách phối màu này đẹp quá, lưu lại để mốt làm nhà áp dụng liền.',
+        'Mùa mưa ở Sài Gòn nhà mình hay bị ẩm, bài viết lưu ý đúng cái mình đang cần tìm cách khắc phục cho tủ kệ gỗ.',
+        'Shop cho mình hỏi bộ sưu tập mới này chừng nào có sẵn tại showroom để ghé xem thực tế ạ?'
+    ];
+
+    for (const [index, blog] of blogs.entries()) {
+        if (blog.status !== 'published') continue; 
+
+        const numComments = 2 + (index % 3); 
+
+        for (let j = 0; j < numComments; j++) {
+            const customer = customers[(index + j) % customers.length];
+            const content = contents[(index + j) % contents.length];
+            
+            const comment = await BlogComment.create({
+                blog: blog._id,
+                author: customer._id,
+                content: content,
+                parentComment: null, 
+                createdAt: daysFromNow(-10 + j), 
+            });
+            
+            topLevelComments.push({ comment, blog });
+        }
+    }
+
+    const replies = [];
+    for (const [index, parent] of topLevelComments.entries()) {
+        if (index % 2 === 0) { 
+            replies.push({
+                blog: parent.blog._id,
+                author: parent.blog.author,
+                content: 'Chào bạn, cảm ơn bạn đã quan tâm bài viết! Bên mình đã xử lý vật liệu kỹ càng nên bạn hoàn toàn yên tâm sử dụng nhé.',
+                parentComment: parent.comment._id,
+                createdAt: addDays(parent.comment.createdAt, 1), 
+            });
+        }
+    }
+
+    if (replies.length > 0) {
+        await BlogComment.create(replies);
+    }
+
+    return topLevelComments.length + replies.length;
+};
 
 const createNotifications = async ({ users, customers, shopRecords, orders, productsByShop, promotions, transactions }) => {
     const payload = [];
@@ -1148,10 +1197,8 @@ const createNotifications = async ({ users, customers, shopRecords, orders, prod
 
     users.filter((user) => user.role === 'admin').forEach((admin) => {
         payload.push(
-            { user: admin._id, type: 'system', title: 'Seed data da san sang', body: 'He thong co du 3 vendor, 5 customer va du lieu da trang thai.', isRead: false, link: '/admin/dashboard' },
-            { user: admin._id, type: 'promotion', title: 'Khuyen mai toan san dang chay', body: 'Mega Sale toan san 15% dang co luot su dung cao.', relatedId: promotions[0]._id, relatedModel: 'Promotion', isRead: false, link: '/admin/promotions' },
-            { user: admin._id, type: 'wallet', title: 'Giao dich payout moi', body: 'Co giao dich vendor dang cho doi soat.', relatedId: transactions[0]?._id || null, relatedModel: transactions[0] ? 'Transaction' : null, isRead: true, link: '/admin/transactions' },
-            { user: admin._id, type: 'system', title: 'Kiem tra shop moi', body: 'Tat ca shop trong seed dang o trang thai approved de test luong vendor.', isRead: true, link: '/admin/shops' },
+            { user: admin._id, type: 'promotion', title: 'Khuyến mãi toàn sàn đang chạy', body: 'Mega Sale toàn sàn 15% đang có lượt sử dụng cao.', relatedId: promotions[0]._id, relatedModel: 'Promotion', isRead: false, link: '/admin/promotions' },
+            { user: admin._id, type: 'wallet', title: 'Giao dịch payout mới', body: 'Có giao dịch vendor đang chờ đối soát.', relatedId: transactions[0]?._id || null, relatedModel: transactions[0] ? 'Transaction' : null, isRead: true, link: '/admin/transactions' },
         );
     });
 
@@ -1159,11 +1206,11 @@ const createNotifications = async ({ users, customers, shopRecords, orders, prod
         const products = productsByShop.get(idKey(record.shop));
         const shopOrders = latestOrders.filter((order) => idKey(order.shop) === idKey(record.shop));
         payload.push(
-            { user: record.vendor._id, type: 'order', title: 'Don hang moi can xu ly', body: `${record.shop.name} co don moi dang cho xac nhan.`, relatedId: shopOrders[0]?._id || null, relatedModel: shopOrders[0] ? 'Order' : null, isRead: false, link: '/vendor/orders' },
-            { user: record.vendor._id, type: 'stock', title: 'Canh bao ton kho', body: `${products.find((product) => product.quantity === 0)?.name || products[0].name} dang het hoac sap het hang.`, relatedId: products[0]._id, relatedModel: 'Product', isRead: false, link: '/vendor/products' },
-            { user: record.vendor._id, type: 'review', title: 'Danh gia moi tu khach hang', body: 'Khach vua gui danh gia san pham, hay phan hoi de tang uy tin shop.', isRead: index % 2 === 0, link: '/vendor/reviews' },
-            { user: record.vendor._id, type: 'wallet', title: 'Payout dang doi soat', body: 'Doanh thu don delivered da duoc ghi nhan vao vi vendor.', isRead: false, link: '/vendor/wallet' },
-            { user: record.vendor._id, type: 'promotion', title: 'Khuyen mai sap dien ra', body: 'Freeship noi thanh da duoc len lich cho shop.', relatedId: promotions.find((promo) => idKey(promo.shop) === idKey(record.shop) && promo.type === 'freeship')?._id || null, relatedModel: 'Promotion', isRead: true, link: '/vendor/promotions' },
+            { user: record.vendor._id, type: 'order', title: 'Đơn hàng mới cần xử lý', body: `${record.shop.name} có đơn mới đang chờ xác nhận.`, relatedId: shopOrders[0]?._id || null, relatedModel: shopOrders[0] ? 'Order' : null, isRead: false, link: '/vendor/orders' },
+            { user: record.vendor._id, type: 'stock', title: 'Cảnh báo tồn kho', body: `${products.find((product) => product.quantity === 0)?.name || products[0].name} đang hết hoặc sắp hết hàng.`, relatedId: products[0]._id, relatedModel: 'Product', isRead: false, link: '/vendor/products' },
+            { user: record.vendor._id, type: 'review', title: 'Đánh giá mới từ khách hàng', body: 'Khách vừa gửi đánh giá sản phẩm, hãy phản hồi để tăng uy tín shop.', isRead: index % 2 === 0, link: '/vendor/reviews' },
+            { user: record.vendor._id, type: 'wallet', title: 'Payout đang đối soát', body: 'Doanh thu đơn delivered đã được ghi nhận vào ví vendor.', isRead: false, link: '/vendor/wallet' },
+            { user: record.vendor._id, type: 'promotion', title: 'Khuyến mãi sắp diễn ra', body: 'Freeship nội thành đã được lên lịch cho shop.', relatedId: promotions.find((promo) => idKey(promo.shop) === idKey(record.shop) && promo.type === 'freeship')?._id || null, relatedModel: 'Promotion', isRead: true, link: '/vendor/promotions' },
         );
     });
 
@@ -1172,11 +1219,11 @@ const createNotifications = async ({ users, customers, shopRecords, orders, prod
         const paidOrder = customerOrders.find((order) => order.paymentStatus === 'paid') || customerOrders[0];
         const refundOrder = customerOrders.find((order) => order.walletRefundedAmount > 0);
         payload.push(
-            { user: customer._id, type: 'order', title: 'Dat hang thanh cong', body: `Don ${paidOrder?.orderNumber || ''} da duoc tao va dang xu ly.`, relatedId: paidOrder?._id || null, relatedModel: paidOrder ? 'Order' : null, isRead: false, link: paidOrder ? `/orders/${paidOrder._id}` : '/orders' },
-            { user: customer._id, type: 'order', title: 'Don hang cap nhat trang thai', body: 'Mot don hang cua ban vua duoc cap nhat trang thai giao hang.', relatedId: customerOrders[1]?._id || null, relatedModel: customerOrders[1] ? 'Order' : null, isRead: index % 2 === 0, link: customerOrders[1] ? `/orders/${customerOrders[1]._id}` : '/orders' },
-            { user: customer._id, type: 'wallet', title: refundOrder ? 'Hoan tien ve vi thanh cong' : 'Vi dien tu san sang', body: refundOrder ? `Don ${refundOrder.orderNumber} da duoc hoan ${refundOrder.walletRefundedAmount.toLocaleString('vi-VN')} VND.` : 'Ban co the dung vi dien tu de thanh toan don tiep theo.', relatedId: refundOrder?._id || null, relatedModel: refundOrder ? 'Order' : null, isRead: false, link: refundOrder ? `/orders/${refundOrder._id}` : '/profile' },
-            { user: customer._id, type: 'promotion', title: 'Voucher moi trong vi', body: 'Ban co voucher toan san va voucher rieng cua shop dang kha dung.', relatedId: promotions[index % promotions.length]._id, relatedModel: 'Promotion', isRead: true, link: '/vouchers' },
-            { user: customer._id, type: 'system', title: 'Cam on ban da mua sam tai Furni', body: 'Hay theo doi thong bao de cap nhat giao hang va khuyen mai moi.', isRead: true, link: '' },
+            { user: customer._id, type: 'order', title: 'Đặt hàng thành công', body: `Đơn ${paidOrder?.orderNumber || ''} đã được tạo và đang xử lý.`, relatedId: paidOrder?._id || null, relatedModel: paidOrder ? 'Order' : null, isRead: false, link: paidOrder ? `/orders/${paidOrder._id}` : '/orders' },
+            { user: customer._id, type: 'order', title: 'Đơn hàng cập nhật trạng thái', body: 'Một đơn hàng của bạn vừa được cập nhật trạng thái giao hàng.', relatedId: customerOrders[1]?._id || null, relatedModel: customerOrders[1] ? 'Order' : null, isRead: index % 2 === 0, link: customerOrders[1] ? `/orders/${customerOrders[1]._id}` : '/orders' },
+            { user: customer._id, type: 'wallet', title: refundOrder ? 'Hoàn tiền về ví thành công' : 'Ví điện tử sẵn sàng', body: refundOrder ? `Đơn ${refundOrder.orderNumber} đã được hoàn ${refundOrder.walletRefundedAmount.toLocaleString('vi-VN')} VND.` : 'Bạn có thể dùng ví điện tử để thanh toán đơn tiếp theo.', relatedId: refundOrder?._id || null, relatedModel: refundOrder ? 'Order' : null, isRead: false, link: refundOrder ? `/orders/${refundOrder._id}` : '/profile' },
+            { user: customer._id, type: 'promotion', title: 'Voucher mới trong ví', body: 'Bạn có voucher toàn sàn và voucher riêng của shop đang khả dụng.', relatedId: promotions[index % promotions.length]._id, relatedModel: 'Promotion', isRead: true, link: '/vouchers' },
+            { user: customer._id, type: 'system', title: 'Cảm ơn bạn đã mua sắm tại Furni', body: 'Hãy theo dõi thông báo để cập nhật giao hàng và khuyến mãi mới.', isRead: true, link: '' },
         );
     });
 
@@ -1201,6 +1248,7 @@ const clearDatabase = async () => {
         Blog.deleteMany({}),
         Address.deleteMany({}),
         ShippingRate.deleteMany({}),
+        BlogComment.deleteMany({}),
     ]);
 
     await mongoose.connection.collection('ordercounters').deleteMany({}).catch(() => {});
@@ -1289,6 +1337,9 @@ const seed = async () => {
 
     const blogs = await createBlogs({ shopRecords, productsByShop });
     console.log(`Created ${blogs.length} long blog posts`);
+
+    const totalComments = await createBlogComments(blogs, customers, vendors);
+    console.log(`Created ${totalComments} comments and replies for blogs`);
 
     const notifications = await createNotifications({
         users,
