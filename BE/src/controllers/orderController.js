@@ -52,6 +52,18 @@ const getShopShippingProvider = (shippingProvider, shopId) => {
     return shippingProvider[shopId.toString()] || null;
 };
 
+const decrementPurchasedStock = async (item) => {
+    if (item.variantId) {
+        await Product.updateOne(
+            { _id: item.product, 'variants._id': item.variantId },
+            { $inc: { 'variants.$.stock': -item.quantity, quantity: -item.quantity, sold: item.quantity } }
+        );
+        return;
+    }
+
+    await Product.findByIdAndUpdate(item.product, { $inc: { quantity: -item.quantity, sold: item.quantity } });
+};
+
 const isPlatformPromotion = (promotion) => promotion && !promotion.shop;
 
 const calcProductPlatformDiscount = (items = []) =>
@@ -238,7 +250,7 @@ const createOrder = async (req, res) => {
         const productMap = {};
         const productList = [];
         for (const item of checkoutItems) {
-            const product = await Product.findById(item.product).populate('shop', 'name code status isActive commissionRate');
+            const product = await Product.findById(item.product).select('+variants').populate('shop', 'name code status isActive commissionRate');
             if (!product) {
                 return res.status(400).json({
                     success: false,
@@ -253,7 +265,17 @@ const createOrder = async (req, res) => {
                         : `Sản phẩm "${product.name}" hiện chưa thể mua!`
                 });
             }
-            const availableStock = item.variantStock ?? product.quantity;
+            const selectedVariant = item.variantId
+                ? product.variants?.find((variant) => variant._id?.toString() === item.variantId.toString())
+                : null;
+            if (item.variantId && !selectedVariant) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Biến thể đã chọn của sản phẩm "${product.name}" không hợp lệ!`
+                });
+            }
+
+            const availableStock = selectedVariant?.stock ?? item.variantStock ?? product.quantity;
             if (availableStock < item.quantity) {
                 return res.status(400).json({
                     success: false,
@@ -261,7 +283,7 @@ const createOrder = async (req, res) => {
                 });
             }
             productList.push(product);
-            productMap[item.product.toString()] = { product, item };
+            productMap[item.product.toString()] = { product, item, selectedVariant };
         }
 
         // Gắn pricing (discountPercent từ promotion đang chạy) trước khi tạo order
@@ -273,6 +295,9 @@ const createOrder = async (req, res) => {
         for (const item of checkoutItems) {
             const { product } = productMap[item.product.toString()];
             const pricedProduct = pricedProductMap[item.product.toString()];
+            const variant = item.variantId
+                ? pricedProduct?.variants?.find((v) => v._id?.toString() === item.variantId.toString())
+                : null;
             const shopId = product.shop?._id?.toString() || 'no-shop';
 
             if (!shopGroups[shopId]) {
@@ -288,13 +313,13 @@ const createOrder = async (req, res) => {
             }
 
             // Dùng discountPercent từ attachPricing (từ promotion), fallback về discount field thủ công
-            const productDiscount = item.discount ?? pricedProduct.discountPercent ?? pricedProduct.discount ?? 0;
+            const productDiscount = variant?.discountPercent ?? pricedProduct.discountPercent ?? item.discount ?? pricedProduct.discount ?? 0;
             // originalPrice = giá gốc (chưa sale), salePrice = giá sau giảm
-            const originalPrice = item.originalPrice ?? item.variantPrice ?? pricedProduct.originalPrice ?? product.price;
-            const salePrice = item.price ?? pricedProduct.salePrice ?? (productDiscount > 0
+            const originalPrice = item.originalPrice ?? item.variantPrice ?? variant?.originalPrice ?? variant?.price ?? pricedProduct.originalPrice ?? product.price;
+            const salePrice = item.price ?? variant?.salePrice ?? pricedProduct.salePrice ?? (productDiscount > 0
                 ? Math.round(originalPrice * (1 - productDiscount / 100))
                 : originalPrice);
-            const promotion = item.promotion || pricedProduct.promotion || null;
+            const promotion = item.promotion || variant?.promotion || pricedProduct.promotion || null;
 
             shopGroups[shopId].items.push({
                 product: item.product,
@@ -306,15 +331,18 @@ const createOrder = async (req, res) => {
                 originalPrice: originalPrice,
                 discount: productDiscount,
                 promotionSponsor: isPlatformPromotion(promotion) ? 'platform' : (promotion ? 'shop' : null),
-                variant: item.variant || null,
-                variantId: item.variantId || null,
-                variantSku: item.variantSku || null,
-                variantSize: item.variantSize || null,
+                variant: item.variant || variant?.name || null,
+                variantId: item.variantId || variant?._id || null,
+                variantSku: item.variantSku || variant?.sku || null,
+                variantSize: item.variantSize || variant?.size || null,
+                variantColor: item.variantColor || variant?.color || null,
+                variantMaterial: item.variantMaterial || variant?.material || null,
+                variantStyle: item.variantStyle || variant?.style || null,
+                variantDimensions: item.variantDimensions || variant?.dimensions || null,
+                variantWeight: item.variantWeight ?? variant?.weight ?? 0,
+                variantDescription: item.variantDescription || variant?.description || null,
                 name: product.name,
                 image: getProductImage(product),
-                ...(item.variantId ? { variantId: item.variantId } : {}),
-                image: getProductImage(product),
-                ...(item.variantId ? { variantId: item.variantId } : {}),
             });
             shopGroups[shopId].subtotal += salePrice * item.quantity;
             shopGroups[shopId].totalQuantity += item.quantity;
@@ -585,7 +613,7 @@ const createOrder = async (req, res) => {
 
                 // Trừ tồn kho
                 for (const item of group.items) {
-                    await Product.findByIdAndUpdate(item.product, { $inc: { quantity: -item.quantity, sold: item.quantity } });
+                    await decrementPurchasedStock(item);
                 }
 
                 // Trừ tiền từ ví
@@ -721,12 +749,7 @@ const createOrder = async (req, res) => {
 
             // Trừ tồn kho cho sản phẩm của shop này
             for (const item of group.items) {
-                await Product.findByIdAndUpdate(item.product, {
-                    $inc: {
-                        quantity: -item.quantity,
-                        sold: item.quantity
-                    }
-                });
+                await decrementPurchasedStock(item);
             }
 
             await order.save();

@@ -150,6 +150,23 @@ const getPayOSInstance = () => {
     return payosInstance;
 };
 
+const decrementPurchasedStock = async (item) => {
+    if (item.variantId) {
+        await Product.updateOne(
+            { _id: item.product, 'variants._id': item.variantId },
+            { $inc: { 'variants.$.stock': -item.quantity, quantity: -item.quantity, sold: item.quantity } }
+        );
+        return;
+    }
+
+    await Product.findByIdAndUpdate(item.product, {
+        $inc: {
+            quantity: -item.quantity,
+            sold: item.quantity
+        }
+    });
+};
+
 const markPayOSOrderPaid = async (order) => {
     if (order.paymentStatus === 'paid') return order;
 
@@ -162,13 +179,12 @@ const markPayOSOrderPaid = async (order) => {
 
     for (const item of order.products) {
         const product = products.find(p => p._id.toString() === item.product.toString());
-        if (product && product.quantity >= item.quantity) {
-            await Product.findByIdAndUpdate(item.product, {
-                $inc: {
-                    quantity: -item.quantity,
-                    sold: item.quantity
-                }
-            });
+        const variant = item.variantId
+            ? product?.variants?.find((v) => v._id?.toString() === item.variantId.toString())
+            : null;
+        const availableStock = variant?.stock ?? product?.quantity ?? 0;
+        if (product && availableStock >= item.quantity) {
+            await decrementPurchasedStock(item);
         }
     }
 
@@ -454,7 +470,17 @@ const createPayOSPaymentWithCart = async (req, res) => {
                         : `Sản phẩm "${product.name}" hiện chưa thể mua!`
                 });
             }
-            const availableStock = item.variantStock ?? product.quantity;
+            const selectedVariant = item.variantId
+                ? product.variants?.find((variant) => variant._id?.toString() === item.variantId.toString())
+                : null;
+            if (item.variantId && !selectedVariant) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Biến thể đã chọn của sản phẩm "${product.name}" không hợp lệ!`
+                });
+            }
+
+            const availableStock = selectedVariant?.stock ?? item.variantStock ?? product.quantity;
             if (availableStock < item.quantity) {
                 return res.status(400).json({
                     success: false,
